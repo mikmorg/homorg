@@ -2,6 +2,7 @@ pub mod api;
 pub mod auth;
 pub mod commands;
 pub mod config;
+pub mod constants;
 pub mod db;
 pub mod errors;
 pub mod events;

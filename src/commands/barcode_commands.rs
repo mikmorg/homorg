@@ -115,7 +115,7 @@ impl BarcodeCommands {
 }
 
 /// Heuristic classification of commercial barcodes.
-fn classify_commercial_code(code: &str) -> Option<&'static str> {
+pub(crate) fn classify_commercial_code(code: &str) -> Option<&'static str> {
     let digits_only = code.chars().all(|c| c.is_ascii_digit());
     if !digits_only {
         return None;
@@ -128,5 +128,50 @@ fn classify_commercial_code(code: &str) -> Option<&'static str> {
         14 => Some("GTIN"),
         8 => Some("EAN8"),
         _ => Some("BARCODE"),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn classify_upc_12_digits() {
+        assert_eq!(classify_commercial_code("012345678901"), Some("UPC"));
+    }
+
+    #[test]
+    fn classify_ean_13_digits() {
+        assert_eq!(classify_commercial_code("0123456789012"), Some("EAN"));
+    }
+
+    #[test]
+    fn classify_isbn_10_digits() {
+        assert_eq!(classify_commercial_code("0123456789"), Some("ISBN"));
+    }
+
+    #[test]
+    fn classify_isbn_13_prefix_978() {
+        assert_eq!(classify_commercial_code("97812345678901"), Some("ISBN"));
+    }
+
+    #[test]
+    fn classify_ean8() {
+        assert_eq!(classify_commercial_code("01234567"), Some("EAN8"));
+    }
+
+    #[test]
+    fn classify_gtin_14_digits() {
+        assert_eq!(classify_commercial_code("01234567890123"), Some("GTIN"));
+    }
+
+    #[test]
+    fn classify_non_digit_returns_none() {
+        assert_eq!(classify_commercial_code("ABC-12345"), None);
+    }
+
+    #[test]
+    fn classify_unknown_length_returns_barcode() {
+        assert_eq!(classify_commercial_code("12345"), Some("BARCODE"));
     }
 }

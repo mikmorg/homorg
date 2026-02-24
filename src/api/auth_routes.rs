@@ -13,6 +13,7 @@ use crate::auth::jwt::{
 };
 use crate::auth::middleware::AuthUser;
 use crate::auth::password::{hash_password, verify_password};
+use crate::constants::{PASSWORD_MAX_LEN, PASSWORD_MIN_LEN, USERS_ID};
 use crate::errors::{AppError, AppResult};
 use crate::models::event::EventMetadata;
 use crate::models::item::CreateItemRequest;
@@ -28,6 +29,38 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/me", get(me))
         .route("/invite", post(create_invite))
         .route("/register", post(register))
+}
+
+/// Build a [`CreateItemRequest`] for a new user's personal container.
+fn build_user_container_request(username: &str, display_name: Option<&str>) -> CreateItemRequest {
+    let container_barcode = format!("USR-{}", username.to_uppercase());
+    let label = display_name.unwrap_or(username);
+    CreateItemRequest {
+        system_barcode: Some(container_barcode),
+        parent_id: USERS_ID,
+        name: Some(format!("{label}'s Items")),
+        description: None,
+        category: None,
+        tags: None,
+        is_container: Some(true),
+        coordinate: None,
+        location_schema: None,
+        max_capacity_cc: None,
+        max_weight_grams: None,
+        dimensions: None,
+        weight_grams: None,
+        is_fungible: None,
+        fungible_quantity: None,
+        fungible_unit: None,
+        external_codes: None,
+        condition: None,
+        acquisition_date: None,
+        acquisition_cost: None,
+        current_value: None,
+        depreciation_rate: None,
+        warranty_expiry: None,
+        metadata: None,
+    }
 }
 
 /// First-time setup: create admin account. Fails if any user exists.
@@ -51,7 +84,7 @@ async fn setup(
         return Err(AppError::Conflict("Setup already completed".into()));
     }
 
-    if req.username.is_empty() || req.password.len() < 8 || req.password.len() > 128 {
+    if req.username.is_empty() || req.password.len() < PASSWORD_MIN_LEN || req.password.len() > PASSWORD_MAX_LEN {
         return Err(AppError::BadRequest(
             "Username required and password must be 8–128 characters".into(),
         ));
@@ -76,38 +109,8 @@ async fn setup(
     .await?;
 
     // Create user's ephemeral container via event store (survives rebuild_all)
-    let container_barcode = format!("USR-{}", req.username.to_uppercase());
     let container_id = Uuid::new_v4();
-
-    // Well-known Users container UUID
-    let users_container_id = Uuid::parse_str("00000000-0000-0000-0000-000000000002").unwrap();
-
-    let create_req = CreateItemRequest {
-        system_barcode: Some(container_barcode),
-        parent_id: users_container_id,
-        name: Some(format!("{}'s Items", req.display_name.as_deref().unwrap_or(&req.username))),
-        description: None,
-        category: None,
-        tags: None,
-        is_container: Some(true),
-        coordinate: None,
-        location_schema: None,
-        max_capacity_cc: None,
-        max_weight_grams: None,
-        dimensions: None,
-        weight_grams: None,
-        is_fungible: None,
-        fungible_quantity: None,
-        fungible_unit: None,
-        external_codes: None,
-        condition: None,
-        acquisition_date: None,
-        acquisition_cost: None,
-        current_value: None,
-        depreciation_rate: None,
-        warranty_expiry: None,
-        metadata: None,
-    };
+    let create_req = build_user_container_request(&req.username, req.display_name.as_deref());
 
     let evt_metadata = EventMetadata::default();
     state.item_commands.create_item_in_tx(&mut tx, container_id, &create_req, user_id, &evt_metadata).await?;
@@ -345,7 +348,7 @@ async fn register(
     State(state): State<Arc<AppState>>,
     Json(req): Json<RegisterRequest>,
 ) -> AppResult<(StatusCode, Json<AuthResponse>)> {
-    if req.username.is_empty() || req.password.len() < 8 || req.password.len() > 128 {
+    if req.username.is_empty() || req.password.len() < PASSWORD_MIN_LEN || req.password.len() > PASSWORD_MAX_LEN {
         return Err(AppError::BadRequest(
             "Username required and password must be 8–128 characters".into(),
         ));
@@ -397,37 +400,8 @@ async fn register(
         .await?;
 
     // Create user's ephemeral container via event store (survives rebuild_all)
-    let container_barcode = format!("USR-{}", req.username.to_uppercase());
     let container_id = Uuid::new_v4();
-
-    let users_container_id = Uuid::parse_str("00000000-0000-0000-0000-000000000002").unwrap();
-
-    let create_req = CreateItemRequest {
-        system_barcode: Some(container_barcode),
-        parent_id: users_container_id,
-        name: Some(format!("{}'s Items", req.display_name.as_deref().unwrap_or(&req.username))),
-        description: None,
-        category: None,
-        tags: None,
-        is_container: Some(true),
-        coordinate: None,
-        location_schema: None,
-        max_capacity_cc: None,
-        max_weight_grams: None,
-        dimensions: None,
-        weight_grams: None,
-        is_fungible: None,
-        fungible_quantity: None,
-        fungible_unit: None,
-        external_codes: None,
-        condition: None,
-        acquisition_date: None,
-        acquisition_cost: None,
-        current_value: None,
-        depreciation_rate: None,
-        warranty_expiry: None,
-        metadata: None,
-    };
+    let create_req = build_user_container_request(&req.username, req.display_name.as_deref());
 
     let evt_metadata = EventMetadata::default();
     state.item_commands.create_item(container_id, &create_req, user_id, &evt_metadata).await?;

@@ -3,7 +3,8 @@ use uuid::Uuid;
 
 use crate::errors::{AppError, AppResult};
 use crate::models::event::StoredEvent;
-use crate::models::item::{AncestorEntry, Item, ItemDetail};
+use crate::models::item::{Item, ItemDetail};
+use crate::queries::common::resolve_ancestors;
 
 /// Read-side query handler for items.
 #[derive(Clone)]
@@ -26,7 +27,7 @@ impl ItemQueries {
         .await?
         .ok_or_else(|| AppError::NotFound(format!("Item {id} not found")))?;
 
-        let ancestors = self.resolve_ancestors(&item.container_path).await?;
+        let ancestors = resolve_ancestors(&self.pool, &item.container_path).await?;
 
         Ok(ItemDetail { item, ancestors })
     }
@@ -41,7 +42,7 @@ impl ItemQueries {
         .await?
         .ok_or_else(|| AppError::NotFound(format!("Item with barcode {barcode} not found")))?;
 
-        let ancestors = self.resolve_ancestors(&item.container_path).await?;
+        let ancestors = resolve_ancestors(&self.pool, &item.container_path).await?;
 
         Ok(ItemDetail { item, ancestors })
     }
@@ -69,47 +70,5 @@ impl ItemQueries {
         .fetch_all(&self.pool)
         .await?;
         Ok(rows)
-    }
-
-    /// Resolve ancestor breadcrumbs from an LTREE path string.
-    /// Uses a single batch query instead of N+1 per-label queries.
-    async fn resolve_ancestors(
-        &self,
-        path: &Option<String>,
-    ) -> AppResult<Vec<AncestorEntry>> {
-        let path_str = match path {
-            Some(p) => p,
-            None => return Ok(vec![]),
-        };
-
-        let labels: Vec<&str> = path_str.split('.').collect();
-        let labels_owned: Vec<String> = labels.iter().map(|s| s.to_string()).collect();
-
-        // Single batch query for all ancestor node_ids
-        let rows = sqlx::query_as::<_, (Uuid, String, Option<String>, String)>(
-            "SELECT id, system_barcode, name, node_id FROM items WHERE node_id = ANY($1)",
-        )
-        .bind(&labels_owned)
-        .fetch_all(&self.pool)
-        .await?;
-
-        // Build lookup map and reorder by path position
-        let lookup: std::collections::HashMap<&str, &(Uuid, String, Option<String>, String)> =
-            rows.iter().map(|r| (r.3.as_str(), r)).collect();
-
-        let mut ancestors = Vec::with_capacity(labels.len());
-        for (depth, label) in labels.iter().enumerate() {
-            if let Some((id, barcode, name, node_id)) = lookup.get(label) {
-                ancestors.push(AncestorEntry {
-                    id: *id,
-                    system_barcode: barcode.clone(),
-                    name: name.clone(),
-                    node_id: node_id.clone(),
-                    depth,
-                });
-            }
-        }
-
-        Ok(ancestors)
     }
 }

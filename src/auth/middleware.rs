@@ -5,6 +5,7 @@ use axum::{
 use std::sync::Arc;
 
 use crate::auth::jwt::{decode_access_token, Claims};
+use crate::constants::Role;
 use crate::errors::AppError;
 
 /// Extracted from request: authenticated user info.
@@ -17,22 +18,13 @@ pub struct AuthUser {
 impl AuthUser {
     /// Check if user has at least the given role level.
     pub fn require_role(&self, minimum: &str) -> Result<(), AppError> {
-        let level = role_level(&self.role);
-        let required = role_level(minimum);
+        let level = Role::from_str_lossy(&self.role).level();
+        let required = Role::from_str_lossy(minimum).level();
         if level >= required {
             Ok(())
         } else {
             Err(AppError::Forbidden)
         }
-    }
-}
-
-fn role_level(role: &str) -> u8 {
-    match role {
-        "admin" => 3,
-        "member" => 2,
-        "readonly" => 1,
-        _ => 0,
     }
 }
 
@@ -64,5 +56,50 @@ impl FromRequestParts<Arc<crate::AppState>> for AuthUser {
                 role: claims.role,
             })
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn user(role: &str) -> AuthUser {
+        AuthUser {
+            user_id: uuid::Uuid::nil(),
+            role: role.to_string(),
+        }
+    }
+
+    #[test]
+    fn admin_can_access_admin_route() {
+        assert!(user("admin").require_role("admin").is_ok());
+    }
+
+    #[test]
+    fn admin_can_access_member_route() {
+        assert!(user("admin").require_role("member").is_ok());
+    }
+
+    #[test]
+    fn member_cannot_access_admin_route() {
+        assert!(user("member").require_role("admin").is_err());
+    }
+
+    #[test]
+    fn member_can_access_readonly_route() {
+        assert!(user("member").require_role("readonly").is_ok());
+    }
+
+    #[test]
+    fn readonly_cannot_access_member_route() {
+        assert!(user("readonly").require_role("member").is_err());
+    }
+
+    #[test]
+    fn unknown_role_treated_as_readonly() {
+        // unknown role should be able to access readonly routes
+        assert!(user("guest").require_role("readonly").is_ok());
+        // but not member routes
+        assert!(user("guest").require_role("member").is_err());
     }
 }

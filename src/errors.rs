@@ -128,3 +128,59 @@ impl IntoResponse for AppError {
 }
 
 pub type AppResult<T> = Result<T, AppError>;
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use axum::response::IntoResponse;
+
+    fn status_of(err: AppError) -> StatusCode {
+        err.into_response().status()
+    }
+
+    #[test]
+    fn not_found_returns_404() {
+        assert_eq!(status_of(AppError::NotFound("x".into())), StatusCode::NOT_FOUND);
+    }
+
+    #[test]
+    fn conflict_returns_409() {
+        assert_eq!(status_of(AppError::Conflict("x".into())), StatusCode::CONFLICT);
+    }
+
+    #[test]
+    fn validation_returns_422() {
+        assert_eq!(
+            status_of(AppError::Validation(vec![FieldError {
+                field: "name".into(),
+                message: "required".into(),
+            }])),
+            StatusCode::UNPROCESSABLE_ENTITY,
+        );
+    }
+
+    #[test]
+    fn unauthorized_returns_401() {
+        assert_eq!(status_of(AppError::Unauthorized), StatusCode::UNAUTHORIZED);
+    }
+
+    #[test]
+    fn forbidden_returns_403() {
+        assert_eq!(status_of(AppError::Forbidden), StatusCode::FORBIDDEN);
+    }
+
+    #[test]
+    fn bad_request_returns_400() {
+        assert_eq!(status_of(AppError::BadRequest("x".into())), StatusCode::BAD_REQUEST);
+    }
+
+    #[test]
+    fn storage_returns_500() {
+        assert_eq!(status_of(AppError::Storage("x".into())), StatusCode::INTERNAL_SERVER_ERROR);
+    }
+
+    #[test]
+    fn internal_returns_500() {
+        assert_eq!(status_of(AppError::Internal("x".into())), StatusCode::INTERNAL_SERVER_ERROR);
+    }
+}

@@ -2,7 +2,8 @@ use sqlx::PgPool;
 use uuid::Uuid;
 
 use crate::errors::{AppError, AppResult};
-use crate::models::item::{AncestorEntry, ContainerStats, ItemSummary};
+use crate::models::item::{ContainerStats, ItemSummary};
+use crate::queries::common::resolve_ancestors;
 
 /// Read-side query handler for container operations.
 #[derive(Clone)]
@@ -139,7 +140,7 @@ impl ContainerQueries {
     }
 
     /// Get ancestor breadcrumb path for a container.
-    pub async fn get_ancestors(&self, container_id: Uuid) -> AppResult<Vec<AncestorEntry>> {
+    pub async fn get_ancestors(&self, container_id: Uuid) -> AppResult<Vec<crate::models::item::AncestorEntry>> {
         let path: Option<String> = sqlx::query_scalar(
             "SELECT container_path::text FROM items WHERE id = $1 AND is_deleted = FALSE",
         )
@@ -148,40 +149,7 @@ impl ContainerQueries {
         .await?
         .ok_or_else(|| AppError::NotFound(format!("Item {container_id} not found")))?;
 
-        let path_str = match path {
-            Some(p) => p,
-            None => return Ok(vec![]),
-        };
-
-        let labels: Vec<&str> = path_str.split('.').collect();
-        let labels_owned: Vec<String> = labels.iter().map(|s| s.to_string()).collect();
-
-        // Single batch query for all ancestor node_ids
-        let rows = sqlx::query_as::<_, (Uuid, String, Option<String>, String)>(
-            "SELECT id, system_barcode, name, node_id FROM items WHERE node_id = ANY($1)",
-        )
-        .bind(&labels_owned)
-        .fetch_all(&self.pool)
-        .await?;
-
-        // Build lookup map and reorder by path position
-        let lookup: std::collections::HashMap<&str, &(Uuid, String, Option<String>, String)> =
-            rows.iter().map(|r| (r.3.as_str(), r)).collect();
-
-        let mut ancestors = Vec::with_capacity(labels.len());
-        for (depth, label) in labels.iter().enumerate() {
-            if let Some((id, barcode, name, node_id)) = lookup.get(label) {
-                ancestors.push(AncestorEntry {
-                    id: *id,
-                    system_barcode: barcode.clone(),
-                    name: name.clone(),
-                    node_id: node_id.clone(),
-                    depth,
-                });
-            }
-        }
-
-        Ok(ancestors)
+        resolve_ancestors(&self.pool, &path).await
     }
 
     /// Get container statistics.

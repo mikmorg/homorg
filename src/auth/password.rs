@@ -23,3 +23,27 @@ pub fn verify_password(password: &str, hash: &str) -> AppResult<bool> {
         .verify_password(password.as_bytes(), &parsed_hash)
         .is_ok())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn hash_and_verify_correct_password() {
+        let hash = hash_password("mypassword123").unwrap();
+        assert!(verify_password("mypassword123", &hash).unwrap());
+    }
+
+    #[test]
+    fn verify_rejects_wrong_password() {
+        let hash = hash_password("correct-password").unwrap();
+        assert!(!verify_password("wrong-password", &hash).unwrap());
+    }
+
+    #[test]
+    fn hash_uses_unique_salt_each_time() {
+        let h1 = hash_password("same-password").unwrap();
+        let h2 = hash_password("same-password").unwrap();
+        assert_ne!(h1, h2); // different salts → different hashes
+    }
+}

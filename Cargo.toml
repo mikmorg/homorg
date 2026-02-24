@@ -52,6 +52,9 @@ hex = "0.4"
 async-trait = "0.1"
 rust_decimal = { version = "1", features = ["serde-with-str"] }
 
+[dev-dependencies]
+tokio = { version = "1", features = ["test-util", "macros", "rt"] }
+
 [profile.release]
 opt-level = 3
 lto = true

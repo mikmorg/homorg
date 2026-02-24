@@ -534,11 +534,62 @@ impl ItemCommands {
 }
 
 /// Derive an immutable, LTREE-safe node ID from an item's UUID.
-/// Produces labels like `n_4a8b3c1d2e3f` — first 12 hex chars of the UUID prefixed with `n_`.
-/// 12 hex chars = 48 bits of entropy → birthday collision at ~1% requires ~16 million items,
-/// well beyond household scale. LTREE labels must match `[A-Za-z_][A-Za-z0-9_]*`, so the
-/// `n_` prefix ensures the label never starts with a digit. The UNIQUE constraint on
-/// `node_id` catches any collision at INSERT time.
+/// Produces labels like `n_4a8b3c1d2e3f` — first NODE_ID_HEX_LEN hex chars of the UUID
+/// prefixed with `n_`. 12 hex chars = 48 bits of entropy → birthday collision at ~1%
+/// requires ~16 million items, well beyond household scale. LTREE labels must match
+/// `[A-Za-z_][A-Za-z0-9_]*`, so the `n_` prefix ensures the label never starts with a digit.
+/// The UNIQUE constraint on `node_id` catches any collision at INSERT time.
 pub fn uuid_to_node_id(id: &Uuid) -> String {
-    format!("n_{}", &id.simple().to_string()[..12])
+    use crate::constants::NODE_ID_HEX_LEN;
+    format!("n_{}", &id.simple().to_string()[..NODE_ID_HEX_LEN])
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn node_id_starts_with_n_prefix() {
+        let id = Uuid::new_v4();
+        let node = uuid_to_node_id(&id);
+        assert!(node.starts_with("n_"));
+    }
+
+    #[test]
+    fn node_id_has_correct_length() {
+        use crate::constants::NODE_ID_HEX_LEN;
+        let id = Uuid::new_v4();
+        let node = uuid_to_node_id(&id);
+        // "n_" (2 chars) + NODE_ID_HEX_LEN hex chars
+        assert_eq!(node.len(), 2 + NODE_ID_HEX_LEN);
+    }
+
+    #[test]
+    fn node_id_is_deterministic() {
+        let id = Uuid::new_v4();
+        assert_eq!(uuid_to_node_id(&id), uuid_to_node_id(&id));
+    }
+
+    #[test]
+    fn different_uuids_produce_different_node_ids() {
+        let a = uuid_to_node_id(&Uuid::new_v4());
+        let b = uuid_to_node_id(&Uuid::new_v4());
+        assert_ne!(a, b);
+    }
+
+    #[test]
+    fn node_id_is_ltree_safe() {
+        let id = Uuid::new_v4();
+        let node = uuid_to_node_id(&id);
+        // LTREE labels: first char must be letter or underscore, rest alphanumeric or underscore
+        let mut chars = node.chars();
+        let first = chars.next().unwrap();
+        assert!(first.is_ascii_alphabetic() || first == '_');
+        for c in chars {
+            assert!(
+                c.is_ascii_alphanumeric() || c == '_',
+                "invalid ltree char: {c}"
+            );
+        }
+    }
 }

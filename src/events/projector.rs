@@ -1,6 +1,7 @@
 use sqlx::PgPool;
 use uuid::Uuid;
 
+use crate::constants::{ROOT_ID, USERS_ID};
 use crate::errors::{AppError, AppResult};
 use crate::models::event::*;
 
@@ -419,7 +420,9 @@ impl Projector {
         let mut tx = pool.begin().await?;
 
         // Delete all non-seed items; seed rows will be re-inserted via ON CONFLICT below
-        sqlx::query("DELETE FROM items WHERE id NOT IN ('00000000-0000-0000-0000-000000000001'::uuid, '00000000-0000-0000-0000-000000000002'::uuid)")
+        sqlx::query("DELETE FROM items WHERE id NOT IN ($1, $2)")
+            .bind(ROOT_ID)
+            .bind(USERS_ID)
             .execute(&mut *tx)
             .await?;
 

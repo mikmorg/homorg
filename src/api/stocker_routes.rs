@@ -244,7 +244,8 @@ struct BatchQueryParams {
     atomic: Option<bool>,
 }
 
-/// Process a single batch event.
+/// Process a single batch event (best-effort mode).
+/// Wraps a mini-transaction around `process_batch_event_in_tx`.
 async fn process_batch_event(
     state: &Arc<AppState>,
     actor_id: Uuid,
@@ -253,141 +254,19 @@ async fn process_batch_event(
     active_container_id: &mut Option<Uuid>,
     index: usize,
 ) -> AppResult<StockerBatchResult> {
-    match event {
-        StockerBatchEvent::SetContext { barcode, .. } => {
-            // Resolve the barcode to a container
-            let container = sqlx::query_as::<_, (Uuid, bool)>(
-                "SELECT id, is_container FROM items WHERE system_barcode = $1 AND is_deleted = FALSE",
-            )
-            .bind(barcode)
-            .fetch_optional(&state.pool)
-            .await?
-            .ok_or_else(|| AppError::NotFound(format!("Container barcode {barcode} not found")))?;
-
-            if !container.1 {
-                return Err(AppError::BadRequest(format!(
-                    "Barcode {barcode} is not a container"
-                )));
-            }
-
-            *active_container_id = Some(container.0);
-
-            Ok(StockerBatchResult::ContextSet {
-                index,
-                status: "ok".into(),
-                context_set: barcode.clone(),
-            })
-        }
-        StockerBatchEvent::MoveItem {
-            barcode,
-            coordinate,
-            ..
-        } => {
-            let container_id = active_container_id.ok_or_else(|| {
-                AppError::BadRequest("No active container set. Send set_context first.".into())
-            })?;
-
-            // Resolve the item barcode
-            let item_id: Uuid = sqlx::query_scalar(
-                "SELECT id FROM items WHERE system_barcode = $1 AND is_deleted = FALSE",
-            )
-            .bind(barcode)
-            .fetch_optional(&state.pool)
-            .await?
-            .ok_or_else(|| AppError::NotFound(format!("Item {barcode} not found")))?;
-
-            let move_req = MoveItemRequest {
-                container_id,
-                coordinate: coordinate.clone(),
-            };
-
-            let stored = state
-                .item_commands
-                .move_item(item_id, &move_req, actor_id, metadata)
-                .await?;
-
-            Ok(StockerBatchResult::Moved {
-                index,
-                status: "ok".into(),
-                event_id: stored.event_id,
-            })
-        }
-        StockerBatchEvent::CreateAndPlace {
-            barcode,
-            name,
-            description,
-            category,
-            tags,
-            is_container,
-            coordinate,
-            condition,
-            metadata: item_metadata,
-            ..
-        } => {
-            let container_id = active_container_id.ok_or_else(|| {
-                AppError::BadRequest("No active container set. Send set_context first.".into())
-            })?;
-
-            let item_id = Uuid::new_v4();
-
-            // If barcode is empty or not provided as a system barcode, generate one
-            let system_barcode = if barcode.is_empty() {
-                state.barcode_commands.generate_barcode().await?.barcode
-            } else {
-                // Check if this looks like a system barcode
-                let prefix = format!("{}-", state.config.barcode_prefix);
-                if barcode.starts_with(&prefix) {
-                    barcode.clone()
-                } else {
-                    // Generate a system barcode, and treat the scanned one as an external code
-                    state.barcode_commands.generate_barcode().await?.barcode
-                }
-            };
-
-            let create_req = CreateItemRequest {
-                system_barcode: Some(system_barcode),
-                parent_id: container_id,
-                name: name.clone(),
-                description: description.clone(),
-                category: category.clone(),
-                tags: tags.clone(),
-                is_container: *is_container,
-                coordinate: coordinate.clone(),
-                location_schema: None,
-                max_capacity_cc: None,
-                max_weight_grams: None,
-                dimensions: None,
-                weight_grams: None,
-                is_fungible: None,
-                fungible_quantity: None,
-                fungible_unit: None,
-                external_codes: None,
-                condition: condition.clone(),
-                acquisition_date: None,
-                acquisition_cost: None,
-                current_value: None,
-                depreciation_rate: None,
-                warranty_expiry: None,
-                metadata: item_metadata.clone(),
-            };
-
-            let stored = state
-                .item_commands
-                .create_item(item_id, &create_req, actor_id, metadata)
-                .await?;
-
-            // Check if name is minimal / needs more detail
-            let needs_details = name.is_none() || name.as_deref().map_or(true, |n| n.is_empty());
-
-            Ok(StockerBatchResult::Created {
-                index,
-                status: "ok".into(),
-                event_id: stored.event_id,
-                item_id,
-                needs_details,
-            })
-        }
-    }
+    let mut tx = state.pool.begin().await?;
+    let result = process_batch_event_in_tx(
+        state,
+        &mut tx,
+        actor_id,
+        metadata,
+        event,
+        active_container_id,
+        index,
+    )
+    .await?;
+    tx.commit().await?;
+    Ok(result)
 }
 
 /// Process a single batch event within an external transaction (for atomic mode).
