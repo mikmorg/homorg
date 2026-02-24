@@ -139,10 +139,10 @@ ALTER TABLE users
 -- ============================
 INSERT INTO items (id, system_barcode, node_id, name, is_container, container_path, description)
 VALUES
-    ('00000000-0000-0000-0000-000000000001'::uuid, 'HOM-ROOT', 'n_00000001',
-     'Root', TRUE, 'n_00000001', 'Top-level root container'),
-    ('00000000-0000-0000-0000-000000000002'::uuid, 'HOM-USERS', 'n_00000002',
-     'Users', TRUE, 'n_00000001.n_00000002', 'Ephemeral user containers');
+    ('00000000-0000-0000-0000-000000000001'::uuid, 'HOM-ROOT', 'n_root',
+     'Root', TRUE, 'n_root', 'Top-level root container'),
+    ('00000000-0000-0000-0000-000000000002'::uuid, 'HOM-USERS', 'n_users',
+     'Users', TRUE, 'n_root.n_users', 'Ephemeral user containers');
 
 -- Set parent_id for Users → Root
 UPDATE items SET parent_id = '00000000-0000-0000-0000-000000000001'::uuid

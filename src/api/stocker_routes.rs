@@ -74,13 +74,14 @@ async fn list_sessions(
 /// Get a single session detail.
 async fn get_session(
     State(state): State<Arc<AppState>>,
-    _auth: AuthUser,
+    auth: AuthUser,
     Path(id): Path<Uuid>,
 ) -> AppResult<Json<ScanSession>> {
     let session = sqlx::query_as::<_, ScanSession>(
-        "SELECT * FROM scan_sessions WHERE id = $1",
+        "SELECT * FROM scan_sessions WHERE id = $1 AND user_id = $2",
     )
     .bind(id)
+    .bind(auth.user_id)
     .fetch_optional(&state.pool)
     .await?
     .ok_or_else(|| AppError::NotFound(format!("Session {id} not found")))?;
@@ -122,63 +123,114 @@ async fn submit_batch(
     let mut items_created: i32 = 0;
     let mut items_moved: i32 = 0;
 
-    for (index, batch_event) in req.events.iter().enumerate() {
-        let metadata = EventMetadata {
-            session_id: Some(session_id.to_string()),
-            ..Default::default()
-        };
+    if atomic {
+        // True atomic mode: wrap all operations in a single transaction.
+        // Any failure rolls back the entire batch.
+        let mut tx = state.pool.begin().await?;
 
-        let result = process_batch_event(
-            &state,
-            auth.user_id,
-            &metadata,
-            batch_event,
-            &mut active_container_id,
-            index,
-        )
-        .await;
+        for (index, batch_event) in req.events.iter().enumerate() {
+            let metadata = EventMetadata {
+                session_id: Some(session_id.to_string()),
+                ..Default::default()
+            };
 
-        match result {
-            Ok(batch_result) => {
-                items_scanned += 1;
-                match &batch_result {
-                    StockerBatchResult::Created { .. } => items_created += 1,
-                    StockerBatchResult::Moved { .. } => items_moved += 1,
-                    StockerBatchResult::ContextSet { .. } => {}
-                }
-                results.push(batch_result);
+            let result = process_batch_event_in_tx(
+                &state,
+                &mut tx,
+                auth.user_id,
+                &metadata,
+                batch_event,
+                &mut active_container_id,
+                index,
+            )
+            .await?; // ? propagates error, rolling back tx on drop
+
+            items_scanned += 1;
+            match &result {
+                StockerBatchResult::Created { .. } => items_created += 1,
+                StockerBatchResult::Moved { .. } => items_moved += 1,
+                StockerBatchResult::ContextSet { .. } => {}
             }
-            Err(e) => {
-                if atomic {
-                    return Err(e);
+            results.push(result);
+        }
+
+        // Update session stats within the same transaction
+        sqlx::query(
+            r#"
+            UPDATE scan_sessions
+            SET active_container_id = $1,
+                items_scanned = items_scanned + $2,
+                items_created = items_created + $3,
+                items_moved = items_moved + $4
+            WHERE id = $5
+            "#,
+        )
+        .bind(active_container_id)
+        .bind(items_scanned)
+        .bind(items_created)
+        .bind(items_moved)
+        .bind(session_id)
+        .execute(&mut *tx)
+        .await?;
+
+        tx.commit().await?;
+    } else {
+        // Best-effort mode: each event commits independently, errors are collected
+        for (index, batch_event) in req.events.iter().enumerate() {
+            let metadata = EventMetadata {
+                session_id: Some(session_id.to_string()),
+                ..Default::default()
+            };
+
+            let result = process_batch_event(
+                &state,
+                auth.user_id,
+                &metadata,
+                batch_event,
+                &mut active_container_id,
+                index,
+            )
+            .await;
+
+            match result {
+                Ok(batch_result) => {
+                    items_scanned += 1;
+                    match &batch_result {
+                        StockerBatchResult::Created { .. } => items_created += 1,
+                        StockerBatchResult::Moved { .. } => items_moved += 1,
+                        StockerBatchResult::ContextSet { .. } => {}
+                    }
+                    results.push(batch_result);
                 }
-                errors.push(StockerBatchError {
-                    index,
-                    code: "BATCH_EVENT_FAILED".into(),
-                    message: e.to_string(),
-                });
+                Err(e) => {
+                    errors.push(StockerBatchError {
+                        index,
+                        code: "BATCH_EVENT_FAILED".into(),
+                        message: e.to_string(),
+                    });
+                }
             }
         }
-    }
 
-    // Update session stats and active container
-    sqlx::query(
-        r#"
-        UPDATE scan_sessions
-        SET active_container_id = $1,
-            items_scanned = items_scanned + $2,
-            items_created = items_created + $3,
-            items_moved = items_moved + $4
-        WHERE id = $5
-        "#,
-    )
-    .bind(active_container_id)
-    .bind(items_scanned)
-    .bind(items_created)
-    .bind(items_moved)
-    .bind(session_id)
-    .execute(&state.pool)
-    .await?;
+        // Update session stats
+        sqlx::query(
+            r#"
+            UPDATE scan_sessions
+            SET active_container_id = $1,
+                items_scanned = items_scanned + $2,
+                items_created = items_created + $3,
+                items_moved = items_moved + $4
+            WHERE id = $5
+            "#,
+        )
+        .bind(active_container_id)
+        .bind(items_scanned)
+        .bind(items_created)
+        .bind(items_moved)
+        .bind(session_id)
+        .execute(&state.pool)
+        .await?;
+    }
 
     Ok(Json(StockerBatchResponse {
         processed: results.len(),
@@ -325,6 +377,147 @@ async fn process_batch_event(
                 .await?;
 
             // Check if name is minimal / needs more detail
+            let needs_details = name.is_none() || name.as_deref().map_or(true, |n| n.is_empty());
+
+            Ok(StockerBatchResult::Created {
+                index,
+                status: "ok".into(),
+                event_id: stored.event_id,
+                item_id,
+                needs_details,
+            })
+        }
+    }
+}
+
+/// Process a single batch event within an external transaction (for atomic mode).
+async fn process_batch_event_in_tx(
+    state: &Arc<AppState>,
+    tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    actor_id: Uuid,
+    metadata: &EventMetadata,
+    event: &StockerBatchEvent,
+    active_container_id: &mut Option<Uuid>,
+    index: usize,
+) -> AppResult<StockerBatchResult> {
+    match event {
+        StockerBatchEvent::SetContext { barcode, .. } => {
+            let container = sqlx::query_as::<_, (Uuid, bool)>(
+                "SELECT id, is_container FROM items WHERE system_barcode = $1 AND is_deleted = FALSE",
+            )
+            .bind(barcode)
+            .fetch_optional(&mut **tx)
+            .await?
+            .ok_or_else(|| AppError::NotFound(format!("Container barcode {barcode} not found")))?;
+
+            if !container.1 {
+                return Err(AppError::BadRequest(format!(
+                    "Barcode {barcode} is not a container"
+                )));
+            }
+
+            *active_container_id = Some(container.0);
+
+            Ok(StockerBatchResult::ContextSet {
+                index,
+                status: "ok".into(),
+                context_set: barcode.clone(),
+            })
+        }
+        StockerBatchEvent::MoveItem {
+            barcode,
+            coordinate,
+            ..
+        } => {
+            let container_id = active_container_id.ok_or_else(|| {
+                AppError::BadRequest("No active container set. Send set_context first.".into())
+            })?;
+
+            let item_id: Uuid = sqlx::query_scalar(
+                "SELECT id FROM items WHERE system_barcode = $1 AND is_deleted = FALSE",
+            )
+            .bind(barcode)
+            .fetch_optional(&mut **tx)
+            .await?
+            .ok_or_else(|| AppError::NotFound(format!("Item {barcode} not found")))?;
+
+            let move_req = MoveItemRequest {
+                container_id,
+                coordinate: coordinate.clone(),
+            };
+
+            let stored = state
+                .item_commands
+                .move_item_in_tx(tx, item_id, &move_req, actor_id, metadata)
+                .await?;
+
+            Ok(StockerBatchResult::Moved {
+                index,
+                status: "ok".into(),
+                event_id: stored.event_id,
+            })
+        }
+        StockerBatchEvent::CreateAndPlace {
+            barcode,
+            name,
+            description,
+            category,
+            tags,
+            is_container,
+            coordinate,
+            condition,
+            metadata: item_metadata,
+            ..
+        } => {
+            let container_id = active_container_id.ok_or_else(|| {
+                AppError::BadRequest("No active container set. Send set_context first.".into())
+            })?;
+
+            let item_id = Uuid::new_v4();
+
+            let system_barcode = if barcode.is_empty() {
+                state.barcode_commands.generate_barcode().await?.barcode
+            } else {
+                let prefix = format!("{}-", state.config.barcode_prefix);
+                if barcode.starts_with(&prefix) {
+                    barcode.clone()
+                } else {
+                    state.barcode_commands.generate_barcode().await?.barcode
+                }
+            };
+
+            let create_req = CreateItemRequest {
+                system_barcode: Some(system_barcode),
+                parent_id: container_id,
+                name: name.clone(),
+                description: description.clone(),
+                category: category.clone(),
+                tags: tags.clone(),
+                is_container: *is_container,
+                coordinate: coordinate.clone(),
+                location_schema: None,
+                max_capacity_cc: None,
+                max_weight_grams: None,
+                dimensions: None,
+                weight_grams: None,
+                is_fungible: None,
+                fungible_quantity: None,
+                fungible_unit: None,
+                external_codes: None,
+                condition: condition.clone(),
+                acquisition_date: None,
+                acquisition_cost: None,
+                current_value: None,
+                depreciation_rate: None,
+                warranty_expiry: None,
+                metadata: item_metadata.clone(),
+            };
+
+            let stored = state
+                .item_commands
+                .create_item_in_tx(tx, item_id, &create_req, actor_id, metadata)
+                .await?;
+
             let needs_details = name.is_none() || name.as_deref().map_or(true, |n| n.is_empty());
 
             Ok(StockerBatchResult::Created {

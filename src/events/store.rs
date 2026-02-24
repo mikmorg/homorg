@@ -17,6 +17,7 @@ impl EventStore {
 
     /// Append a new event within the given transaction.
     /// Uses optimistic concurrency via per-aggregate sequence_number.
+    /// The sequence is computed atomically in a single INSERT...SELECT to prevent races.
     pub async fn append_in_tx(
         &self,
         tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
@@ -32,18 +33,13 @@ impl EventStore {
         let meta_json = serde_json::to_value(metadata)
             .map_err(|e| AppError::Internal(format!("Failed to serialize metadata: {e}")))?;
 
-        // Compute next sequence number for this aggregate
-        let seq: i64 = sqlx::query_scalar(
-            "SELECT COALESCE(MAX(sequence_number), 0) + 1 FROM event_store WHERE aggregate_id = $1",
-        )
-        .bind(aggregate_id)
-        .fetch_one(&mut **tx)
-        .await?;
-
+        // Atomic sequence assignment: single INSERT...SELECT prevents race conditions.
+        // The UNIQUE constraint on (aggregate_id, sequence_number) provides a safety net.
         let row = sqlx::query_as::<_, StoredEvent>(
             r#"
             INSERT INTO event_store (event_id, aggregate_id, aggregate_type, event_type, event_data, metadata, actor_id, sequence_number)
-            VALUES ($1, $2, 'item', $3, $4, $5, $6, $7)
+            VALUES ($1, $2, 'item', $3, $4, $5, $6,
+                    (SELECT COALESCE(MAX(sequence_number), 0) + 1 FROM event_store WHERE aggregate_id = $2))
             RETURNING id, event_id, aggregate_id, aggregate_type, event_type, event_data, metadata, actor_id, created_at, sequence_number
             "#,
         )
@@ -53,9 +49,19 @@ impl EventStore {
         .bind(&event_data)
         .bind(&meta_json)
         .bind(actor_id)
-        .bind(seq)
         .fetch_one(&mut **tx)
-        .await?;
+        .await
+        .map_err(|e| {
+            // Surface UNIQUE violation on sequence_number as a clear conflict error
+            if let sqlx::Error::Database(ref db_err) = e {
+                if db_err.constraint() == Some("uq_event_store_aggregate_seq") {
+                    return AppError::Conflict(
+                        "Concurrent modification detected — please retry".into(),
+                    );
+                }
+            }
+            AppError::from(e)
+        })?;
 
         Ok(row)
     }

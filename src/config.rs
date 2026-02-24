@@ -11,6 +11,7 @@ pub struct AppConfig {
     pub barcode_pad_width: usize,
     pub storage_path: String,
     pub max_batch_size: usize,
+    pub cors_origins: Vec<String>,
 }
 
 impl AppConfig {
@@ -37,6 +38,12 @@ impl AppConfig {
                 .unwrap_or_else(|_| "500".into())
                 .parse()
                 .unwrap_or(500),
+            cors_origins: env::var("CORS_ORIGINS")
+                .unwrap_or_else(|_| "*".into())
+                .split(',')
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+                .collect(),
         })
     }
 }

@@ -68,6 +68,7 @@ impl Projector {
                 $27,
                 $28, $28
             )
+            ON CONFLICT (id) DO NOTHING
             "#,
         )
         .bind(id)
@@ -417,7 +418,7 @@ impl Projector {
     pub async fn rebuild_all(pool: &PgPool) -> AppResult<u64> {
         let mut tx = pool.begin().await?;
 
-        // Delete all non-seed items
+        // Delete all non-seed items; seed rows will be re-inserted via ON CONFLICT below
         sqlx::query("DELETE FROM items WHERE id NOT IN ('00000000-0000-0000-0000-000000000001'::uuid, '00000000-0000-0000-0000-000000000002'::uuid)")
             .execute(&mut *tx)
             .await?;

@@ -63,8 +63,13 @@ impl SearchQueries {
               AND ($7::bool IS NULL OR is_container = $7)
               AND ($8::float8 IS NULL OR current_value >= $8)
               AND ($9::float8 IS NULL OR current_value <= $9)
-              -- Cursor
-              AND ($10::uuid IS NULL OR id > $10)
+              -- Cursor: keyset pagination on (created_at, id)
+              AND (
+                  $10::uuid IS NULL
+                  OR (created_at, id) > (
+                      SELECT created_at, id FROM items WHERE id = $10
+                  )
+              )
             ORDER BY
               CASE WHEN $1::text IS NOT NULL AND search_vector @@ plainto_tsquery('english', $1)
                    THEN ts_rank(search_vector, plainto_tsquery('english', $1))

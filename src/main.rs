@@ -1,6 +1,6 @@
 use std::sync::Arc;
 
-use tower_http::cors::CorsLayer;
+use tower_http::cors::{Any, CorsLayer};
 use tower_http::trace::TraceLayer;
 use tracing_subscriber::EnvFilter;
 
@@ -71,10 +71,25 @@ async fn main() {
         storage,
     });
 
+    // Build CORS layer from config
+    let cors = if config.cors_origins.len() == 1 && config.cors_origins[0] == "*" {
+        CorsLayer::permissive()
+    } else {
+        let origins: Vec<_> = config
+            .cors_origins
+            .iter()
+            .filter_map(|o| o.parse().ok())
+            .collect();
+        CorsLayer::new()
+            .allow_origin(origins)
+            .allow_methods(Any)
+            .allow_headers(Any)
+    };
+
     // Build router
     let app = api::build_router(state)
         .layer(TraceLayer::new_for_http())
-        .layer(CorsLayer::permissive());
+        .layer(cors);
 
     // Start server
     let listener = tokio::net::TcpListener::bind(&config.listen_addr)

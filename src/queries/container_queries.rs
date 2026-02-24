@@ -15,7 +15,7 @@ impl ContainerQueries {
         Self { pool }
     }
 
-    /// Get direct children of a container, paginated.
+    /// Get direct children of a container, paginated with created_at + id keyset cursor.
     pub async fn get_children(
         &self,
         container_id: Uuid,
@@ -46,13 +46,20 @@ impl ContainerQueries {
         };
         let order_dir = if sort_dir.unwrap_or("asc") == "desc" { "DESC" } else { "ASC" };
 
+        // Keyset pagination: when a cursor UUID is given, resolve its (created_at, id)
+        // and use that compound key for stable pagination.
         let query = format!(
             r#"
             SELECT id, system_barcode, name, category, is_container, container_path::text as container_path,
                    parent_id, condition, tags, is_deleted, created_at, updated_at
             FROM items
             WHERE parent_id = $1 AND is_deleted = FALSE
-              AND ($2::uuid IS NULL OR id > $2)
+              AND (
+                  $2::uuid IS NULL
+                  OR (created_at, id) > (
+                      SELECT created_at, id FROM items WHERE id = $2
+                  )
+              )
             ORDER BY {order_col} {order_dir}
             LIMIT $3
             "#
@@ -147,22 +154,28 @@ impl ContainerQueries {
         };
 
         let labels: Vec<&str> = path_str.split('.').collect();
+        let labels_owned: Vec<String> = labels.iter().map(|s| s.to_string()).collect();
+
+        // Single batch query for all ancestor node_ids
+        let rows = sqlx::query_as::<_, (Uuid, String, Option<String>, String)>(
+            "SELECT id, system_barcode, name, node_id FROM items WHERE node_id = ANY($1)",
+        )
+        .bind(&labels_owned)
+        .fetch_all(&self.pool)
+        .await?;
+
+        // Build lookup map and reorder by path position
+        let lookup: std::collections::HashMap<&str, &(Uuid, String, Option<String>, String)> =
+            rows.iter().map(|r| (r.3.as_str(), r)).collect();
+
         let mut ancestors = Vec::with_capacity(labels.len());
-
         for (depth, label) in labels.iter().enumerate() {
-            let row = sqlx::query_as::<_, (Uuid, String, Option<String>, String)>(
-                "SELECT id, system_barcode, name, node_id FROM items WHERE node_id = $1",
-            )
-            .bind(label)
-            .fetch_optional(&self.pool)
-            .await?;
-
-            if let Some((id, barcode, name, node_id)) = row {
+            if let Some((id, barcode, name, node_id)) = lookup.get(label) {
                 ancestors.push(AncestorEntry {
-                    id,
-                    system_barcode: barcode,
-                    name,
-                    node_id,
+                    id: *id,
+                    system_barcode: barcode.clone(),
+                    name: name.clone(),
+                    node_id: node_id.clone(),
                     depth,
                 });
             }

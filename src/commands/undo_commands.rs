@@ -50,19 +50,40 @@ impl UndoCommands {
     }
 
     /// Undo a batch of events in reverse chronological order.
+    /// All compensating events are applied atomically in a single transaction.
     pub async fn undo_batch(
         &self,
         event_ids: &[Uuid],
         actor_id: Uuid,
     ) -> AppResult<Vec<StoredEvent>> {
+        let mut tx = self.pool.begin().await?;
         let mut results = Vec::new();
 
         // Process in reverse order (most recent first) for consistency
         for &eid in event_ids.iter().rev() {
-            let stored = self.undo_event(eid, actor_id).await?;
+            let original = self.event_store.get_event_by_id(eid).await?;
+            let domain_event: DomainEvent = serde_json::from_value(original.event_data.clone())
+                .map_err(|e| AppError::Internal(format!("Failed to deserialize event: {e}")))?;
+
+            let (compensating_event, aggregate_id) = self.build_compensating_event(
+                &domain_event,
+                original.aggregate_id,
+                original.event_id,
+            ).await?;
+
+            let metadata = EventMetadata {
+                causation_id: Some(eid.to_string()),
+                ..Default::default()
+            };
+
+            let stored = self.event_store.append_in_tx(
+                &mut tx, aggregate_id, &compensating_event, actor_id, &metadata,
+            ).await?;
+            Projector::apply(&mut tx, aggregate_id, &compensating_event, actor_id).await?;
             results.push(stored);
         }
 
+        tx.commit().await?;
         Ok(results)
     }
 

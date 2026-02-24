@@ -72,6 +72,7 @@ impl ItemQueries {
     }
 
     /// Resolve ancestor breadcrumbs from an LTREE path string.
+    /// Uses a single batch query instead of N+1 per-label queries.
     async fn resolve_ancestors(
         &self,
         path: &Option<String>,
@@ -82,22 +83,28 @@ impl ItemQueries {
         };
 
         let labels: Vec<&str> = path_str.split('.').collect();
+        let labels_owned: Vec<String> = labels.iter().map(|s| s.to_string()).collect();
+
+        // Single batch query for all ancestor node_ids
+        let rows = sqlx::query_as::<_, (Uuid, String, Option<String>, String)>(
+            "SELECT id, system_barcode, name, node_id FROM items WHERE node_id = ANY($1)",
+        )
+        .bind(&labels_owned)
+        .fetch_all(&self.pool)
+        .await?;
+
+        // Build lookup map and reorder by path position
+        let lookup: std::collections::HashMap<&str, &(Uuid, String, Option<String>, String)> =
+            rows.iter().map(|r| (r.3.as_str(), r)).collect();
+
         let mut ancestors = Vec::with_capacity(labels.len());
-
         for (depth, label) in labels.iter().enumerate() {
-            let row = sqlx::query_as::<_, (Uuid, String, Option<String>, String)>(
-                "SELECT id, system_barcode, name, node_id FROM items WHERE node_id = $1",
-            )
-            .bind(label)
-            .fetch_optional(&self.pool)
-            .await?;
-
-            if let Some((id, barcode, name, node_id)) = row {
+            if let Some((id, barcode, name, node_id)) = lookup.get(label) {
                 ancestors.push(AncestorEntry {
-                    id,
-                    system_barcode: barcode,
-                    name,
-                    node_id,
+                    id: *id,
+                    system_barcode: barcode.clone(),
+                    name: name.clone(),
+                    node_id: node_id.clone(),
                     depth,
                 });
             }

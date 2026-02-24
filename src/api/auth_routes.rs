@@ -14,6 +14,8 @@ use crate::auth::jwt::{
 use crate::auth::middleware::AuthUser;
 use crate::auth::password::{hash_password, verify_password};
 use crate::errors::{AppError, AppResult};
+use crate::models::event::EventMetadata;
+use crate::models::item::CreateItemRequest;
 use crate::models::user::*;
 use crate::AppState;
 
@@ -29,29 +31,36 @@ pub fn router() -> Router<Arc<AppState>> {
 }
 
 /// First-time setup: create admin account. Fails if any user exists.
+/// Uses an advisory lock to prevent TOCTOU race.
 async fn setup(
     State(state): State<Arc<AppState>>,
     Json(req): Json<SetupRequest>,
 ) -> AppResult<(StatusCode, Json<AuthResponse>)> {
-    // Check no users exist
+    // Acquire advisory lock to prevent concurrent setup race
+    let mut tx = state.pool.begin().await?;
+    sqlx::query("SELECT pg_advisory_xact_lock(1)")
+        .execute(&mut *tx)
+        .await?;
+
+    // Check no users exist (now safe under advisory lock)
     let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM users")
-        .fetch_one(&state.pool)
+        .fetch_one(&mut *tx)
         .await?;
 
     if count > 0 {
         return Err(AppError::Conflict("Setup already completed".into()));
     }
 
-    if req.username.is_empty() || req.password.len() < 8 {
+    if req.username.is_empty() || req.password.len() < 8 || req.password.len() > 128 {
         return Err(AppError::BadRequest(
-            "Username required and password must be at least 8 characters".into(),
+            "Username required and password must be 8–128 characters".into(),
         ));
     }
 
     let user_id = Uuid::new_v4();
     let pw_hash = hash_password(&req.password)?;
 
-    // Create the admin user
+    // Create the admin user within the advisory-locked transaction
     let user = sqlx::query_as::<_, User>(
         r#"
         INSERT INTO users (id, username, password_hash, display_name, role)
@@ -63,39 +72,51 @@ async fn setup(
     .bind(&req.username)
     .bind(&pw_hash)
     .bind(&req.display_name)
-    .fetch_one(&state.pool)
+    .fetch_one(&mut *tx)
     .await?;
 
-    // Create user's ephemeral container
+    // Create user's ephemeral container via event store (survives rebuild_all)
     let container_barcode = format!("USR-{}", req.username.to_uppercase());
     let container_id = Uuid::new_v4();
-    let container_node_id = crate::commands::item_commands::uuid_to_node_id(&container_id);
-    let container_path = format!("n_00000001.n_00000002.{}", container_node_id);
 
     // Well-known Users container UUID
     let users_container_id = Uuid::parse_str("00000000-0000-0000-0000-000000000002").unwrap();
 
-    sqlx::query(
-        r#"
-        INSERT INTO items (id, system_barcode, node_id, name, is_container, container_path, parent_id, created_by)
-        VALUES ($1, $2, $3, $4, TRUE, $5::ltree, $6, $7)
-        "#,
-    )
-    .bind(container_id)
-    .bind(&container_barcode)
-    .bind(&container_node_id)
-    .bind(format!("{}'s Items", req.display_name.as_deref().unwrap_or(&req.username)))
-    .bind(&container_path)
-    .bind(users_container_id)
-    .bind(user_id)
-    .execute(&state.pool)
-    .await?;
+    let create_req = CreateItemRequest {
+        system_barcode: Some(container_barcode),
+        parent_id: users_container_id,
+        name: Some(format!("{}'s Items", req.display_name.as_deref().unwrap_or(&req.username))),
+        description: None,
+        category: None,
+        tags: None,
+        is_container: Some(true),
+        coordinate: None,
+        location_schema: None,
+        max_capacity_cc: None,
+        max_weight_grams: None,
+        dimensions: None,
+        weight_grams: None,
+        is_fungible: None,
+        fungible_quantity: None,
+        fungible_unit: None,
+        external_codes: None,
+        condition: None,
+        acquisition_date: None,
+        acquisition_cost: None,
+        current_value: None,
+        depreciation_rate: None,
+        warranty_expiry: None,
+        metadata: None,
+    };
+
+    let evt_metadata = EventMetadata::default();
+    state.item_commands.create_item_in_tx(&mut tx, container_id, &create_req, user_id, &evt_metadata).await?;
 
     // Link user to their container
     sqlx::query("UPDATE users SET container_id = $1 WHERE id = $2")
         .bind(container_id)
         .bind(user_id)
-        .execute(&state.pool)
+        .execute(&mut *tx)
         .await?;
 
     // Issue tokens
@@ -121,8 +142,10 @@ async fn setup(
     .bind(&token_hash)
     .bind("setup")
     .bind(expires_at)
-    .execute(&state.pool)
+    .execute(&mut *tx)
     .await?;
+
+    tx.commit().await?;
 
     Ok((
         StatusCode::CREATED,
@@ -187,31 +210,34 @@ async fn login(
 }
 
 /// Rotate refresh token and issue new access token.
+/// Delete + insert wrapped in a transaction to prevent token loss on crash.
 async fn refresh(
     State(state): State<Arc<AppState>>,
     Json(req): Json<RefreshRequest>,
 ) -> AppResult<Json<AuthResponse>> {
     let token_hash = hash_refresh_token(&req.refresh_token);
 
+    let mut tx = state.pool.begin().await?;
+
     let row = sqlx::query_as::<_, RefreshTokenRow>(
         "SELECT * FROM refresh_tokens WHERE token_hash = $1 AND expires_at > NOW()",
     )
     .bind(&token_hash)
-    .fetch_optional(&state.pool)
+    .fetch_optional(&mut *tx)
     .await?
     .ok_or(AppError::Unauthorized)?;
 
     // Delete the used token (rotation)
     sqlx::query("DELETE FROM refresh_tokens WHERE id = $1")
         .bind(row.id)
-        .execute(&state.pool)
+        .execute(&mut *tx)
         .await?;
 
     let user = sqlx::query_as::<_, User>(
         "SELECT * FROM users WHERE id = $1 AND is_active = TRUE",
     )
     .bind(row.user_id)
-    .fetch_optional(&state.pool)
+    .fetch_optional(&mut *tx)
     .await?
     .ok_or(AppError::Unauthorized)?;
 
@@ -237,8 +263,10 @@ async fn refresh(
     .bind(&new_hash)
     .bind(row.device_name.as_deref().unwrap_or("unknown"))
     .bind(expires_at)
-    .execute(&state.pool)
+    .execute(&mut *tx)
     .await?;
+
+    tx.commit().await?;
 
     Ok(Json(AuthResponse {
         access_token,
@@ -317,9 +345,9 @@ async fn register(
     State(state): State<Arc<AppState>>,
     Json(req): Json<RegisterRequest>,
 ) -> AppResult<(StatusCode, Json<AuthResponse>)> {
-    if req.username.is_empty() || req.password.len() < 8 {
+    if req.username.is_empty() || req.password.len() < 8 || req.password.len() > 128 {
         return Err(AppError::BadRequest(
-            "Username required and password must be at least 8 characters".into(),
+            "Username required and password must be 8–128 characters".into(),
         ));
     }
 
@@ -368,29 +396,41 @@ async fn register(
         .execute(&state.pool)
         .await?;
 
-    // Create user's ephemeral container
+    // Create user's ephemeral container via event store (survives rebuild_all)
     let container_barcode = format!("USR-{}", req.username.to_uppercase());
     let container_id = Uuid::new_v4();
-    let container_node_id = crate::commands::item_commands::uuid_to_node_id(&container_id);
-    let container_path = format!("n_00000001.n_00000002.{}", container_node_id);
 
     let users_container_id = Uuid::parse_str("00000000-0000-0000-0000-000000000002").unwrap();
 
-    sqlx::query(
-        r#"
-        INSERT INTO items (id, system_barcode, node_id, name, is_container, container_path, parent_id, created_by)
-        VALUES ($1, $2, $3, $4, TRUE, $5::ltree, $6, $7)
-        "#,
-    )
-    .bind(container_id)
-    .bind(&container_barcode)
-    .bind(&container_node_id)
-    .bind(format!("{}'s Items", req.display_name.as_deref().unwrap_or(&req.username)))
-    .bind(&container_path)
-    .bind(users_container_id)
-    .bind(user_id)
-    .execute(&state.pool)
-    .await?;
+    let create_req = CreateItemRequest {
+        system_barcode: Some(container_barcode),
+        parent_id: users_container_id,
+        name: Some(format!("{}'s Items", req.display_name.as_deref().unwrap_or(&req.username))),
+        description: None,
+        category: None,
+        tags: None,
+        is_container: Some(true),
+        coordinate: None,
+        location_schema: None,
+        max_capacity_cc: None,
+        max_weight_grams: None,
+        dimensions: None,
+        weight_grams: None,
+        is_fungible: None,
+        fungible_quantity: None,
+        fungible_unit: None,
+        external_codes: None,
+        condition: None,
+        acquisition_date: None,
+        acquisition_cost: None,
+        current_value: None,
+        depreciation_rate: None,
+        warranty_expiry: None,
+        metadata: None,
+    };
+
+    let evt_metadata = EventMetadata::default();
+    state.item_commands.create_item(container_id, &create_req, user_id, &evt_metadata).await?;
 
     sqlx::query("UPDATE users SET container_id = $1 WHERE id = $2")
         .bind(container_id)
