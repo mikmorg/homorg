@@ -8,7 +8,7 @@ use uuid::Uuid;
 pub struct Item {
     pub id: Uuid,
     pub system_barcode: String,
-    pub ltree_label: String,
+    pub node_id: String,
 
     // Classification
     pub name: Option<String>,
@@ -84,7 +84,7 @@ pub struct AncestorEntry {
     pub id: Uuid,
     pub system_barcode: String,
     pub name: Option<String>,
-    pub ltree_label: String,
+    pub node_id: String,
     pub depth: usize,
 }
 

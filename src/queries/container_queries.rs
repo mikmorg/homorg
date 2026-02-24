@@ -151,18 +151,18 @@ impl ContainerQueries {
 
         for (depth, label) in labels.iter().enumerate() {
             let row = sqlx::query_as::<_, (Uuid, String, Option<String>, String)>(
-                "SELECT id, system_barcode, name, ltree_label FROM items WHERE ltree_label = $1",
+                "SELECT id, system_barcode, name, node_id FROM items WHERE node_id = $1",
             )
             .bind(label)
             .fetch_optional(&self.pool)
             .await?;
 
-            if let Some((id, barcode, name, ltree_label)) = row {
+            if let Some((id, barcode, name, node_id)) = row {
                 ancestors.push(AncestorEntry {
                     id,
                     system_barcode: barcode,
                     name,
-                    ltree_label,
+                    node_id,
                     depth,
                 });
             }

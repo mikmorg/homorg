@@ -28,8 +28,8 @@ impl ItemCommands {
         metadata: &EventMetadata,
     ) -> AppResult<StoredEvent> {
         // Validate parent exists and is a container
-        let parent = sqlx::query_as::<_, (Uuid, bool, Option<String>, Option<String>)>(
-            "SELECT id, is_container, container_path::text, ltree_label FROM items WHERE id = $1 AND is_deleted = FALSE",
+        let parent = sqlx::query_as::<_, (Uuid, bool, Option<String>)>(
+            "SELECT id, is_container, container_path::text FROM items WHERE id = $1 AND is_deleted = FALSE",
         )
         .bind(req.parent_id)
         .fetch_optional(&self.pool)
@@ -59,10 +59,10 @@ impl ItemCommands {
             )));
         }
 
-        // Compute ltree_label and path
-        let ltree_label = barcode_to_ltree_label(&system_barcode);
-        let parent_path = parent.2.unwrap_or_else(|| "Root".to_string());
-        let container_path = format!("{}.{}", parent_path, ltree_label);
+        // Derive immutable node_id from item UUID and build path
+        let node_id = uuid_to_node_id(&id);
+        let parent_path = parent.2.unwrap_or_else(|| "n_00000001".to_string());
+        let container_path = format!("{}.{}", parent_path, node_id);
 
         let is_container = req.is_container.unwrap_or(false);
         let is_fungible = req.is_fungible.unwrap_or(false);
@@ -74,7 +74,7 @@ impl ItemCommands {
 
         let event = DomainEvent::ItemCreated(ItemCreatedData {
             system_barcode: system_barcode.clone(),
-            ltree_label,
+            node_id,
             name: req.name.clone(),
             description: req.description.clone(),
             category: req.category.clone(),
@@ -186,7 +186,7 @@ impl ItemCommands {
         metadata: &EventMetadata,
     ) -> AppResult<StoredEvent> {
         let item = sqlx::query_as::<_, (Uuid, Option<Uuid>, Option<String>, String, bool)>(
-            "SELECT id, parent_id, container_path::text, ltree_label, is_container FROM items WHERE id = $1 AND is_deleted = FALSE",
+            "SELECT id, parent_id, container_path::text, node_id, is_container FROM items WHERE id = $1 AND is_deleted = FALSE",
         )
         .bind(item_id)
         .fetch_optional(&self.pool)
@@ -221,7 +221,7 @@ impl ItemCommands {
             }
         }
 
-        let dest_path = dest.2.unwrap_or_else(|| "Root".to_string());
+        let dest_path = dest.2.unwrap_or_else(|| "n_00000001".to_string());
         let new_path = format!("{}.{}", dest_path, item.3);
 
         let event = DomainEvent::ItemMoved(ItemMovedData {
@@ -438,7 +438,11 @@ impl ItemCommands {
     }
 }
 
-/// Convert a system barcode (e.g., "HOM-000001") to an LTREE-safe label ("HOM_000001").
-pub fn barcode_to_ltree_label(barcode: &str) -> String {
-    barcode.replace('-', "_")
+/// Derive an immutable, LTREE-safe node ID from an item's UUID.
+/// Produces labels like `n_4a8b3c1d` — first 8 hex chars of the UUID prefixed with `n_`.
+/// LTREE labels must match `[A-Za-z_][A-Za-z0-9_]*`, so the `n_` prefix ensures
+/// the label never starts with a digit. The UNIQUE constraint on `node_id` catches
+/// any collision at INSERT time (astronomically unlikely with v4 UUIDs).
+pub fn uuid_to_node_id(id: &Uuid) -> String {
+    format!("n_{}", &id.simple().to_string()[..8])
 }

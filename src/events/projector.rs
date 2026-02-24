@@ -46,7 +46,7 @@ impl Projector {
         sqlx::query(
             r#"
             INSERT INTO items (
-                id, system_barcode, ltree_label,
+                id, system_barcode, node_id,
                 name, description, category, tags,
                 is_container, container_path, parent_id, coordinate,
                 location_schema, max_capacity_cc, max_weight_grams,
@@ -72,7 +72,7 @@ impl Projector {
         )
         .bind(id)
         .bind(&data.system_barcode)
-        .bind(&data.ltree_label)
+        .bind(&data.node_id)
         .bind(&data.name)
         .bind(&data.description)
         .bind(&data.category)

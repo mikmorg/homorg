@@ -68,22 +68,22 @@ async fn setup(
 
     // Create user's ephemeral container
     let container_barcode = format!("USR-{}", req.username.to_uppercase());
-    let container_label = crate::commands::item_commands::barcode_to_ltree_label(&container_barcode);
     let container_id = Uuid::new_v4();
-    let container_path = format!("Root.Users.{}", container_label);
+    let container_node_id = crate::commands::item_commands::uuid_to_node_id(&container_id);
+    let container_path = format!("n_00000001.n_00000002.{}", container_node_id);
 
     // Well-known Users container UUID
     let users_container_id = Uuid::parse_str("00000000-0000-0000-0000-000000000002").unwrap();
 
     sqlx::query(
         r#"
-        INSERT INTO items (id, system_barcode, ltree_label, name, is_container, container_path, parent_id, created_by)
+        INSERT INTO items (id, system_barcode, node_id, name, is_container, container_path, parent_id, created_by)
         VALUES ($1, $2, $3, $4, TRUE, $5::ltree, $6, $7)
         "#,
     )
     .bind(container_id)
     .bind(&container_barcode)
-    .bind(&container_label)
+    .bind(&container_node_id)
     .bind(format!("{}'s Items", req.display_name.as_deref().unwrap_or(&req.username)))
     .bind(&container_path)
     .bind(users_container_id)
@@ -370,21 +370,21 @@ async fn register(
 
     // Create user's ephemeral container
     let container_barcode = format!("USR-{}", req.username.to_uppercase());
-    let container_label = crate::commands::item_commands::barcode_to_ltree_label(&container_barcode);
     let container_id = Uuid::new_v4();
-    let container_path = format!("Root.Users.{}", container_label);
+    let container_node_id = crate::commands::item_commands::uuid_to_node_id(&container_id);
+    let container_path = format!("n_00000001.n_00000002.{}", container_node_id);
 
     let users_container_id = Uuid::parse_str("00000000-0000-0000-0000-000000000002").unwrap();
 
     sqlx::query(
         r#"
-        INSERT INTO items (id, system_barcode, ltree_label, name, is_container, container_path, parent_id, created_by)
+        INSERT INTO items (id, system_barcode, node_id, name, is_container, container_path, parent_id, created_by)
         VALUES ($1, $2, $3, $4, TRUE, $5::ltree, $6, $7)
         "#,
     )
     .bind(container_id)
     .bind(&container_barcode)
-    .bind(&container_label)
+    .bind(&container_node_id)
     .bind(format!("{}'s Items", req.display_name.as_deref().unwrap_or(&req.username)))
     .bind(&container_path)
     .bind(users_container_id)

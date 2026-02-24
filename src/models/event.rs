@@ -61,7 +61,7 @@ impl DomainEvent {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ItemCreatedData {
     pub system_barcode: String,
-    pub ltree_label: String,
+    pub node_id: String,
     pub name: Option<String>,
     pub description: Option<String>,
     pub category: Option<String>,

@@ -9,7 +9,6 @@ use std::sync::Arc;
 use uuid::Uuid;
 
 use crate::auth::middleware::AuthUser;
-use crate::commands::item_commands::barcode_to_ltree_label;
 use crate::errors::{AppError, AppResult};
 use crate::models::event::EventMetadata;
 use crate::models::item::{CreateItemRequest, MoveItemRequest};
@@ -292,8 +291,6 @@ async fn process_batch_event(
                     state.barcode_commands.generate_barcode().await?.barcode
                 }
             };
-
-            let _ltree_label = barcode_to_ltree_label(&system_barcode);
 
             let create_req = CreateItemRequest {
                 system_barcode: Some(system_barcode),

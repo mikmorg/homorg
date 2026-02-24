@@ -78,7 +78,7 @@ This is the denormalized **read projection** rebuilt from events. Every row repr
 items
 ├── id                UUID PK (v4)
 ├── system_barcode    VARCHAR(32) UNIQUE NOT NULL  — e.g. "HOM-000001"
-├── ltree_label       VARCHAR(32) UNIQUE NOT NULL  — LTREE-safe: "HOM_000001"
+├── node_id           VARCHAR(16) UNIQUE NOT NULL  — immutable UUID-derived LTREE label: "n_4a8b3c1d"
 │
 ├── ── Classification ──
 ├── name              VARCHAR(512)
@@ -149,7 +149,7 @@ items
 
 **Trigger:** A `tsvector_update_trigger` auto-populates `search_vector` from `name`, `description`, `category`, and casts of `metadata` values, weighted by relevance (name=A, category=B, description=C, metadata=D).
 
-**LTREE Label Strategy:** System barcodes use the format `HOM-NNNNNN`. LTREE labels only allow `[A-Za-z0-9_]`, so the label column stores `HOM_NNNNNN` (hyphen → underscore). The `container_path` is composed of these labels: `Root.HOM_000010.HOM_000042`. The root node is a synthetic item with `ltree_label = 'Root'` and `system_barcode = 'HOM-ROOT'`.
+**LTREE Node ID Strategy:** Each item has an immutable `node_id` column (e.g., `n_4a8b3c1d`) derived from the first 8 hex characters of its UUID with a `n_` prefix, ensuring LTREE label safety (`[A-Za-z_][A-Za-z0-9_]*`). The `container_path` is composed of these node IDs: `n_00000001.n_a3b4c5d6.n_f1e2d3c4`. Barcodes and names are freely mutable without affecting any path. The root node uses well-known ID `n_00000001` (from UUID `...-000001`) and the Users container uses `n_00000002`.
 
 ### 2d. Event Store (`0004_event_store.sql`)
 Append-only, immutable ledger — the authoritative source of truth.
@@ -264,7 +264,7 @@ A `rebuild_all_projections()` function replays the entire event store from `sequ
 Each command validates business rules, then delegates to the event store + projector.
 
 ### 4a. Item Commands (`commands/item_commands.rs`)
-- **CreateItem:** Validates barcode uniqueness, parent container exists and `is_container = true`, coordinate conforms to parent's `location_schema` (if defined). Generates `ltree_label`, computes `container_path` by appending to parent's path. Appends `ItemCreated` event.
+- **CreateItem:** Validates barcode uniqueness, parent container exists and `is_container = true`, coordinate conforms to parent's `location_schema` (if defined). Derives immutable `node_id` from item UUID via `uuid_to_node_id()`, computes `container_path` by appending to parent's path. Appends `ItemCreated` event.
 - **UpdateItem:** Accepts a partial update payload. Diffs against current state, generates `ItemUpdated` event with old/new values for each changed field.
 - **MoveItem:** Validates destination is a container. Computes new `container_path`. If the moved item `is_container`, validates no circular reference (destination is not a descendant of the item). Appends `ItemMoved` event. Projector cascades path update to descendants.
 - **DeleteItem:** If item `is_container` and has children, either refuse or recursively soft-delete (configurable). Appends `ItemDeleted`.
