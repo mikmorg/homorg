@@ -9,6 +9,7 @@ use uuid::Uuid;
 
 use crate::auth::middleware::AuthUser;
 use crate::auth::password::hash_password;
+use crate::constants::{PASSWORD_MIN_LEN, PASSWORD_MAX_LEN};
 use crate::errors::{AppError, AppResult};
 use crate::models::user::*;
 use crate::AppState;
@@ -26,13 +27,8 @@ async fn list_users(
     auth: AuthUser,
 ) -> AppResult<Json<Vec<UserPublic>>> {
     auth.require_role("admin")?;
-
-    let users = sqlx::query_as::<_, User>("SELECT * FROM users ORDER BY created_at")
-        .fetch_all(&state.pool)
-        .await?;
-
-    let public: Vec<UserPublic> = users.into_iter().map(Into::into).collect();
-    Ok(Json(public))
+    let users = state.user_queries.list_all().await?;
+    Ok(Json(users))
 }
 
 /// Get user detail (own profile or admin).
@@ -46,12 +42,7 @@ async fn get_user(
         auth.require_role("admin")?;
     }
 
-    let user = sqlx::query_as::<_, User>("SELECT * FROM users WHERE id = $1")
-        .bind(id)
-        .fetch_optional(&state.pool)
-        .await?
-        .ok_or_else(|| AppError::NotFound(format!("User {id} not found")))?;
-
+    let user = state.user_queries.find_by_id(id).await?;
     Ok(Json(user.into()))
 }
 
@@ -68,33 +59,21 @@ async fn update_user(
 
     // Update display_name if provided
     if let Some(ref display_name) = req.display_name {
-        sqlx::query("UPDATE users SET display_name = $1, updated_at = NOW() WHERE id = $2")
-            .bind(display_name)
-            .bind(id)
-            .execute(&state.pool)
-            .await?;
+        state.user_queries.update_display_name(id, display_name).await?;
     }
 
     // Update password if provided
     if let Some(ref password) = req.password {
-        if password.len() < 8 {
+        if password.len() < PASSWORD_MIN_LEN || password.len() > PASSWORD_MAX_LEN {
             return Err(AppError::BadRequest(
-                "Password must be at least 8 characters".into(),
+                format!("Password must be {PASSWORD_MIN_LEN}–{PASSWORD_MAX_LEN} characters"),
             ));
         }
         let pw_hash = hash_password(password)?;
-        sqlx::query("UPDATE users SET password_hash = $1, updated_at = NOW() WHERE id = $2")
-            .bind(&pw_hash)
-            .bind(id)
-            .execute(&state.pool)
-            .await?;
+        state.user_queries.update_password(id, &pw_hash).await?;
     }
 
-    let user = sqlx::query_as::<_, User>("SELECT * FROM users WHERE id = $1")
-        .bind(id)
-        .fetch_one(&state.pool)
-        .await?;
-
+    let user = state.user_queries.find_by_id(id).await?;
     Ok(Json(user.into()))
 }
 
@@ -117,17 +96,8 @@ async fn update_role(
         return Err(AppError::BadRequest("Cannot demote yourself".into()));
     }
 
-    sqlx::query("UPDATE users SET role = $1, updated_at = NOW() WHERE id = $2")
-        .bind(&req.role)
-        .bind(id)
-        .execute(&state.pool)
-        .await?;
-
-    let user = sqlx::query_as::<_, User>("SELECT * FROM users WHERE id = $1")
-        .bind(id)
-        .fetch_one(&state.pool)
-        .await?;
-
+    state.user_queries.update_role(id, &req.role).await?;
+    let user = state.user_queries.find_by_id(id).await?;
     Ok(Json(user.into()))
 }
 
@@ -143,16 +113,10 @@ async fn deactivate_user(
         return Err(AppError::BadRequest("Cannot deactivate yourself".into()));
     }
 
-    sqlx::query("UPDATE users SET is_active = FALSE, updated_at = NOW() WHERE id = $1")
-        .bind(id)
-        .execute(&state.pool)
-        .await?;
+    state.user_queries.deactivate(id).await?;
 
     // Revoke all refresh tokens for the deactivated user
-    sqlx::query("DELETE FROM refresh_tokens WHERE user_id = $1")
-        .bind(id)
-        .execute(&state.pool)
-        .await?;
+    state.token_repository.revoke_all_for_user(id).await?;
 
     Ok(StatusCode::NO_CONTENT)
 }

@@ -161,9 +161,4 @@ impl EventStore {
         .await?
         .ok_or_else(|| AppError::NotFound(format!("Event {event_id} not found")))
     }
-
-    /// Get a reference to the underlying pool (for projection rebuild).
-    pub fn pool(&self) -> &PgPool {
-        &self.pool
-    }
 }

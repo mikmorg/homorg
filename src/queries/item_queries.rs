@@ -3,7 +3,7 @@ use uuid::Uuid;
 
 use crate::errors::{AppError, AppResult};
 use crate::models::event::StoredEvent;
-use crate::models::item::{Item, ItemDetail};
+use crate::models::item::{ImageEntry, Item, ItemDetail};
 use crate::queries::common::resolve_ancestors;
 
 /// Read-side query handler for items.
@@ -70,5 +70,21 @@ impl ItemQueries {
         .fetch_all(&self.pool)
         .await?;
         Ok(rows)
+    }
+
+    /// Get the images array for an item.
+    pub async fn get_images(&self, item_id: Uuid) -> AppResult<Vec<ImageEntry>> {
+        let images_json: serde_json::Value = sqlx::query_scalar(
+            "SELECT images FROM items WHERE id = $1 AND is_deleted = FALSE",
+        )
+        .bind(item_id)
+        .fetch_optional(&self.pool)
+        .await?
+        .ok_or_else(|| AppError::NotFound(format!("Item {item_id} not found")))?;
+
+        let images: Vec<ImageEntry> = serde_json::from_value(images_json)
+            .map_err(|_| AppError::Internal("Failed to parse images".into()))?;
+
+        Ok(images)
     }
 }

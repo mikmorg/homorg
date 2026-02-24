@@ -211,17 +211,8 @@ async fn remove_image(
 ) -> AppResult<Json<StoredEvent>> {
     auth.require_role("member")?;
 
-    // Get current images to find path at index
-    let images_json: serde_json::Value = sqlx::query_scalar(
-        "SELECT images FROM items WHERE id = $1 AND is_deleted = FALSE",
-    )
-    .bind(id)
-    .fetch_optional(&state.pool)
-    .await?
-    .ok_or_else(|| AppError::NotFound(format!("Item {id} not found")))?;
-
-    let images: Vec<ImageEntry> = serde_json::from_value(images_json)
-        .map_err(|_| AppError::Internal("Failed to parse images".into()))?;
+    // Get current images via query layer
+    let images = state.item_queries.get_images(id).await?;
 
     let entry = images
         .get(idx)

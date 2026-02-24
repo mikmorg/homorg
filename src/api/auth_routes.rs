@@ -4,13 +4,10 @@ use axum::{
     routing::{get, post},
     Router,
 };
-use chrono::{Duration, Utc};
 use std::sync::Arc;
 use uuid::Uuid;
 
-use crate::auth::jwt::{
-    create_access_token, generate_refresh_token, hash_refresh_token,
-};
+use crate::auth::jwt::create_access_token;
 use crate::auth::middleware::AuthUser;
 use crate::auth::password::{hash_password, verify_password};
 use crate::constants::{PASSWORD_MAX_LEN, PASSWORD_MIN_LEN, USERS_ID};
@@ -76,9 +73,7 @@ async fn setup(
         .await?;
 
     // Check no users exist (now safe under advisory lock)
-    let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM users")
-        .fetch_one(&mut *tx)
-        .await?;
+    let count = state.user_queries.count_in_tx(&mut tx).await?;
 
     if count > 0 {
         return Err(AppError::Conflict("Setup already completed".into()));
@@ -94,19 +89,9 @@ async fn setup(
     let pw_hash = hash_password(&req.password)?;
 
     // Create the admin user within the advisory-locked transaction
-    let user = sqlx::query_as::<_, User>(
-        r#"
-        INSERT INTO users (id, username, password_hash, display_name, role)
-        VALUES ($1, $2, $3, $4, 'admin')
-        RETURNING *
-        "#,
-    )
-    .bind(user_id)
-    .bind(&req.username)
-    .bind(&pw_hash)
-    .bind(&req.display_name)
-    .fetch_one(&mut *tx)
-    .await?;
+    let user = state.user_queries.create_in_tx(
+        &mut tx, user_id, &req.username, &pw_hash, req.display_name.as_deref(), "admin",
+    ).await?;
 
     // Create user's ephemeral container via event store (survives rebuild_all)
     let container_id = Uuid::new_v4();
@@ -116,11 +101,7 @@ async fn setup(
     state.item_commands.create_item_in_tx(&mut tx, container_id, &create_req, user_id, &evt_metadata).await?;
 
     // Link user to their container
-    sqlx::query("UPDATE users SET container_id = $1 WHERE id = $2")
-        .bind(container_id)
-        .bind(user_id)
-        .execute(&mut *tx)
-        .await?;
+    state.user_queries.set_container_in_tx(&mut tx, user_id, container_id).await?;
 
     // Issue tokens
     let access_token = create_access_token(
@@ -130,23 +111,9 @@ async fn setup(
         state.config.jwt_access_ttl_secs,
     )?;
 
-    let refresh_token = generate_refresh_token();
-    let token_hash = hash_refresh_token(&refresh_token);
-    let expires_at = Utc::now() + Duration::days(state.config.jwt_refresh_ttl_days as i64);
-
-    sqlx::query(
-        r#"
-        INSERT INTO refresh_tokens (id, user_id, token_hash, device_name, expires_at)
-        VALUES ($1, $2, $3, $4, $5)
-        "#,
-    )
-    .bind(Uuid::new_v4())
-    .bind(user_id)
-    .bind(&token_hash)
-    .bind("setup")
-    .bind(expires_at)
-    .execute(&mut *tx)
-    .await?;
+    let issued = state.token_repository.issue_refresh_token_in_tx(
+        &mut tx, user_id, "setup", state.config.jwt_refresh_ttl_days,
+    ).await?;
 
     tx.commit().await?;
 
@@ -154,7 +121,7 @@ async fn setup(
         StatusCode::CREATED,
         Json(AuthResponse {
             access_token,
-            refresh_token,
+            refresh_token: issued.raw_token,
             expires_in: state.config.jwt_access_ttl_secs,
             user: user.into(),
         }),
@@ -166,13 +133,11 @@ async fn login(
     State(state): State<Arc<AppState>>,
     Json(req): Json<LoginRequest>,
 ) -> AppResult<Json<AuthResponse>> {
-    let user = sqlx::query_as::<_, User>(
-        "SELECT * FROM users WHERE username = $1 AND is_active = TRUE",
-    )
-    .bind(&req.username)
-    .fetch_optional(&state.pool)
-    .await?
-    .ok_or(AppError::Unauthorized)?;
+    let user = state
+        .user_queries
+        .find_active_by_username(&req.username)
+        .await?
+        .ok_or(AppError::Unauthorized)?;
 
     let valid = verify_password(&req.password, &user.password_hash)?;
     if !valid {
@@ -186,27 +151,15 @@ async fn login(
         state.config.jwt_access_ttl_secs,
     )?;
 
-    let refresh_token = generate_refresh_token();
-    let token_hash = hash_refresh_token(&refresh_token);
-    let expires_at = Utc::now() + Duration::days(state.config.jwt_refresh_ttl_days as i64);
-
-    sqlx::query(
-        r#"
-        INSERT INTO refresh_tokens (id, user_id, token_hash, device_name, expires_at)
-        VALUES ($1, $2, $3, $4, $5)
-        "#,
-    )
-    .bind(Uuid::new_v4())
-    .bind(user.id)
-    .bind(&token_hash)
-    .bind(req.device_name.as_deref().unwrap_or("unknown"))
-    .bind(expires_at)
-    .execute(&state.pool)
-    .await?;
+    let issued = state.token_repository.issue_refresh_token(
+        user.id,
+        req.device_name.as_deref().unwrap_or("unknown"),
+        state.config.jwt_refresh_ttl_days,
+    ).await?;
 
     Ok(Json(AuthResponse {
         access_token,
-        refresh_token,
+        refresh_token: issued.raw_token,
         expires_in: state.config.jwt_access_ttl_secs,
         user: user.into(),
     }))
@@ -218,31 +171,24 @@ async fn refresh(
     State(state): State<Arc<AppState>>,
     Json(req): Json<RefreshRequest>,
 ) -> AppResult<Json<AuthResponse>> {
-    let token_hash = hash_refresh_token(&req.refresh_token);
+    let token_hash = crate::auth::jwt::hash_refresh_token(&req.refresh_token);
 
     let mut tx = state.pool.begin().await?;
 
-    let row = sqlx::query_as::<_, RefreshTokenRow>(
-        "SELECT * FROM refresh_tokens WHERE token_hash = $1 AND expires_at > NOW()",
-    )
-    .bind(&token_hash)
-    .fetch_optional(&mut *tx)
-    .await?
-    .ok_or(AppError::Unauthorized)?;
+    let row = state
+        .token_repository
+        .find_valid_by_hash_in_tx(&mut tx, &token_hash)
+        .await?
+        .ok_or(AppError::Unauthorized)?;
 
     // Delete the used token (rotation)
-    sqlx::query("DELETE FROM refresh_tokens WHERE id = $1")
-        .bind(row.id)
-        .execute(&mut *tx)
-        .await?;
+    state.token_repository.delete_by_id_in_tx(&mut tx, row.id).await?;
 
-    let user = sqlx::query_as::<_, User>(
-        "SELECT * FROM users WHERE id = $1 AND is_active = TRUE",
-    )
-    .bind(row.user_id)
-    .fetch_optional(&mut *tx)
-    .await?
-    .ok_or(AppError::Unauthorized)?;
+    let user = state
+        .user_queries
+        .find_active_by_id_in_tx(&mut tx, row.user_id)
+        .await?
+        .ok_or(AppError::Unauthorized)?;
 
     let access_token = create_access_token(
         user.id,
@@ -251,29 +197,18 @@ async fn refresh(
         state.config.jwt_access_ttl_secs,
     )?;
 
-    let new_refresh = generate_refresh_token();
-    let new_hash = hash_refresh_token(&new_refresh);
-    let expires_at = Utc::now() + Duration::days(state.config.jwt_refresh_ttl_days as i64);
-
-    sqlx::query(
-        r#"
-        INSERT INTO refresh_tokens (id, user_id, token_hash, device_name, expires_at)
-        VALUES ($1, $2, $3, $4, $5)
-        "#,
-    )
-    .bind(Uuid::new_v4())
-    .bind(user.id)
-    .bind(&new_hash)
-    .bind(row.device_name.as_deref().unwrap_or("unknown"))
-    .bind(expires_at)
-    .execute(&mut *tx)
-    .await?;
+    let issued = state.token_repository.issue_refresh_token_in_tx(
+        &mut tx,
+        user.id,
+        row.device_name.as_deref().unwrap_or("unknown"),
+        state.config.jwt_refresh_ttl_days,
+    ).await?;
 
     tx.commit().await?;
 
     Ok(Json(AuthResponse {
         access_token,
-        refresh_token: new_refresh,
+        refresh_token: issued.raw_token,
         expires_in: state.config.jwt_access_ttl_secs,
         user: user.into(),
     }))
@@ -285,16 +220,8 @@ async fn logout(
     auth: AuthUser,
     Json(req): Json<RefreshRequest>,
 ) -> AppResult<StatusCode> {
-    let token_hash = hash_refresh_token(&req.refresh_token);
-
-    sqlx::query(
-        "DELETE FROM refresh_tokens WHERE token_hash = $1 AND user_id = $2",
-    )
-    .bind(&token_hash)
-    .bind(auth.user_id)
-    .execute(&state.pool)
-    .await?;
-
+    let token_hash = crate::auth::jwt::hash_refresh_token(&req.refresh_token);
+    state.token_repository.revoke_by_hash(&token_hash, auth.user_id).await?;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -303,14 +230,7 @@ async fn me(
     State(state): State<Arc<AppState>>,
     auth: AuthUser,
 ) -> AppResult<Json<UserPublic>> {
-    let user = sqlx::query_as::<_, User>(
-        "SELECT * FROM users WHERE id = $1",
-    )
-    .bind(auth.user_id)
-    .fetch_optional(&state.pool)
-    .await?
-    .ok_or_else(|| AppError::NotFound("User not found".into()))?;
-
+    let user = state.user_queries.find_by_id(auth.user_id).await?;
     Ok(Json(user.into()))
 }
 
@@ -321,29 +241,19 @@ async fn create_invite(
 ) -> AppResult<(StatusCode, Json<InviteResponse>)> {
     auth.require_role("admin")?;
 
-    let code = generate_refresh_token(); // reuse the random string generator
-    let expires_at = Utc::now() + Duration::days(7);
-
-    sqlx::query(
-        r#"
-        INSERT INTO invite_tokens (id, code, created_by, expires_at)
-        VALUES ($1, $2, $3, $4)
-        "#,
-    )
-    .bind(Uuid::new_v4())
-    .bind(&code)
-    .bind(auth.user_id)
-    .bind(expires_at)
-    .execute(&state.pool)
-    .await?;
+    let invite = state.token_repository.create_invite(auth.user_id, 7).await?;
 
     Ok((
         StatusCode::CREATED,
-        Json(InviteResponse { code, expires_at }),
+        Json(InviteResponse {
+            code: invite.code,
+            expires_at: invite.expires_at,
+        }),
     ))
 }
 
 /// Register a new user with a valid invite code.
+/// All operations are wrapped in a single transaction for consistency.
 async fn register(
     State(state): State<Arc<AppState>>,
     Json(req): Json<RegisterRequest>,
@@ -354,63 +264,38 @@ async fn register(
         ));
     }
 
+    let mut tx = state.pool.begin().await?;
+
     // Validate invite code
-    let invite = sqlx::query_as::<_, InviteToken>(
-        "SELECT * FROM invite_tokens WHERE code = $1 AND used_by IS NULL AND expires_at > NOW()",
-    )
-    .bind(&req.invite_code)
-    .fetch_optional(&state.pool)
-    .await?
-    .ok_or_else(|| AppError::BadRequest("Invalid or expired invite code".into()))?;
+    let invite = state
+        .token_repository
+        .find_valid_invite_in_tx(&mut tx, &req.invite_code)
+        .await?
+        .ok_or_else(|| AppError::BadRequest("Invalid or expired invite code".into()))?;
 
     // Check username uniqueness
-    let exists: bool = sqlx::query_scalar(
-        "SELECT EXISTS(SELECT 1 FROM users WHERE username = $1)",
-    )
-    .bind(&req.username)
-    .fetch_one(&state.pool)
-    .await?;
-
-    if exists {
+    if state.user_queries.username_exists_in_tx(&mut tx, &req.username).await? {
         return Err(AppError::Conflict("Username already taken".into()));
     }
 
     let user_id = Uuid::new_v4();
     let pw_hash = hash_password(&req.password)?;
 
-    let user = sqlx::query_as::<_, User>(
-        r#"
-        INSERT INTO users (id, username, password_hash, display_name, role)
-        VALUES ($1, $2, $3, $4, 'member')
-        RETURNING *
-        "#,
-    )
-    .bind(user_id)
-    .bind(&req.username)
-    .bind(&pw_hash)
-    .bind(&req.display_name)
-    .fetch_one(&state.pool)
-    .await?;
+    let user = state.user_queries.create_in_tx(
+        &mut tx, user_id, &req.username, &pw_hash, req.display_name.as_deref(), "member",
+    ).await?;
 
     // Mark invite as used
-    sqlx::query("UPDATE invite_tokens SET used_by = $1 WHERE id = $2")
-        .bind(user_id)
-        .bind(invite.id)
-        .execute(&state.pool)
-        .await?;
+    state.token_repository.mark_invite_used_in_tx(&mut tx, invite.id, user_id).await?;
 
     // Create user's ephemeral container via event store (survives rebuild_all)
     let container_id = Uuid::new_v4();
     let create_req = build_user_container_request(&req.username, req.display_name.as_deref());
 
     let evt_metadata = EventMetadata::default();
-    state.item_commands.create_item(container_id, &create_req, user_id, &evt_metadata).await?;
+    state.item_commands.create_item_in_tx(&mut tx, container_id, &create_req, user_id, &evt_metadata).await?;
 
-    sqlx::query("UPDATE users SET container_id = $1 WHERE id = $2")
-        .bind(container_id)
-        .bind(user_id)
-        .execute(&state.pool)
-        .await?;
+    state.user_queries.set_container_in_tx(&mut tx, user_id, container_id).await?;
 
     // Issue tokens
     let access_token = create_access_token(
@@ -420,29 +305,17 @@ async fn register(
         state.config.jwt_access_ttl_secs,
     )?;
 
-    let refresh_token = generate_refresh_token();
-    let token_hash = hash_refresh_token(&refresh_token);
-    let expires_at = Utc::now() + Duration::days(state.config.jwt_refresh_ttl_days as i64);
+    let issued = state.token_repository.issue_refresh_token_in_tx(
+        &mut tx, user_id, "registration", state.config.jwt_refresh_ttl_days,
+    ).await?;
 
-    sqlx::query(
-        r#"
-        INSERT INTO refresh_tokens (id, user_id, token_hash, device_name, expires_at)
-        VALUES ($1, $2, $3, $4, $5)
-        "#,
-    )
-    .bind(Uuid::new_v4())
-    .bind(user_id)
-    .bind(&token_hash)
-    .bind("registration")
-    .bind(expires_at)
-    .execute(&state.pool)
-    .await?;
+    tx.commit().await?;
 
     Ok((
         StatusCode::CREATED,
         Json(AuthResponse {
             access_token,
-            refresh_token,
+            refresh_token: issued.raw_token,
             expires_in: state.config.jwt_access_ttl_secs,
             user: user.into(),
         }),

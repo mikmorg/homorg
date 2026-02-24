@@ -5,15 +5,9 @@ use tower_http::trace::TraceLayer;
 use tracing_subscriber::EnvFilter;
 
 use homorg::api;
-use homorg::commands::barcode_commands::BarcodeCommands;
-use homorg::commands::item_commands::ItemCommands;
-use homorg::commands::undo_commands::UndoCommands;
 use homorg::config::AppConfig;
 use homorg::db;
 use homorg::events::store::EventStore;
-use homorg::queries::container_queries::ContainerQueries;
-use homorg::queries::item_queries::ItemQueries;
-use homorg::queries::search_queries::SearchQueries;
 use homorg::storage::LocalStorage;
 use homorg::AppState;
 
@@ -48,28 +42,9 @@ async fn main() {
     storage.init().await.expect("Failed to initialize storage");
     let storage: Arc<dyn homorg::storage::StorageBackend> = Arc::new(storage);
 
-    // Build service layers
+    // Build shared state via constructor
     let event_store = EventStore::new(pool.clone());
-    let item_commands = ItemCommands::new(pool.clone(), event_store.clone());
-    let undo_commands = UndoCommands::new(pool.clone(), event_store.clone());
-    let barcode_commands = BarcodeCommands::new(pool.clone(), config.clone());
-    let item_queries = ItemQueries::new(pool.clone());
-    let container_queries = ContainerQueries::new(pool.clone());
-    let search_queries = SearchQueries::new(pool.clone());
-
-    // Build shared state
-    let state = Arc::new(AppState {
-        config: config.clone(),
-        pool: pool.clone(),
-        event_store,
-        item_commands,
-        undo_commands,
-        barcode_commands,
-        item_queries,
-        container_queries,
-        search_queries,
-        storage,
-    });
+    let state = Arc::new(AppState::new(config.clone(), pool, event_store, storage));
 
     // Build CORS layer from config
     let cors = if config.cors_origins.len() == 1 && config.cors_origins[0] == "*" {
