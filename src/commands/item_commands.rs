@@ -130,12 +130,14 @@ impl ItemCommands {
         actor_id: Uuid,
         metadata: &EventMetadata,
     ) -> AppResult<StoredEvent> {
-        // Fetch current state to compute diffs
+        let mut tx = self.pool.begin().await?;
+
+        // Fetch current state to compute diffs (inside tx to prevent TOCTOU)
         let current = sqlx::query_as::<_, Item>(
             "SELECT * FROM items WHERE id = $1 AND is_deleted = FALSE",
         )
         .bind(item_id)
-        .fetch_optional(&self.pool)
+        .fetch_optional(&mut *tx)
         .await?
         .ok_or_else(|| AppError::NotFound(format!("Item {item_id} not found")))?;
 
@@ -205,7 +207,7 @@ impl ItemCommands {
                     "SELECT COUNT(*) FROM items WHERE parent_id = $1 AND is_deleted = FALSE",
                 )
                 .bind(item_id)
-                .fetch_one(&self.pool)
+                .fetch_one(&mut *tx)
                 .await?;
 
                 if child_count > 0 {
@@ -218,7 +220,6 @@ impl ItemCommands {
 
         let event = DomainEvent::ItemUpdated(ItemUpdatedData { changes });
 
-        let mut tx = self.pool.begin().await?;
         let stored = self.event_store.append_in_tx(&mut tx, item_id, &event, actor_id, metadata).await?;
         Projector::apply(&mut tx, item_id, &event, actor_id).await?;
         tx.commit().await?;
@@ -312,12 +313,14 @@ impl ItemCommands {
         actor_id: Uuid,
         metadata: &EventMetadata,
     ) -> AppResult<StoredEvent> {
-        // Check item exists and whether it's a container
+        let mut tx = self.pool.begin().await?;
+
+        // Check item exists and whether it's a container (inside tx to prevent TOCTOU)
         let row = sqlx::query_as::<_, (Uuid, bool)>(
             "SELECT id, is_container FROM items WHERE id = $1 AND is_deleted = FALSE",
         )
         .bind(item_id)
-        .fetch_optional(&self.pool)
+        .fetch_optional(&mut *tx)
         .await?
         .ok_or_else(|| AppError::NotFound(format!("Item {item_id} not found")))?;
 
@@ -327,7 +330,7 @@ impl ItemCommands {
                 "SELECT COUNT(*) FROM items WHERE parent_id = $1 AND is_deleted = FALSE",
             )
             .bind(item_id)
-            .fetch_one(&self.pool)
+            .fetch_one(&mut *tx)
             .await?;
 
             if child_count > 0 {
@@ -339,7 +342,6 @@ impl ItemCommands {
 
         let event = DomainEvent::ItemDeleted(ItemDeletedData { reason });
 
-        let mut tx = self.pool.begin().await?;
         let stored = self.event_store.append_in_tx(&mut tx, item_id, &event, actor_id, metadata).await?;
         Projector::apply(&mut tx, item_id, &event, actor_id).await?;
         tx.commit().await?;
@@ -355,11 +357,13 @@ impl ItemCommands {
         actor_id: Uuid,
         metadata: &EventMetadata,
     ) -> AppResult<StoredEvent> {
+        let mut tx = self.pool.begin().await?;
+
         let item = sqlx::query_as::<_, (Uuid, bool, Option<Uuid>)>(
             "SELECT id, is_deleted, parent_id FROM items WHERE id = $1",
         )
         .bind(item_id)
-        .fetch_optional(&self.pool)
+        .fetch_optional(&mut *tx)
         .await?
         .ok_or_else(|| AppError::NotFound(format!("Item {item_id} not found")))?;
 
@@ -373,7 +377,7 @@ impl ItemCommands {
                 "SELECT EXISTS(SELECT 1 FROM items WHERE id = $1 AND is_deleted = FALSE AND is_container = TRUE)",
             )
             .bind(parent_id)
-            .fetch_one(&self.pool)
+            .fetch_one(&mut *tx)
             .await?;
 
             if !parent_ok {
@@ -385,7 +389,6 @@ impl ItemCommands {
 
         let event = DomainEvent::ItemRestored(ItemRestoredData { from_event_id: None });
 
-        let mut tx = self.pool.begin().await?;
         let stored = self.event_store.append_in_tx(&mut tx, item_id, &event, actor_id, metadata).await?;
         Projector::apply(&mut tx, item_id, &event, actor_id).await?;
         tx.commit().await?;
@@ -477,11 +480,13 @@ impl ItemCommands {
         actor_id: Uuid,
         metadata: &EventMetadata,
     ) -> AppResult<StoredEvent> {
+        let mut tx = self.pool.begin().await?;
+
         let current = sqlx::query_as::<_, (bool, Option<i32>)>(
             "SELECT is_fungible, fungible_quantity FROM items WHERE id = $1 AND is_deleted = FALSE",
         )
         .bind(item_id)
-        .fetch_optional(&self.pool)
+        .fetch_optional(&mut *tx)
         .await?
         .ok_or_else(|| AppError::NotFound(format!("Item {item_id} not found")))?;
 
@@ -495,7 +500,6 @@ impl ItemCommands {
             reason: req.reason.clone(),
         });
 
-        let mut tx = self.pool.begin().await?;
         let stored = self.event_store.append_in_tx(&mut tx, item_id, &event, actor_id, metadata).await?;
         Projector::apply(&mut tx, item_id, &event, actor_id).await?;
         tx.commit().await?;
@@ -511,11 +515,13 @@ impl ItemCommands {
         actor_id: Uuid,
         metadata: &EventMetadata,
     ) -> AppResult<StoredEvent> {
+        let mut tx = self.pool.begin().await?;
+
         let current_schema: Option<serde_json::Value> = sqlx::query_scalar(
             "SELECT location_schema FROM items WHERE id = $1 AND is_container = TRUE AND is_deleted = FALSE",
         )
         .bind(container_id)
-        .fetch_optional(&self.pool)
+        .fetch_optional(&mut *tx)
         .await?
         .ok_or_else(|| AppError::NotFound(format!("Container {container_id} not found")))?;
 
@@ -524,7 +530,6 @@ impl ItemCommands {
             new_schema,
         });
 
-        let mut tx = self.pool.begin().await?;
         let stored = self.event_store.append_in_tx(&mut tx, container_id, &event, actor_id, metadata).await?;
         Projector::apply(&mut tx, container_id, &event, actor_id).await?;
         tx.commit().await?;

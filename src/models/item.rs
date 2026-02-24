@@ -55,10 +55,24 @@ pub struct Item {
 
     // Audit
     pub is_deleted: bool,
+    pub deleted_at: Option<DateTime<Utc>>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
     pub created_by: Option<Uuid>,
     pub updated_by: Option<Uuid>,
+
+    // Currency (ISO 4217)
+    pub currency: Option<String>,
+
+    // pgvector embedding (stored as JSON for sqlx compat; nullable)
+    #[sqlx(skip)]
+    #[serde(skip)]
+    pub embedding: Option<()>,
+
+    // AI classification
+    pub classification_confidence: Option<f32>,
+    pub needs_review: bool,
+    pub ai_description: Option<String>,
 }
 
 /// Slim item representation for list/search results.

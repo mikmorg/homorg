@@ -87,6 +87,7 @@ impl SessionRepository {
         items_scanned: i32,
         items_created: i32,
         items_moved: i32,
+        items_errored: i32,
     ) -> AppResult<()> {
         sqlx::query(
             r#"
@@ -94,14 +95,16 @@ impl SessionRepository {
             SET active_container_id = $1,
                 items_scanned = items_scanned + $2,
                 items_created = items_created + $3,
-                items_moved = items_moved + $4
-            WHERE id = $5
+                items_moved = items_moved + $4,
+                items_errored = items_errored + $5
+            WHERE id = $6
             "#,
         )
         .bind(active_container_id)
         .bind(items_scanned)
         .bind(items_created)
         .bind(items_moved)
+        .bind(items_errored)
         .bind(session_id)
         .execute(&self.pool)
         .await?;
@@ -117,6 +120,7 @@ impl SessionRepository {
         items_scanned: i32,
         items_created: i32,
         items_moved: i32,
+        items_errored: i32,
     ) -> AppResult<()> {
         sqlx::query(
             r#"
@@ -124,14 +128,16 @@ impl SessionRepository {
             SET active_container_id = $1,
                 items_scanned = items_scanned + $2,
                 items_created = items_created + $3,
-                items_moved = items_moved + $4
-            WHERE id = $5
+                items_moved = items_moved + $4,
+                items_errored = items_errored + $5
+            WHERE id = $6
             "#,
         )
         .bind(active_container_id)
         .bind(items_scanned)
         .bind(items_created)
         .bind(items_moved)
+        .bind(items_errored)
         .bind(session_id)
         .execute(&mut **tx)
         .await?;

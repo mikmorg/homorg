@@ -13,6 +13,8 @@ pub struct ScanSession {
     pub items_scanned: i32,
     pub items_created: i32,
     pub items_moved: i32,
+    pub device_id: Option<String>,
+    pub items_errored: i32,
 }
 
 /// A single event in a stocker batch submission.

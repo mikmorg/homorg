@@ -16,6 +16,7 @@ pub struct StoredEvent {
     pub actor_id: Option<Uuid>,
     pub created_at: DateTime<Utc>,
     pub sequence_number: i64,
+    pub schema_version: i32,
 }
 
 /// Domain event variants for type-safe event handling.

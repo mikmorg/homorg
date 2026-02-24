@@ -88,6 +88,7 @@ async fn submit_batch(
     let mut items_scanned: i32 = 0;
     let mut items_created: i32 = 0;
     let mut items_moved: i32 = 0;
+    let mut items_errored: i32 = 0;
 
     if atomic {
         // True atomic mode: wrap all operations in a single transaction.
@@ -122,7 +123,7 @@ async fn submit_batch(
 
         // Update session stats within the same transaction
         state.session_repository.update_stats_in_tx(
-            &mut tx, session_id, active_container_id, items_scanned, items_created, items_moved,
+            &mut tx, session_id, active_container_id, items_scanned, items_created, items_moved, items_errored,
         ).await?;
 
         tx.commit().await?;
@@ -155,6 +156,7 @@ async fn submit_batch(
                     results.push(batch_result);
                 }
                 Err(e) => {
+                    items_errored += 1;
                     errors.push(StockerBatchError {
                         index,
                         code: "BATCH_EVENT_FAILED".into(),
@@ -166,7 +168,7 @@ async fn submit_batch(
 
         // Update session stats
         state.session_repository.update_stats(
-            session_id, active_container_id, items_scanned, items_created, items_moved,
+            session_id, active_container_id, items_scanned, items_created, items_moved, items_errored,
         ).await?;
     }
 

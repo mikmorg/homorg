@@ -37,10 +37,11 @@ impl EventStore {
         // The UNIQUE constraint on (aggregate_id, sequence_number) provides a safety net.
         let row = sqlx::query_as::<_, StoredEvent>(
             r#"
-            INSERT INTO event_store (event_id, aggregate_id, aggregate_type, event_type, event_data, metadata, actor_id, sequence_number)
+            INSERT INTO event_store (event_id, aggregate_id, aggregate_type, event_type, event_data, metadata, actor_id, sequence_number, schema_version)
             VALUES ($1, $2, 'item', $3, $4, $5, $6,
-                    (SELECT COALESCE(MAX(sequence_number), 0) + 1 FROM event_store WHERE aggregate_id = $2))
-            RETURNING id, event_id, aggregate_id, aggregate_type, event_type, event_data, metadata, actor_id, created_at, sequence_number
+                    (SELECT COALESCE(MAX(sequence_number), 0) + 1 FROM event_store WHERE aggregate_id = $2),
+                    1)
+            RETURNING id, event_id, aggregate_id, aggregate_type, event_type, event_data, metadata, actor_id, created_at, sequence_number, schema_version
             "#,
         )
         .bind(event_id)
@@ -89,7 +90,7 @@ impl EventStore {
         let from = from_sequence.unwrap_or(0);
         let rows = sqlx::query_as::<_, StoredEvent>(
             r#"
-            SELECT id, event_id, aggregate_id, aggregate_type, event_type, event_data, metadata, actor_id, created_at, sequence_number
+            SELECT id, event_id, aggregate_id, aggregate_type, event_type, event_data, metadata, actor_id, created_at, sequence_number, schema_version
             FROM event_store
             WHERE aggregate_id = $1 AND sequence_number >= $2
             ORDER BY sequence_number ASC
@@ -106,7 +107,7 @@ impl EventStore {
     pub async fn get_events_by_session(&self, session_id: &str) -> AppResult<Vec<StoredEvent>> {
         let rows = sqlx::query_as::<_, StoredEvent>(
             r#"
-            SELECT id, event_id, aggregate_id, aggregate_type, event_type, event_data, metadata, actor_id, created_at, sequence_number
+            SELECT id, event_id, aggregate_id, aggregate_type, event_type, event_data, metadata, actor_id, created_at, sequence_number, schema_version
             FROM event_store
             WHERE metadata->>'session_id' = $1
             ORDER BY id ASC
@@ -129,7 +130,7 @@ impl EventStore {
         let after = after_id.unwrap_or(0);
         let rows = sqlx::query_as::<_, StoredEvent>(
             r#"
-            SELECT id, event_id, aggregate_id, aggregate_type, event_type, event_data, metadata, actor_id, created_at, sequence_number
+            SELECT id, event_id, aggregate_id, aggregate_type, event_type, event_data, metadata, actor_id, created_at, sequence_number, schema_version
             FROM event_store
             WHERE id > $1
               AND ($2::text IS NULL OR event_type = $2)
@@ -151,7 +152,7 @@ impl EventStore {
     pub async fn get_event_by_id(&self, event_id: Uuid) -> AppResult<StoredEvent> {
         sqlx::query_as::<_, StoredEvent>(
             r#"
-            SELECT id, event_id, aggregate_id, aggregate_type, event_type, event_data, metadata, actor_id, created_at, sequence_number
+            SELECT id, event_id, aggregate_id, aggregate_type, event_type, event_data, metadata, actor_id, created_at, sequence_number, schema_version
             FROM event_store
             WHERE event_id = $1
             "#,

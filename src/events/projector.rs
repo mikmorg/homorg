@@ -271,7 +271,7 @@ impl Projector {
         id: Uuid,
         actor_id: Uuid,
     ) -> AppResult<()> {
-        sqlx::query("UPDATE items SET is_deleted = TRUE, updated_by = $1 WHERE id = $2")
+        sqlx::query("UPDATE items SET is_deleted = TRUE, deleted_at = NOW(), updated_by = $1 WHERE id = $2")
             .bind(actor_id)
             .bind(id)
             .execute(&mut **tx)
@@ -284,7 +284,7 @@ impl Projector {
         id: Uuid,
         actor_id: Uuid,
     ) -> AppResult<()> {
-        sqlx::query("UPDATE items SET is_deleted = FALSE, updated_by = $1 WHERE id = $2")
+        sqlx::query("UPDATE items SET is_deleted = FALSE, deleted_at = NULL, updated_by = $1 WHERE id = $2")
             .bind(actor_id)
             .bind(id)
             .execute(&mut **tx)
@@ -429,7 +429,7 @@ impl Projector {
         // Replay all events in order
         let events = sqlx::query_as::<_, StoredEvent>(
             r#"
-            SELECT id, event_id, aggregate_id, aggregate_type, event_type, event_data, metadata, actor_id, created_at, sequence_number
+            SELECT id, event_id, aggregate_id, aggregate_type, event_type, event_data, metadata, actor_id, created_at, sequence_number, schema_version
             FROM event_store
             ORDER BY id ASC
             "#,
