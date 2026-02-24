@@ -283,7 +283,14 @@ async fn register(
 
     let user = state.user_queries.create_in_tx(
         &mut tx, user_id, &req.username, &pw_hash, req.display_name.as_deref(), "member",
-    ).await?;
+    ).await.map_err(|e| match &e {
+        AppError::Database(sqlx::Error::Database(db_err))
+            if db_err.constraint() == Some("users_username_key") =>
+        {
+            AppError::Conflict("Username already taken".into())
+        }
+        _ => e,
+    })?;
 
     // Mark invite as used
     state.token_repository.mark_invite_used_in_tx(&mut tx, invite.id, user_id).await?;

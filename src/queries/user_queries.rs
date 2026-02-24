@@ -191,7 +191,7 @@ impl UserQueries {
 
     /// Update a user's display name.
     pub async fn update_display_name(&self, id: Uuid, display_name: &str) -> AppResult<()> {
-        sqlx::query("UPDATE users SET display_name = $1, updated_at = NOW() WHERE id = $2")
+        sqlx::query("UPDATE users SET display_name = $1 WHERE id = $2")
             .bind(display_name)
             .bind(id)
             .execute(&self.pool)
@@ -201,7 +201,7 @@ impl UserQueries {
 
     /// Update a user's password hash.
     pub async fn update_password(&self, id: Uuid, password_hash: &str) -> AppResult<()> {
-        sqlx::query("UPDATE users SET password_hash = $1, updated_at = NOW() WHERE id = $2")
+        sqlx::query("UPDATE users SET password_hash = $1 WHERE id = $2")
             .bind(password_hash)
             .bind(id)
             .execute(&self.pool)
@@ -211,7 +211,7 @@ impl UserQueries {
 
     /// Update a user's role.
     pub async fn update_role(&self, id: Uuid, role: &str) -> AppResult<()> {
-        sqlx::query("UPDATE users SET role = $1, updated_at = NOW() WHERE id = $2")
+        sqlx::query("UPDATE users SET role = $1 WHERE id = $2")
             .bind(role)
             .bind(id)
             .execute(&self.pool)
@@ -221,7 +221,7 @@ impl UserQueries {
 
     /// Deactivate a user.
     pub async fn deactivate(&self, id: Uuid) -> AppResult<()> {
-        sqlx::query("UPDATE users SET is_active = FALSE, updated_at = NOW() WHERE id = $1")
+        sqlx::query("UPDATE users SET is_active = FALSE WHERE id = $1")
             .bind(id)
             .execute(&self.pool)
             .await?;
