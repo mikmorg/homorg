@@ -201,4 +201,25 @@ impl EventStore {
         .await?;
         Ok(rows)
     }
+
+    /// Check if a compensating event already exists for the given original event_id.
+    /// Used for undo idempotency: prevents double-undo.
+    pub async fn has_compensating_event_in_tx(
+        &self,
+        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        original_event_id: Uuid,
+    ) -> AppResult<bool> {
+        let exists: bool = sqlx::query_scalar(
+            r#"
+            SELECT EXISTS(
+                SELECT 1 FROM event_store
+                WHERE metadata->>'causation_id' = $1
+            )
+            "#,
+        )
+        .bind(original_event_id.to_string())
+        .fetch_one(&mut **tx)
+        .await?;
+        Ok(exists)
+    }
 }

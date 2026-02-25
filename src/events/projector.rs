@@ -255,12 +255,32 @@ impl Projector {
         data: &ItemMoveRevertedData,
         actor_id: Uuid,
     ) -> AppResult<()> {
+        // Resolve destination: if to_container_id/to_path are None, look up current state from DB
+        let (resolved_to_id, resolved_to_path) = match (data.to_container_id, data.to_path.as_ref()) {
+            (Some(cid), Some(path)) => (cid, path.clone()),
+            _ => {
+                // Fetch current container info from the item row
+                let row: Option<(Option<Uuid>, Option<String>)> = sqlx::query_as(
+                    "SELECT parent_id, container_path::text FROM items WHERE id = $1",
+                )
+                .bind(id)
+                .fetch_optional(&mut **tx)
+                .await?;
+                match row {
+                    Some((Some(pid), Some(path))) => (pid, path),
+                    _ => return Err(AppError::Internal(
+                        "Cannot revert move: missing destination info and no current parent".into(),
+                    )),
+                }
+            }
+        };
+
         // Reuse move logic: move back to original container
         let move_data = ItemMovedData {
             from_container_id: Some(data.from_container_id),
-            to_container_id: data.to_container_id.unwrap_or(data.from_container_id),
+            to_container_id: resolved_to_id,
             from_path: Some(data.from_path.clone()),
-            to_path: data.to_path.clone().unwrap_or_else(|| data.from_path.clone()),
+            to_path: resolved_to_path,
             coordinate: data.coordinate.clone(),
         };
         Self::project_item_moved(tx, id, &move_data, actor_id).await
@@ -303,12 +323,25 @@ impl Projector {
             "caption": data.caption,
             "order": data.order,
         });
+        // Dedup: only append if no existing entry has the same path
         sqlx::query(
-            "UPDATE items SET images = images || $1::jsonb, updated_by = $2 WHERE id = $3",
+            r#"
+            UPDATE items
+            SET images = CASE
+                WHEN NOT EXISTS (
+                    SELECT 1 FROM jsonb_array_elements(images) AS elem
+                    WHERE elem->>'path' = $1
+                ) THEN images || $4::jsonb
+                ELSE images
+            END,
+            updated_by = $2
+            WHERE id = $3
+            "#,
         )
-        .bind(&entry)
+        .bind(&data.path)
         .bind(actor_id)
         .bind(id)
+        .bind(&entry)
         .execute(&mut **tx)
         .await?;
         Ok(())
@@ -347,12 +380,26 @@ impl Projector {
         actor_id: Uuid,
     ) -> AppResult<()> {
         let entry = serde_json::json!({"type": data.code_type, "value": data.value});
+        // Dedup: only append if no existing entry has the same type+value
         sqlx::query(
-            "UPDATE items SET external_codes = external_codes || $1::jsonb, updated_by = $2 WHERE id = $3",
+            r#"
+            UPDATE items
+            SET external_codes = CASE
+                WHEN NOT EXISTS (
+                    SELECT 1 FROM jsonb_array_elements(external_codes) AS elem
+                    WHERE elem->>'type' = $1 AND elem->>'value' = $4
+                ) THEN external_codes || $5::jsonb
+                ELSE external_codes
+            END,
+            updated_by = $2
+            WHERE id = $3
+            "#,
         )
-        .bind(&entry)
+        .bind(&data.code_type)
         .bind(actor_id)
         .bind(id)
+        .bind(&data.value)
+        .bind(&entry)
         .execute(&mut **tx)
         .await?;
         Ok(())

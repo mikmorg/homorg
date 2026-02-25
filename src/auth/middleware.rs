@@ -53,23 +53,22 @@ impl FromRequestParts<Arc<crate::AppState>> for AuthUser {
 
             let claims: Claims = decode_access_token(token, &config.jwt_secret)?;
 
-            // Verify user is still active (protects against deactivated users with valid JWTs)
-            let is_active: Option<bool> = sqlx::query_scalar(
-                "SELECT is_active FROM users WHERE id = $1",
+            // Verify user is still active and fetch authoritative role from DB
+            let row: Option<(bool, String)> = sqlx::query_as(
+                "SELECT is_active, role FROM users WHERE id = $1",
             )
             .bind(claims.sub)
             .fetch_optional(&pool)
             .await
             .map_err(|_| AppError::Unauthorized)?;
 
-            if is_active != Some(true) {
-                return Err(AppError::Unauthorized);
+            match row {
+                Some((true, role)) => Ok(AuthUser {
+                    user_id: claims.sub,
+                    role,
+                }),
+                _ => Err(AppError::Unauthorized),
             }
-
-            Ok(AuthUser {
-                user_id: claims.sub,
-                role: claims.role,
-            })
         }
     }
 }

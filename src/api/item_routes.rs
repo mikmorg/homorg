@@ -14,6 +14,96 @@ use crate::models::event::{EventMetadata, StoredEvent};
 use crate::models::item::*;
 use crate::AppState;
 
+// ── Input length limits ─────────────────────────────────────────────────
+const MAX_NAME_LEN: usize = 500;
+const MAX_DESCRIPTION_LEN: usize = 10_000;
+const MAX_CATEGORY_LEN: usize = 200;
+const MAX_TAG_COUNT: usize = 50;
+const MAX_TAG_LEN: usize = 100;
+const MAX_METADATA_BYTES: usize = 102_400; // 100 KiB
+const MAX_EXTERNAL_CODES: usize = 50;
+const MAX_CODE_VALUE_LEN: usize = 200;
+
+/// Validate lengths on create requests.
+fn validate_create_request(req: &CreateItemRequest) -> Result<(), AppError> {
+    if let Some(ref n) = req.name {
+        if n.len() > MAX_NAME_LEN {
+            return Err(AppError::BadRequest(format!("name exceeds {MAX_NAME_LEN} chars")));
+        }
+    }
+    if let Some(ref d) = req.description {
+        if d.len() > MAX_DESCRIPTION_LEN {
+            return Err(AppError::BadRequest(format!("description exceeds {MAX_DESCRIPTION_LEN} chars")));
+        }
+    }
+    if let Some(ref c) = req.category {
+        if c.len() > MAX_CATEGORY_LEN {
+            return Err(AppError::BadRequest(format!("category exceeds {MAX_CATEGORY_LEN} chars")));
+        }
+    }
+    if let Some(ref tags) = req.tags {
+        if tags.len() > MAX_TAG_COUNT {
+            return Err(AppError::BadRequest(format!("tags count exceeds {MAX_TAG_COUNT}")));
+        }
+        for t in tags {
+            if t.len() > MAX_TAG_LEN {
+                return Err(AppError::BadRequest(format!("tag exceeds {MAX_TAG_LEN} chars")));
+            }
+        }
+    }
+    if let Some(ref m) = req.metadata {
+        if m.to_string().len() > MAX_METADATA_BYTES {
+            return Err(AppError::BadRequest(format!("metadata exceeds {MAX_METADATA_BYTES} bytes")));
+        }
+    }
+    if let Some(ref codes) = req.external_codes {
+        if codes.len() > MAX_EXTERNAL_CODES {
+            return Err(AppError::BadRequest(format!("external_codes count exceeds {MAX_EXTERNAL_CODES}")));
+        }
+        for c in codes {
+            if c.value.len() > MAX_CODE_VALUE_LEN {
+                return Err(AppError::BadRequest(format!("external code value exceeds {MAX_CODE_VALUE_LEN} chars")));
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Validate lengths on update requests.
+fn validate_update_request(req: &UpdateItemRequest) -> Result<(), AppError> {
+    if let Some(ref n) = req.name {
+        if n.len() > MAX_NAME_LEN {
+            return Err(AppError::BadRequest(format!("name exceeds {MAX_NAME_LEN} chars")));
+        }
+    }
+    if let Some(ref d) = req.description {
+        if d.len() > MAX_DESCRIPTION_LEN {
+            return Err(AppError::BadRequest(format!("description exceeds {MAX_DESCRIPTION_LEN} chars")));
+        }
+    }
+    if let Some(ref c) = req.category {
+        if c.len() > MAX_CATEGORY_LEN {
+            return Err(AppError::BadRequest(format!("category exceeds {MAX_CATEGORY_LEN} chars")));
+        }
+    }
+    if let Some(ref tags) = req.tags {
+        if tags.len() > MAX_TAG_COUNT {
+            return Err(AppError::BadRequest(format!("tags count exceeds {MAX_TAG_COUNT}")));
+        }
+        for t in tags {
+            if t.len() > MAX_TAG_LEN {
+                return Err(AppError::BadRequest(format!("tag exceeds {MAX_TAG_LEN} chars")));
+            }
+        }
+    }
+    if let Some(ref m) = req.metadata {
+        if m.to_string().len() > MAX_METADATA_BYTES {
+            return Err(AppError::BadRequest(format!("metadata exceeds {MAX_METADATA_BYTES} bytes")));
+        }
+    }
+    Ok(())
+}
+
 pub fn router() -> Router<Arc<AppState>> {
     Router::new()
         .route("/", post(create_item))
@@ -38,6 +128,7 @@ async fn create_item(
     Json(mut req): Json<CreateItemRequest>,
 ) -> AppResult<(StatusCode, Json<StoredEvent>)> {
     auth.require_role("member")?;
+    validate_create_request(&req)?;
 
     // Auto-generate barcode if not provided
     if req.system_barcode.is_none() {
@@ -74,6 +165,7 @@ async fn update_item(
     Json(req): Json<UpdateItemRequest>,
 ) -> AppResult<Json<StoredEvent>> {
     auth.require_role("member")?;
+    validate_update_request(&req)?;
     let metadata = EventMetadata::default();
     let event = state
         .item_commands
@@ -232,22 +324,16 @@ async fn remove_image(
 ) -> AppResult<Json<StoredEvent>> {
     auth.require_role("member")?;
 
-    // Get current images via query layer
-    let images = state.item_queries.get_images(id).await?;
-
-    let entry = images
-        .get(idx)
-        .ok_or_else(|| AppError::NotFound(format!("Image index {idx} not found")))?;
-
     let metadata = EventMetadata::default();
-    let event = state
+    // TOCTOU-safe: index resolved inside a transaction
+    let (event, path) = state
         .item_commands
-        .remove_image(id, entry.path.clone(), auth.user_id, &metadata)
+        .remove_image_by_index(id, idx, auth.user_id, &metadata)
         .await?;
 
     // Clean up file from storage (best-effort, log on failure)
-    if let Err(e) = state.storage.delete(&entry.path).await {
-        tracing::warn!(path = %entry.path, error = %e, "Failed to delete image file from storage");
+    if let Err(e) = state.storage.delete(&path).await {
+        tracing::warn!(path = %path, error = %e, "Failed to delete image file from storage");
     }
 
     Ok(Json(event))

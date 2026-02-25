@@ -455,6 +455,44 @@ impl ItemCommands {
         Ok(stored)
     }
 
+    /// Remove an image by index (TOCTOU-safe: resolves index within the transaction).
+    /// Returns (StoredEvent, path) so the caller can clean up the file.
+    pub async fn remove_image_by_index(
+        &self,
+        item_id: Uuid,
+        index: usize,
+        actor_id: Uuid,
+        metadata: &EventMetadata,
+    ) -> AppResult<(StoredEvent, String)> {
+        let mut tx = self.pool.begin().await?;
+        self.verify_item_exists(&mut tx, item_id).await?;
+
+        // Resolve image path inside the transaction
+        let images_json: serde_json::Value = sqlx::query_scalar(
+            "SELECT images FROM items WHERE id = $1 AND is_deleted = FALSE",
+        )
+        .bind(item_id)
+        .fetch_optional(&mut *tx)
+        .await?
+        .ok_or_else(|| AppError::NotFound(format!("Item {item_id} not found")))?;
+
+        let images: Vec<crate::models::item::ImageEntry> = serde_json::from_value(images_json)
+            .map_err(|_| AppError::Internal("Failed to parse images".into()))?;
+
+        let entry = images
+            .get(index)
+            .ok_or_else(|| AppError::NotFound(format!("Image index {index} not found")))?;
+
+        let path = entry.path.clone();
+        let event = DomainEvent::ItemImageRemoved(ItemImageRemovedData { path: path.clone() });
+
+        let stored = self.event_store.append_in_tx(&mut tx, item_id, &event, actor_id, metadata).await?;
+        Projector::apply(&mut tx, item_id, &event, actor_id).await?;
+        tx.commit().await?;
+
+        Ok((stored, path))
+    }
+
     /// Add an external code (UPC, EAN, ISBN) to an item.
     pub async fn add_external_code(
         &self,

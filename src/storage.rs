@@ -79,8 +79,12 @@ impl StorageBackend for LocalStorage {
     }
 
     fn get_url(&self, key: &str) -> String {
-        // Sanitize: strip any path traversal components
-        let safe_key = key.replace("..", "");
+        // Reject any key containing path traversal sequences
+        let safe_key = if key.contains("..") {
+            key.replace(['/', '\\'], "_").replace("..", "")
+        } else {
+            key.to_string()
+        };
         format!("/files/{safe_key}")
     }
 }

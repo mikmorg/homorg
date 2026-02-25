@@ -116,7 +116,7 @@ async fn submit_batch(
             match &result {
                 StockerBatchResult::Created { .. } => items_created += 1,
                 StockerBatchResult::Moved { .. } => items_moved += 1,
-                StockerBatchResult::ContextSet { .. } => {}
+                StockerBatchResult::ContextSet { .. } => { items_scanned -= 1; }
             }
             results.push(result);
         }
@@ -151,7 +151,7 @@ async fn submit_batch(
                     match &batch_result {
                         StockerBatchResult::Created { .. } => items_created += 1,
                         StockerBatchResult::Moved { .. } => items_moved += 1,
-                        StockerBatchResult::ContextSet { .. } => {}
+                        StockerBatchResult::ContextSet { .. } => { items_scanned -= 1; }
                     }
                     results.push(batch_result);
                 }

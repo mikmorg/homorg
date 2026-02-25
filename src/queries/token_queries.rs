@@ -94,7 +94,7 @@ impl TokenRepository {
         token_hash: &str,
     ) -> AppResult<Option<RefreshTokenRow>> {
         let row = sqlx::query_as::<_, RefreshTokenRow>(
-            "SELECT * FROM refresh_tokens WHERE token_hash = $1 AND expires_at > NOW() AND revoked_at IS NULL",
+            "SELECT * FROM refresh_tokens WHERE token_hash = $1 AND expires_at > NOW() AND revoked_at IS NULL FOR UPDATE",
         )
         .bind(token_hash)
         .fetch_optional(&mut **tx)
@@ -144,10 +144,10 @@ impl TokenRepository {
         Ok(())
     }
 
-    /// Revoke a specific refresh token by hash and user.
+    /// Revoke a specific refresh token by hash and user (soft-revoke for reuse detection).
     pub async fn revoke_by_hash(&self, token_hash: &str, user_id: Uuid) -> AppResult<()> {
         sqlx::query(
-            "DELETE FROM refresh_tokens WHERE token_hash = $1 AND user_id = $2",
+            "UPDATE refresh_tokens SET revoked_at = NOW() WHERE token_hash = $1 AND user_id = $2 AND revoked_at IS NULL",
         )
         .bind(token_hash)
         .bind(user_id)
@@ -156,9 +156,9 @@ impl TokenRepository {
         Ok(())
     }
 
-    /// Revoke all refresh tokens for a user (e.g. on deactivation).
+    /// Revoke all refresh tokens for a user (e.g. on deactivation). Soft-revoke preserves reuse detection.
     pub async fn revoke_all_for_user(&self, user_id: Uuid) -> AppResult<()> {
-        sqlx::query("DELETE FROM refresh_tokens WHERE user_id = $1")
+        sqlx::query("UPDATE refresh_tokens SET revoked_at = NOW() WHERE user_id = $1 AND revoked_at IS NULL")
             .bind(user_id)
             .execute(&self.pool)
             .await?;
@@ -171,6 +171,16 @@ impl TokenRepository {
             "DELETE FROM refresh_tokens WHERE revoked_at IS NOT NULL AND revoked_at < NOW() - $1::interval",
         )
         .bind(format!("{max_age_days} days"))
+        .execute(&self.pool)
+        .await?;
+        Ok(result.rows_affected())
+    }
+
+    /// Purge expired tokens (past expires_at) regardless of revoked status.
+    pub async fn purge_expired(&self) -> AppResult<u64> {
+        let result = sqlx::query(
+            "DELETE FROM refresh_tokens WHERE expires_at < NOW()",
+        )
         .execute(&self.pool)
         .await?;
         Ok(result.rows_affected())
@@ -215,14 +225,14 @@ impl TokenRepository {
         Ok(invite)
     }
 
-    /// Find a valid invite within a transaction.
+    /// Find a valid invite within a transaction (locks row for update).
     pub async fn find_valid_invite_in_tx(
         &self,
         tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
         code: &str,
     ) -> AppResult<Option<InviteToken>> {
         let invite = sqlx::query_as::<_, InviteToken>(
-            "SELECT * FROM invite_tokens WHERE code = $1 AND used_by IS NULL AND expires_at > NOW()",
+            "SELECT * FROM invite_tokens WHERE code = $1 AND used_by IS NULL AND expires_at > NOW() FOR UPDATE",
         )
         .bind(code)
         .fetch_optional(&mut **tx)
@@ -230,18 +240,21 @@ impl TokenRepository {
         Ok(invite)
     }
 
-    /// Mark an invite as used.
+    /// Mark an invite as used (conditional: only if not already used).
     pub async fn mark_invite_used_in_tx(
         &self,
         tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
         invite_id: Uuid,
         used_by: Uuid,
     ) -> AppResult<()> {
-        sqlx::query("UPDATE invite_tokens SET used_by = $1 WHERE id = $2")
+        let result = sqlx::query("UPDATE invite_tokens SET used_by = $1 WHERE id = $2 AND used_by IS NULL")
             .bind(used_by)
             .bind(invite_id)
             .execute(&mut **tx)
             .await?;
+        if result.rows_affected() == 0 {
+            return Err(crate::errors::AppError::Conflict("Invite code already used".into()));
+        }
         Ok(())
     }
 }

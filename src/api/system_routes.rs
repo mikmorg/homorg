@@ -35,11 +35,14 @@ async fn health(State(state): State<Arc<AppState>>) -> (StatusCode, Json<HealthR
 
     let (status_code, status, database) = match db_status {
         Ok(_) => (StatusCode::OK, "ok".to_string(), "connected".to_string()),
-        Err(e) => (
-            StatusCode::SERVICE_UNAVAILABLE,
-            "degraded".to_string(),
-            format!("error: {e}"),
-        ),
+        Err(e) => {
+            tracing::error!(error = %e, "Health check: database unreachable");
+            (
+                StatusCode::SERVICE_UNAVAILABLE,
+                "degraded".to_string(),
+                "unavailable".to_string(),
+            )
+        }
     };
 
     (status_code, Json(HealthResponse { status, database }))

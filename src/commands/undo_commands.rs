@@ -20,12 +20,20 @@ impl UndoCommands {
 
     /// Undo a single event by generating a compensating event.
     /// Any member can undo any event (no item ownership model).
+    /// Idempotent: returns Conflict if already undone.
     pub async fn undo_event(
         &self,
         event_id: Uuid,
         actor_id: Uuid,
     ) -> AppResult<StoredEvent> {
-        let original = self.event_store.get_event_by_id(event_id).await?;
+        let mut tx = self.pool.begin().await?;
+
+        // Idempotency guard: reject if already undone
+        if self.event_store.has_compensating_event_in_tx(&mut tx, event_id).await? {
+            return Err(AppError::Conflict(format!("Event {event_id} has already been undone")));
+        }
+
+        let original = self.event_store.get_event_by_id_in_tx(&mut tx, event_id).await?;
         let domain_event: DomainEvent = serde_json::from_value(original.event_data.clone())
             .map_err(|e| AppError::Internal(format!("Failed to deserialize event: {e}")))?;
 
@@ -40,7 +48,6 @@ impl UndoCommands {
             ..Default::default()
         };
 
-        let mut tx = self.pool.begin().await?;
         let stored = self.event_store.append_in_tx(
             &mut tx, aggregate_id, &compensating_event, actor_id, &metadata,
         ).await?;
@@ -63,6 +70,11 @@ impl UndoCommands {
 
         // Process in reverse order (most recent first) for consistency
         for &eid in event_ids.iter().rev() {
+            // Idempotency guard: skip events already undone
+            if self.event_store.has_compensating_event_in_tx(&mut tx, eid).await? {
+                continue;
+            }
+
             let original = self.event_store.get_event_by_id_in_tx(&mut tx, eid).await?;
             let domain_event: DomainEvent = serde_json::from_value(original.event_data.clone())
                 .map_err(|e| AppError::Internal(format!("Failed to deserialize event: {e}")))?;
@@ -105,6 +117,11 @@ impl UndoCommands {
 
         // Process in reverse order within the same transaction
         for &eid in event_ids.iter().rev() {
+            // Idempotency guard: skip events already undone
+            if self.event_store.has_compensating_event_in_tx(&mut tx, eid).await? {
+                continue;
+            }
+
             let original = self.event_store.get_event_by_id_in_tx(&mut tx, eid).await?;
             let domain_event: DomainEvent = serde_json::from_value(original.event_data.clone())
                 .map_err(|e| AppError::Internal(format!("Failed to deserialize event: {e}")))?;

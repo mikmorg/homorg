@@ -29,14 +29,17 @@ pub struct AppConfig {
 }
 
 impl AppConfig {
-    pub fn from_env() -> Result<Self, env::VarError> {
-        let jwt_secret = env::var("JWT_SECRET")?;
+    pub fn from_env() -> Result<Self, String> {
+        let jwt_secret = env::var("JWT_SECRET").map_err(|e| format!("JWT_SECRET: {e}"))?;
         if jwt_secret.len() < 32 {
-            eprintln!("WARNING: JWT_SECRET should be at least 32 characters for adequate security");
+            return Err(format!(
+                "JWT_SECRET must be at least 32 characters for adequate security (got {})",
+                jwt_secret.len()
+            ));
         }
 
         Ok(Self {
-            database_url: env::var("DATABASE_URL")?,
+            database_url: env::var("DATABASE_URL").map_err(|e| format!("DATABASE_URL: {e}"))?,
             jwt_secret,
             jwt_access_ttl_secs: env::var("JWT_ACCESS_TTL_SECS")
                 .unwrap_or_else(|_| "900".into())
@@ -113,6 +116,10 @@ impl AppConfig {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Mutex;
+
+    // Env vars are process-global; serialize config tests to prevent races
+    static ENV_LOCK: Mutex<()> = Mutex::new(());
 
     /// Set the minimum required env vars for `from_env()` to succeed.
     fn set_required_env() {
@@ -122,6 +129,7 @@ mod tests {
 
     #[test]
     fn from_env_with_required_vars_uses_defaults() {
+        let _guard = ENV_LOCK.lock().unwrap();
         set_required_env();
         // Remove optional vars to test defaults
         std::env::remove_var("JWT_ACCESS_TTL_SECS");
@@ -157,14 +165,27 @@ mod tests {
 
     #[test]
     fn from_env_fails_without_database_url() {
+        let _guard = ENV_LOCK.lock().unwrap();
         std::env::remove_var("DATABASE_URL");
         std::env::set_var("JWT_SECRET", "test-secret-that-is-at-least-32-chars-long!");
         let result = AppConfig::from_env();
         assert!(result.is_err());
+        assert!(result.unwrap_err().contains("DATABASE_URL"));
+    }
+
+    #[test]
+    fn from_env_rejects_short_jwt_secret() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        std::env::set_var("DATABASE_URL", "postgres://test:test@localhost/test");
+        std::env::set_var("JWT_SECRET", "too-short");
+        let result = AppConfig::from_env();
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("at least 32 characters"));
     }
 
     #[test]
     fn cors_origins_splits_on_comma() {
+        let _guard = ENV_LOCK.lock().unwrap();
         set_required_env();
         std::env::set_var("CORS_ORIGINS", "http://a.com, http://b.com");
         let config = AppConfig::from_env().unwrap();

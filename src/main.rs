@@ -54,6 +54,36 @@ async fn main() {
     let event_store = EventStore::new(pool.clone());
     let state = Arc::new(AppState::new(config.clone(), pool, event_store, storage));
 
+    // Run initial token cleanup and start periodic background task
+    {
+        let token_repo = state.token_repository.clone();
+        // Purge expired tokens at startup
+        match token_repo.purge_expired().await {
+            Ok(n) if n > 0 => tracing::info!("Purged {n} expired tokens at startup"),
+            Ok(_) => {}
+            Err(e) => tracing::warn!(error = %e, "Failed to purge expired tokens at startup"),
+        }
+        match token_repo.purge_stale_revoked(7).await {
+            Ok(n) if n > 0 => tracing::info!("Purged {n} stale revoked tokens at startup"),
+            Ok(_) => {}
+            Err(e) => tracing::warn!(error = %e, "Failed to purge stale revoked tokens at startup"),
+        }
+        // Periodic cleanup every 6 hours
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(std::time::Duration::from_secs(6 * 3600));
+            interval.tick().await; // skip immediate tick (already ran above)
+            loop {
+                interval.tick().await;
+                if let Err(e) = token_repo.purge_expired().await {
+                    tracing::warn!(error = %e, "Periodic token purge failed");
+                }
+                if let Err(e) = token_repo.purge_stale_revoked(7).await {
+                    tracing::warn!(error = %e, "Periodic stale token purge failed");
+                }
+            }
+        });
+    }
+
     // Build CORS layer from config
     let cors = if config.cors_origins.len() == 1 && config.cors_origins[0] == "*" {
         CorsLayer::permissive()

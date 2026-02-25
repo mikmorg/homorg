@@ -46,6 +46,17 @@ async fn undo_batch(
 ) -> AppResult<Json<Vec<StoredEvent>>> {
     auth.require_role("member")?;
 
+    // Validate batch size limit
+    if let Some(ref ids) = body.event_ids {
+        if ids.len() > state.config.max_batch_size {
+            return Err(crate::errors::AppError::BadRequest(format!(
+                "Batch size {} exceeds maximum {}",
+                ids.len(),
+                state.config.max_batch_size
+            )));
+        }
+    }
+
     let events = if let Some(session_id) = &body.session_id {
         state
             .undo_commands

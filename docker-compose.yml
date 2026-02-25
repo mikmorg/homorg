@@ -24,7 +24,7 @@ services:
       - "8080:8080"
     environment:
       DATABASE_URL: postgres://homorg:homorg_dev@db:5432/homorg
-      JWT_SECRET: ${JWT_SECRET:-dev_secret_change_in_production_64chars_minimum_length_here}
+      JWT_SECRET: ${JWT_SECRET:?JWT_SECRET must be set in environment or .env file}
       LISTEN_ADDR: 0.0.0.0:8080
       STORAGE_PATH: /data/images
       RUST_LOG: homorg=debug,tower_http=debug
