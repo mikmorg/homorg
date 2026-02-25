@@ -1,0 +1,3 @@
+# Homorg Clippy configuration
+too-many-arguments-threshold = 12
+type-complexity-threshold = 300

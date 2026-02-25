@@ -295,13 +295,13 @@ async fn process_batch_event_in_tx(
             let item_id = Uuid::new_v4();
 
             let system_barcode = if barcode.is_empty() {
-                state.barcode_commands.generate_barcode().await?.barcode
+                state.barcode_commands.generate_barcode_in_tx(tx).await?.barcode
             } else {
                 let prefix = format!("{}-", state.config.barcode_prefix);
                 if barcode.starts_with(&prefix) {
                     barcode.clone()
                 } else {
-                    state.barcode_commands.generate_barcode().await?.barcode
+                    state.barcode_commands.generate_barcode_in_tx(tx).await?.barcode
                 }
             };
 

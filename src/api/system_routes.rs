@@ -27,17 +27,22 @@ struct HealthResponse {
 }
 
 /// Liveness check with DB connectivity status.
-async fn health(State(state): State<Arc<AppState>>) -> Json<HealthResponse> {
+/// Returns 200 when healthy, 503 when the database is unreachable.
+async fn health(State(state): State<Arc<AppState>>) -> (StatusCode, Json<HealthResponse>) {
     let db_status = sqlx::query_scalar::<_, i32>("SELECT 1")
         .fetch_one(&state.pool)
         .await;
 
-    let (status, database) = match db_status {
-        Ok(_) => ("ok".to_string(), "connected".to_string()),
-        Err(e) => ("degraded".to_string(), format!("error: {e}")),
+    let (status_code, status, database) = match db_status {
+        Ok(_) => (StatusCode::OK, "ok".to_string(), "connected".to_string()),
+        Err(e) => (
+            StatusCode::SERVICE_UNAVAILABLE,
+            "degraded".to_string(),
+            format!("error: {e}"),
+        ),
     };
 
-    Json(HealthResponse { status, database })
+    (status_code, Json(HealthResponse { status, database }))
 }
 
 /// System statistics.

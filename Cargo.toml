@@ -9,7 +9,8 @@ license = "MIT"
 # Web framework
 axum = { version = "0.8", features = ["multipart", "macros"] }
 tower = { version = "0.5", features = ["full"] }
-tower-http = { version = "0.6", features = ["cors", "trace", "compression-gzip", "fs"] }
+tower-http = { version = "0.6", features = ["cors", "trace", "compression-gzip", "fs", "request-id", "propagate-header", "set-header"] }
+tower_governor = "0.8"
 tokio = { version = "1", features = ["full"] }
 
 # Database

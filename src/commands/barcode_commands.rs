@@ -36,6 +36,28 @@ impl BarcodeCommands {
         Ok(GeneratedBarcode { barcode })
     }
 
+    /// Generate a single new system barcode within an existing transaction.
+    pub async fn generate_barcode_in_tx(
+        &self,
+        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    ) -> AppResult<GeneratedBarcode> {
+        let next: i64 = sqlx::query_scalar(
+            "UPDATE barcode_sequences SET next_value = next_value + 1 WHERE prefix = $1 RETURNING next_value - 1",
+        )
+        .bind(&self.config.barcode_prefix)
+        .fetch_one(&mut **tx)
+        .await?;
+
+        let barcode = format!(
+            "{}-{:0>width$}",
+            self.config.barcode_prefix,
+            next,
+            width = self.config.barcode_pad_width
+        );
+
+        Ok(GeneratedBarcode { barcode })
+    }
+
     /// Generate a batch of system barcodes.
     pub async fn generate_batch(&self, count: u32) -> AppResult<Vec<GeneratedBarcode>> {
         if count == 0 || count > 10000 {

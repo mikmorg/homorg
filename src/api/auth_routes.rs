@@ -86,7 +86,7 @@ async fn setup(
     }
 
     let user_id = Uuid::new_v4();
-    let pw_hash = hash_password(&req.password)?;
+    let pw_hash = hash_password(&req.password).await?;
 
     // Create the admin user within the advisory-locked transaction
     let user = state.user_queries.create_in_tx(
@@ -139,7 +139,7 @@ async fn login(
         .await?
         .ok_or(AppError::Unauthorized)?;
 
-    let valid = verify_password(&req.password, &user.password_hash)?;
+    let valid = verify_password(&req.password, &user.password_hash).await?;
     if !valid {
         return Err(AppError::Unauthorized);
     }
@@ -279,7 +279,7 @@ async fn register(
     }
 
     let user_id = Uuid::new_v4();
-    let pw_hash = hash_password(&req.password)?;
+    let pw_hash = hash_password(&req.password).await?;
 
     let user = state.user_queries.create_in_tx(
         &mut tx, user_id, &req.username, &pw_hash, req.display_name.as_deref(), "member",

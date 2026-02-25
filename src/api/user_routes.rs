@@ -69,7 +69,7 @@ async fn update_user(
                 format!("Password must be {PASSWORD_MIN_LEN}–{PASSWORD_MAX_LEN} characters"),
             ));
         }
-        let pw_hash = hash_password(password)?;
+        let pw_hash = hash_password(password).await?;
         state.user_queries.update_password(id, &pw_hash).await?;
     }
 

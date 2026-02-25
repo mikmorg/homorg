@@ -167,6 +167,18 @@ async fn upload_image(
         let name = field.name().unwrap_or_default().to_string();
         match name.as_str() {
             "file" => {
+                // Validate MIME type
+                let content_type = field
+                    .content_type()
+                    .unwrap_or("application/octet-stream")
+                    .to_string();
+                if !state.config.allowed_image_mimes.iter().any(|m| m == &content_type) {
+                    return Err(AppError::BadRequest(format!(
+                        "Unsupported file type '{content_type}'. Allowed: {}",
+                        state.config.allowed_image_mimes.join(", ")
+                    )));
+                }
+
                 let filename = field
                     .file_name()
                     .unwrap_or("upload.bin")
@@ -175,6 +187,15 @@ async fn upload_image(
                     .bytes()
                     .await
                     .map_err(|e| AppError::BadRequest(format!("Failed to read file: {e}")))?;
+
+                if data.len() > state.config.max_upload_bytes {
+                    return Err(AppError::BadRequest(format!(
+                        "File size {} exceeds maximum {} bytes",
+                        data.len(),
+                        state.config.max_upload_bytes
+                    )));
+                }
+
                 file_data = Some((filename, data.to_vec()));
             }
             "caption" => {

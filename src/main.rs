@@ -1,6 +1,10 @@
 use std::sync::Arc;
 
+use axum::extract::DefaultBodyLimit;
+use tower_http::compression::CompressionLayer;
 use tower_http::cors::{Any, CorsLayer};
+use tower_http::request_id::{MakeRequestUuid, PropagateRequestIdLayer, SetRequestIdLayer};
+use tower_http::services::ServeDir;
 use tower_http::trace::TraceLayer;
 use tracing_subscriber::EnvFilter;
 
@@ -13,23 +17,28 @@ use homorg::AppState;
 
 #[tokio::main]
 async fn main() {
-    // Initialize tracing
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("homorg=debug,info")),
-        )
-        .init();
-
-    // Load configuration
+    // Load configuration first (needed for log format)
     dotenvy::dotenv().ok();
     let config = AppConfig::from_env().expect("Failed to load configuration");
+
+    // Initialize tracing (JSON format if LOG_FORMAT=json)
+    let env_filter =
+        EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("homorg=debug,info"));
+    if config.log_format == "json" {
+        tracing_subscriber::fmt()
+            .json()
+            .with_env_filter(env_filter)
+            .init();
+    } else {
+        tracing_subscriber::fmt()
+            .with_env_filter(env_filter)
+            .init();
+    }
 
     tracing::info!("Starting Homorg daemon on {}", config.listen_addr);
 
     // Create database pool and run migrations
-    let pool = db::create_pool(&config.database_url)
-        .await
-        .expect("Failed to create database pool");
+    let pool = db::create_pool(&config).await.expect("Failed to create database pool");
 
     db::run_migrations(&pool)
         .await
@@ -61,12 +70,17 @@ async fn main() {
             .allow_headers(Any)
     };
 
-    // Build router
+    // Build router with file serving, compression, body limits, request ID
     let app = api::build_router(state)
+        .nest_service("/files", ServeDir::new(&config.storage_path))
+        .layer(DefaultBodyLimit::max(config.max_upload_bytes))
+        .layer(PropagateRequestIdLayer::x_request_id())
+        .layer(CompressionLayer::new())
         .layer(TraceLayer::new_for_http())
+        .layer(SetRequestIdLayer::x_request_id(MakeRequestUuid))
         .layer(cors);
 
-    // Start server
+    // Start server with graceful shutdown
     let listener = tokio::net::TcpListener::bind(&config.listen_addr)
         .await
         .expect("Failed to bind address");
@@ -74,6 +88,36 @@ async fn main() {
     tracing::info!("Homorg daemon listening on {}", config.listen_addr);
 
     axum::serve(listener, app)
+        .with_graceful_shutdown(shutdown_signal())
         .await
         .expect("Server error");
+
+    tracing::info!("Homorg daemon shut down gracefully");
+}
+
+/// Wait for SIGINT (Ctrl-C) or SIGTERM, then return.
+async fn shutdown_signal() {
+    use tokio::signal;
+
+    let ctrl_c = async {
+        signal::ctrl_c()
+            .await
+            .expect("Failed to install Ctrl+C handler");
+    };
+
+    #[cfg(unix)]
+    let terminate = async {
+        signal::unix::signal(signal::unix::SignalKind::terminate())
+            .expect("Failed to install SIGTERM handler")
+            .recv()
+            .await;
+    };
+
+    #[cfg(not(unix))]
+    let terminate = std::future::pending::<()>();
+
+    tokio::select! {
+        _ = ctrl_c => tracing::info!("Received SIGINT, shutting down..."),
+        _ = terminate => tracing::info!("Received SIGTERM, shutting down..."),
+    }
 }

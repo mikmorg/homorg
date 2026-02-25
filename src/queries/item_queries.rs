@@ -57,7 +57,7 @@ impl ItemQueries {
         let from = after_seq.unwrap_or(0);
         let rows = sqlx::query_as::<_, StoredEvent>(
             r#"
-            SELECT id, event_id, aggregate_id, aggregate_type, event_type, event_data, metadata, actor_id, created_at, sequence_number
+            SELECT id, event_id, aggregate_id, aggregate_type, event_type, event_data, metadata, actor_id, created_at, sequence_number, schema_version
             FROM event_store
             WHERE aggregate_id = $1 AND sequence_number > $2
             ORDER BY sequence_number ASC
