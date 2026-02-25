@@ -30,7 +30,7 @@ use storage::StorageBackend;
 /// Shared application state, injected into all Axum handlers via `State<Arc<AppState>>`.
 pub struct AppState {
     pub config: AppConfig,
-    pub(crate) pool: PgPool,
+    pub pool: PgPool,
     pub event_store: EventStore,
     pub item_commands: ItemCommands,
     pub undo_commands: UndoCommands,

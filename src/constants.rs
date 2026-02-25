@@ -116,8 +116,8 @@ mod tests {
 
     #[test]
     fn node_id_hex_len_is_positive() {
-        assert!(NODE_ID_HEX_LEN > 0);
+        const { assert!(NODE_ID_HEX_LEN > 0) };
         // Must be ≤ 32 (UUID simple string length)
-        assert!(NODE_ID_HEX_LEN <= 32);
+        const { assert!(NODE_ID_HEX_LEN <= 32) };
     }
 }
