@@ -112,4 +112,6 @@ pub struct RefreshTokenRow {
     pub device_name: Option<String>,
     pub expires_at: DateTime<Utc>,
     pub created_at: DateTime<Utc>,
+    pub family_id: Uuid,
+    pub revoked_at: Option<DateTime<Utc>>,
 }

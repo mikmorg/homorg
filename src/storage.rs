@@ -59,8 +59,19 @@ impl StorageBackend for LocalStorage {
 
     async fn delete(&self, key: &str) -> AppResult<()> {
         let file_path = self.base_path.join(key);
-        if file_path.exists() {
-            fs::remove_file(&file_path)
+        // Prevent path traversal: canonicalize and verify within base
+        let canonical = file_path
+            .canonicalize()
+            .map_err(|_| AppError::Storage("Invalid storage key".into()))?;
+        let base_canonical = self
+            .base_path
+            .canonicalize()
+            .map_err(|e| AppError::Storage(format!("Storage base path error: {e}")))?;
+        if !canonical.starts_with(&base_canonical) {
+            return Err(AppError::BadRequest("Invalid storage key".into()));
+        }
+        if canonical.exists() {
+            fs::remove_file(&canonical)
                 .await
                 .map_err(|e| AppError::Storage(format!("Failed to delete file: {e}")))?;
         }
@@ -68,6 +79,8 @@ impl StorageBackend for LocalStorage {
     }
 
     fn get_url(&self, key: &str) -> String {
-        format!("/files/{key}")
+        // Sanitize: strip any path traversal components
+        let safe_key = key.replace("..", "");
+        format!("/files/{safe_key}")
     }
 }

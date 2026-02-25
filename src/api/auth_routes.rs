@@ -10,7 +10,7 @@ use uuid::Uuid;
 use crate::auth::jwt::create_access_token;
 use crate::auth::middleware::AuthUser;
 use crate::auth::password::{hash_password, verify_password};
-use crate::constants::{PASSWORD_MAX_LEN, PASSWORD_MIN_LEN, USERS_ID};
+use crate::constants::{PASSWORD_MAX_LEN, PASSWORD_MIN_LEN, USERS_ID, is_valid_username};
 use crate::errors::{AppError, AppResult};
 use crate::models::event::EventMetadata;
 use crate::models::item::CreateItemRequest;
@@ -79,9 +79,10 @@ async fn setup(
         return Err(AppError::Conflict("Setup already completed".into()));
     }
 
-    if req.username.is_empty() || req.password.len() < PASSWORD_MIN_LEN || req.password.len() > PASSWORD_MAX_LEN {
+    let pw_chars = req.password.chars().count();
+    if !is_valid_username(&req.username) || !(PASSWORD_MIN_LEN..=PASSWORD_MAX_LEN).contains(&pw_chars) {
         return Err(AppError::BadRequest(
-            "Username required and password must be 8–128 characters".into(),
+            "Username must be 2–32 alphanumeric/underscore/hyphen chars; password must be 8–128 characters".into(),
         ));
     }
 
@@ -112,7 +113,7 @@ async fn setup(
     )?;
 
     let issued = state.token_repository.issue_refresh_token_in_tx(
-        &mut tx, user_id, "setup", state.config.jwt_refresh_ttl_days,
+        &mut tx, user_id, "setup", state.config.jwt_refresh_ttl_days, None,
     ).await?;
 
     tx.commit().await?;
@@ -166,7 +167,8 @@ async fn login(
 }
 
 /// Rotate refresh token and issue new access token.
-/// Delete + insert wrapped in a transaction to prevent token loss on crash.
+/// Implements reuse detection: if a previously-rotated token is presented,
+/// all tokens in the same family are purged (compromised chain).
 async fn refresh(
     State(state): State<Arc<AppState>>,
     Json(req): Json<RefreshRequest>,
@@ -175,14 +177,36 @@ async fn refresh(
 
     let mut tx = state.pool.begin().await?;
 
+    // Try to find a valid (non-revoked, non-expired) token
     let row = state
         .token_repository
         .find_valid_by_hash_in_tx(&mut tx, &token_hash)
-        .await?
-        .ok_or(AppError::Unauthorized)?;
+        .await?;
 
-    // Delete the used token (rotation)
-    state.token_repository.delete_by_id_in_tx(&mut tx, row.id).await?;
+    let row = match row {
+        Some(r) => r,
+        None => {
+            // Token not valid — check if it was previously revoked (reuse detection).
+            if let Some(revoked) = state
+                .token_repository
+                .find_revoked_by_hash_in_tx(&mut tx, &token_hash)
+                .await?
+            {
+                // Reuse detected! Purge the entire token family.
+                tracing::warn!(
+                    user_id = %revoked.user_id,
+                    family_id = %revoked.family_id,
+                    "Refresh token reuse detected — purging token family"
+                );
+                state.token_repository.purge_family_in_tx(&mut tx, revoked.family_id).await?;
+                tx.commit().await?;
+            }
+            return Err(AppError::Unauthorized);
+        }
+    };
+
+    // Revoke the used token (soft-delete for reuse detection)
+    state.token_repository.revoke_by_id_in_tx(&mut tx, row.id).await?;
 
     let user = state
         .user_queries
@@ -202,6 +226,7 @@ async fn refresh(
         user.id,
         row.device_name.as_deref().unwrap_or("unknown"),
         state.config.jwt_refresh_ttl_days,
+        Some(row.family_id), // same family chain
     ).await?;
 
     tx.commit().await?;
@@ -258,9 +283,10 @@ async fn register(
     State(state): State<Arc<AppState>>,
     Json(req): Json<RegisterRequest>,
 ) -> AppResult<(StatusCode, Json<AuthResponse>)> {
-    if req.username.is_empty() || req.password.len() < PASSWORD_MIN_LEN || req.password.len() > PASSWORD_MAX_LEN {
+    let pw_chars = req.password.chars().count();
+    if !is_valid_username(&req.username) || !(PASSWORD_MIN_LEN..=PASSWORD_MAX_LEN).contains(&pw_chars) {
         return Err(AppError::BadRequest(
-            "Username required and password must be 8–128 characters".into(),
+            "Username must be 2–32 alphanumeric/underscore/hyphen chars; password must be 8–128 characters".into(),
         ));
     }
 
@@ -313,7 +339,7 @@ async fn register(
     )?;
 
     let issued = state.token_repository.issue_refresh_token_in_tx(
-        &mut tx, user_id, "registration", state.config.jwt_refresh_ttl_days,
+        &mut tx, user_id, "registration", state.config.jwt_refresh_ttl_days, None,
     ).await?;
 
     tx.commit().await?;

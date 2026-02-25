@@ -13,6 +13,8 @@ pub enum BarcodeResolution {
     External {
         code_type: String,
         value: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        item_id: Option<uuid::Uuid>,
     },
     #[serde(rename = "unknown_system")]
     UnknownSystem {

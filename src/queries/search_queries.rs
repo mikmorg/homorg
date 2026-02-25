@@ -26,6 +26,14 @@ pub struct SearchParams {
     pub limit: Option<i64>,
 }
 
+/// Escape ILIKE special characters (`\`, `%`, `_`) so user input is treated literally.
+fn escape_ilike(input: &str) -> String {
+    input
+        .replace('\\', "\\\\")
+        .replace('%', "\\%")
+        .replace('_', "\\_")
+}
+
 impl SearchQueries {
     pub fn new(pool: PgPool) -> Self {
         Self { pool }
@@ -40,6 +48,9 @@ impl SearchQueries {
             t.split(',').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect()
         });
 
+        // Escape ILIKE wildcards so user input is literal
+        let ilike_q: Option<String> = params.q.as_ref().map(|q| escape_ilike(q));
+
         let rows = sqlx::query_as::<_, ItemSummary>(
             r#"
             SELECT id, system_barcode, name, category, is_container, container_path::text as container_path,
@@ -51,7 +62,7 @@ impl SearchQueries {
                   $1::text IS NULL
                   OR search_vector @@ plainto_tsquery('english', $1)
                   OR name % $1
-                  OR name ILIKE '%' || $1 || '%'
+                  OR name ILIKE '%' || $12 || '%'
               )
               -- LTREE path pattern
               AND ($2::text IS NULL OR container_path ~ $2::lquery)
@@ -79,7 +90,7 @@ impl SearchQueries {
             LIMIT $11
             "#,
         )
-        .bind(&params.q)
+        .bind(&params.q)         // $1: raw text for FTS + trigram
         .bind(&params.path)
         .bind(&params.category)
         .bind(&params.condition)
@@ -90,6 +101,7 @@ impl SearchQueries {
         .bind(params.max_value)
         .bind(params.cursor)
         .bind(limit)
+        .bind(&ilike_q)          // $12: ILIKE-escaped text
         .fetch_all(&self.pool)
         .await?;
 

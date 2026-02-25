@@ -25,21 +25,25 @@ impl TokenRepository {
     // ── Refresh tokens ──────────────────────────────────────────────────
 
     /// Issue a new refresh token within a transaction. Returns the raw (unhashed) token.
+    /// If `family_id` is `None`, a new family is created (fresh login).
+    /// If `Some`, the token joins an existing family (rotation).
     pub async fn issue_refresh_token_in_tx(
         &self,
         tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
         user_id: Uuid,
         device_name: &str,
         ttl_days: u64,
+        family_id: Option<Uuid>,
     ) -> AppResult<IssuedRefreshToken> {
         let raw = generate_refresh_token();
         let hash = hash_refresh_token(&raw);
         let expires_at = Utc::now() + Duration::days(ttl_days as i64);
+        let fam = family_id.unwrap_or_else(Uuid::new_v4);
 
         sqlx::query(
             r#"
-            INSERT INTO refresh_tokens (id, user_id, token_hash, device_name, expires_at)
-            VALUES ($1, $2, $3, $4, $5)
+            INSERT INTO refresh_tokens (id, user_id, token_hash, device_name, expires_at, family_id)
+            VALUES ($1, $2, $3, $4, $5, $6)
             "#,
         )
         .bind(Uuid::new_v4())
@@ -47,6 +51,7 @@ impl TokenRepository {
         .bind(&hash)
         .bind(device_name)
         .bind(expires_at)
+        .bind(fam)
         .execute(&mut **tx)
         .await?;
 
@@ -66,8 +71,8 @@ impl TokenRepository {
 
         sqlx::query(
             r#"
-            INSERT INTO refresh_tokens (id, user_id, token_hash, device_name, expires_at)
-            VALUES ($1, $2, $3, $4, $5)
+            INSERT INTO refresh_tokens (id, user_id, token_hash, device_name, expires_at, family_id)
+            VALUES ($1, $2, $3, $4, $5, $6)
             "#,
         )
         .bind(Uuid::new_v4())
@@ -75,20 +80,21 @@ impl TokenRepository {
         .bind(&hash)
         .bind(device_name)
         .bind(expires_at)
+        .bind(Uuid::new_v4()) // new family for non-rotation issuance
         .execute(&self.pool)
         .await?;
 
         Ok(IssuedRefreshToken { raw_token: raw })
     }
 
-    /// Look up a valid (non-expired) refresh token by its hash within a transaction.
+    /// Look up a valid (non-expired, non-revoked) refresh token by its hash within a transaction.
     pub async fn find_valid_by_hash_in_tx(
         &self,
         tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
         token_hash: &str,
     ) -> AppResult<Option<RefreshTokenRow>> {
         let row = sqlx::query_as::<_, RefreshTokenRow>(
-            "SELECT * FROM refresh_tokens WHERE token_hash = $1 AND expires_at > NOW()",
+            "SELECT * FROM refresh_tokens WHERE token_hash = $1 AND expires_at > NOW() AND revoked_at IS NULL",
         )
         .bind(token_hash)
         .fetch_optional(&mut **tx)
@@ -96,14 +102,43 @@ impl TokenRepository {
         Ok(row)
     }
 
-    /// Delete a specific refresh token by ID within a transaction (for rotation).
-    pub async fn delete_by_id_in_tx(
+    /// Check if a token hash belongs to a previously-revoked token (reuse detection).
+    /// Returns the family_id and user_id if found.
+    pub async fn find_revoked_by_hash_in_tx(
+        &self,
+        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        token_hash: &str,
+    ) -> AppResult<Option<RefreshTokenRow>> {
+        let row = sqlx::query_as::<_, RefreshTokenRow>(
+            "SELECT * FROM refresh_tokens WHERE token_hash = $1 AND revoked_at IS NOT NULL",
+        )
+        .bind(token_hash)
+        .fetch_optional(&mut **tx)
+        .await?;
+        Ok(row)
+    }
+
+    /// Mark a refresh token as revoked (soft-delete for reuse detection).
+    pub async fn revoke_by_id_in_tx(
         &self,
         tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
         id: Uuid,
     ) -> AppResult<()> {
-        sqlx::query("DELETE FROM refresh_tokens WHERE id = $1")
+        sqlx::query("UPDATE refresh_tokens SET revoked_at = NOW() WHERE id = $1")
             .bind(id)
+            .execute(&mut **tx)
+            .await?;
+        Ok(())
+    }
+
+    /// Purge an entire token family (nuclear option on reuse detection).
+    pub async fn purge_family_in_tx(
+        &self,
+        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        family_id: Uuid,
+    ) -> AppResult<()> {
+        sqlx::query("DELETE FROM refresh_tokens WHERE family_id = $1")
+            .bind(family_id)
             .execute(&mut **tx)
             .await?;
         Ok(())
@@ -128,6 +163,17 @@ impl TokenRepository {
             .execute(&self.pool)
             .await?;
         Ok(())
+    }
+
+    /// Purge revoked tokens older than the given age (housekeeping).
+    pub async fn purge_stale_revoked(&self, max_age_days: i64) -> AppResult<u64> {
+        let result = sqlx::query(
+            "DELETE FROM refresh_tokens WHERE revoked_at IS NOT NULL AND revoked_at < NOW() - $1::interval",
+        )
+        .bind(format!("{max_age_days} days"))
+        .execute(&self.pool)
+        .await?;
+        Ok(result.rows_affected())
     }
 
     // ── Invite tokens ───────────────────────────────────────────────────

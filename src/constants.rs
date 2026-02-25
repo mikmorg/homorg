@@ -38,6 +38,20 @@ pub const JWT_AUDIENCE: &str = "homorg";
 pub const PASSWORD_MIN_LEN: usize = 8;
 pub const PASSWORD_MAX_LEN: usize = 128;
 
+// ── Username policy ─────────────────────────────────────────────────────
+
+pub const USERNAME_MIN_LEN: usize = 2;
+pub const USERNAME_MAX_LEN: usize = 32;
+
+/// Returns `true` if the username is well-formed (alphanumeric, underscores, hyphens).
+pub fn is_valid_username(u: &str) -> bool {
+    let len = u.len();
+    (USERNAME_MIN_LEN..=USERNAME_MAX_LEN).contains(&len)
+        && u.chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+        && u.starts_with(|c: char| c.is_ascii_alphanumeric())
+}
+
 // ── Barcode batch limit ─────────────────────────────────────────────────
 
 /// Maximum barcodes that can be generated in a single batch request.

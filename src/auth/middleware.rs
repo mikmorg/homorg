@@ -28,7 +28,8 @@ impl AuthUser {
     }
 }
 
-/// Axum extractor that validates JWT from Authorization header.
+/// Axum extractor that validates JWT from Authorization header
+/// and verifies the user is still active in the database.
 impl FromRequestParts<Arc<crate::AppState>> for AuthUser {
     type Rejection = AppError;
 
@@ -37,6 +38,7 @@ impl FromRequestParts<Arc<crate::AppState>> for AuthUser {
         state: &Arc<crate::AppState>,
     ) -> impl std::future::Future<Output = Result<Self, Self::Rejection>> + Send {
         let config = state.config.clone();
+        let pool = state.pool.clone();
         let auth_header = parts
             .headers
             .get("authorization")
@@ -50,6 +52,19 @@ impl FromRequestParts<Arc<crate::AppState>> for AuthUser {
                 .ok_or(AppError::Unauthorized)?;
 
             let claims: Claims = decode_access_token(token, &config.jwt_secret)?;
+
+            // Verify user is still active (protects against deactivated users with valid JWTs)
+            let is_active: Option<bool> = sqlx::query_scalar(
+                "SELECT is_active FROM users WHERE id = $1",
+            )
+            .bind(claims.sub)
+            .fetch_optional(&pool)
+            .await
+            .map_err(|_| AppError::Unauthorized)?;
+
+            if is_active != Some(true) {
+                return Err(AppError::Unauthorized);
+            }
 
             Ok(AuthUser {
                 user_id: claims.sub,

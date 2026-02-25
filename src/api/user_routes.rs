@@ -59,7 +59,8 @@ async fn update_user(
 
     // Validate password up front before starting the transaction
     if let Some(ref password) = req.password {
-        if password.len() < PASSWORD_MIN_LEN || password.len() > PASSWORD_MAX_LEN {
+        let pw_chars = password.chars().count();
+        if !(PASSWORD_MIN_LEN..=PASSWORD_MAX_LEN).contains(&pw_chars) {
             return Err(AppError::BadRequest(
                 format!("Password must be {PASSWORD_MIN_LEN}–{PASSWORD_MAX_LEN} characters"),
             ));

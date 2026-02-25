@@ -416,8 +416,14 @@ impl Projector {
 
     /// Rebuild all projections by replaying the entire event store.
     /// WARNING: This truncates the items table (except seed data) and replays everything.
+    /// Uses a PostgreSQL advisory lock to prevent concurrent rebuilds.
     pub async fn rebuild_all(pool: &PgPool) -> AppResult<u64> {
         let mut tx = pool.begin().await?;
+
+        // Advisory lock prevents concurrent rebuilds
+        sqlx::query("SELECT pg_advisory_xact_lock(7307942)")
+            .execute(&mut *tx)
+            .await?;
 
         // Delete all non-seed items; seed rows will be re-inserted via ON CONFLICT below
         sqlx::query("DELETE FROM items WHERE id NOT IN ($1, $2)")

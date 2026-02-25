@@ -115,7 +115,7 @@ impl BarcodeCommands {
             let code_type = classify_commercial_code(code);
 
             // Check if any item has this external code
-            let _found: Option<Uuid> = sqlx::query_scalar(
+            let found: Option<Uuid> = sqlx::query_scalar(
                 "SELECT id FROM items WHERE external_codes @> $1::jsonb AND is_deleted = FALSE LIMIT 1",
             )
             .bind(serde_json::json!([{"value": code}]))
@@ -126,6 +126,7 @@ impl BarcodeCommands {
                 Ok(BarcodeResolution::External {
                     code_type: ct.to_string(),
                     value: code.to_string(),
+                    item_id: found,
                 })
             } else {
                 Ok(BarcodeResolution::Unknown {

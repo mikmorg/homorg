@@ -19,6 +19,7 @@ impl UndoCommands {
     }
 
     /// Undo a single event by generating a compensating event.
+    /// Any member can undo any event (no item ownership model).
     pub async fn undo_event(
         &self,
         event_id: Uuid,
@@ -51,6 +52,7 @@ impl UndoCommands {
 
     /// Undo a batch of events in reverse chronological order.
     /// All compensating events are applied atomically in a single transaction.
+    /// Any member can undo any event (no item ownership model).
     pub async fn undo_batch(
         &self,
         event_ids: &[Uuid],
@@ -88,6 +90,8 @@ impl UndoCommands {
     }
 
     /// Undo all events from a stocker session.
+    /// Reads session events and generates compensating events in a single transaction (no TOCTOU).
+    /// Any member can undo any session (no item ownership model).
     pub async fn undo_session(
         &self,
         session_id: &str,
@@ -96,9 +100,35 @@ impl UndoCommands {
         let mut tx = self.pool.begin().await?;
         let events = self.event_store.get_events_by_session_in_tx(&mut tx, session_id).await?;
         let event_ids: Vec<Uuid> = events.iter().map(|e| e.event_id).collect();
-        // Drop the read-only tx; undo_batch creates its own atomic transaction
-        drop(tx);
-        self.undo_batch(&event_ids, actor_id).await
+
+        let mut results = Vec::new();
+
+        // Process in reverse order within the same transaction
+        for &eid in event_ids.iter().rev() {
+            let original = self.event_store.get_event_by_id_in_tx(&mut tx, eid).await?;
+            let domain_event: DomainEvent = serde_json::from_value(original.event_data.clone())
+                .map_err(|e| AppError::Internal(format!("Failed to deserialize event: {e}")))?;
+
+            let (compensating_event, aggregate_id) = self.build_compensating_event(
+                &domain_event,
+                original.aggregate_id,
+                original.event_id,
+            ).await?;
+
+            let metadata = EventMetadata {
+                causation_id: Some(eid.to_string()),
+                ..Default::default()
+            };
+
+            let stored = self.event_store.append_in_tx(
+                &mut tx, aggregate_id, &compensating_event, actor_id, &metadata,
+            ).await?;
+            Projector::apply(&mut tx, aggregate_id, &compensating_event, actor_id).await?;
+            results.push(stored);
+        }
+
+        tx.commit().await?;
+        Ok(results)
     }
 
     async fn build_compensating_event(

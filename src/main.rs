@@ -4,7 +4,6 @@ use axum::extract::DefaultBodyLimit;
 use tower_http::compression::CompressionLayer;
 use tower_http::cors::{Any, CorsLayer};
 use tower_http::request_id::{MakeRequestUuid, PropagateRequestIdLayer, SetRequestIdLayer};
-use tower_http::services::ServeDir;
 use tower_http::trace::TraceLayer;
 use tracing_subscriber::EnvFilter;
 
@@ -70,9 +69,9 @@ async fn main() {
             .allow_headers(Any)
     };
 
-    // Build router with file serving, compression, body limits, request ID
-    let app = api::build_router(state)
-        .nest_service("/files", ServeDir::new(&config.storage_path))
+    // Build router with compression, body limits, request ID
+    // NOTE: /files is served inside the API router with auth (see api/mod.rs)
+    let app = api::build_router(state, &config)
         .layer(DefaultBodyLimit::max(config.max_upload_bytes))
         .layer(PropagateRequestIdLayer::x_request_id())
         .layer(CompressionLayer::new())
