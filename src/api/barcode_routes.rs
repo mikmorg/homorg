@@ -7,7 +7,8 @@ use axum::{
 use std::sync::Arc;
 
 use crate::auth::middleware::AuthUser;
-use crate::errors::AppResult;
+use crate::constants::MAX_BARCODE_BATCH;
+use crate::errors::{AppError, AppResult};
 use crate::models::barcode::{BarcodeResolution, GenerateBatchRequest, GeneratedBarcode};
 use crate::AppState;
 
@@ -33,6 +34,11 @@ async fn generate_batch(
     _auth: AuthUser,
     Json(req): Json<GenerateBatchRequest>,
 ) -> AppResult<(StatusCode, Json<Vec<GeneratedBarcode>>)> {
+    if req.count == 0 || req.count > MAX_BARCODE_BATCH {
+        return Err(AppError::BadRequest(format!(
+            "count must be between 1 and {MAX_BARCODE_BATCH}"
+        )));
+    }
     let barcodes = state.barcode_commands.generate_batch(req.count).await?;
     Ok((StatusCode::CREATED, Json(barcodes)))
 }

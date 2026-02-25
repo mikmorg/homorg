@@ -19,6 +19,25 @@ impl ItemCommands {
         Self { pool, event_store }
     }
 
+    /// Verify an item exists and is not deleted (within a transaction).
+    async fn verify_item_exists(
+        &self,
+        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        item_id: Uuid,
+    ) -> AppResult<()> {
+        let exists: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM items WHERE id = $1 AND is_deleted = FALSE)",
+        )
+        .bind(item_id)
+        .fetch_one(&mut **tx)
+        .await?;
+
+        if !exists {
+            return Err(AppError::NotFound(format!("Item {item_id} not found")));
+        }
+        Ok(())
+    }
+
     /// Create a new item and place it inside a parent container.
     pub async fn create_item(
         &self,
@@ -87,7 +106,7 @@ impl ItemCommands {
             .map(|codes| codes.iter().map(|c| serde_json::json!({"type": c.code_type, "value": c.value})).collect())
             .unwrap_or_default();
 
-        let event = DomainEvent::ItemCreated(ItemCreatedData {
+        let event = DomainEvent::ItemCreated(Box::new(ItemCreatedData {
             system_barcode: system_barcode.clone(),
             node_id,
             name: req.name.clone(),
@@ -114,7 +133,7 @@ impl ItemCommands {
             depreciation_rate: req.depreciation_rate,
             warranty_expiry: req.warranty_expiry.map(|d| d.to_string()),
             metadata: req.metadata.clone().unwrap_or_else(|| serde_json::json!({})),
-        });
+        }));
 
         let stored = self.event_store.append_in_tx(tx, id, &event, actor_id, metadata).await?;
         Projector::apply(tx, id, &event, actor_id).await?;
@@ -409,6 +428,7 @@ impl ItemCommands {
         let event = DomainEvent::ItemImageAdded(ItemImageAddedData { path, caption, order });
 
         let mut tx = self.pool.begin().await?;
+        self.verify_item_exists(&mut tx, item_id).await?;
         let stored = self.event_store.append_in_tx(&mut tx, item_id, &event, actor_id, metadata).await?;
         Projector::apply(&mut tx, item_id, &event, actor_id).await?;
         tx.commit().await?;
@@ -427,6 +447,7 @@ impl ItemCommands {
         let event = DomainEvent::ItemImageRemoved(ItemImageRemovedData { path });
 
         let mut tx = self.pool.begin().await?;
+        self.verify_item_exists(&mut tx, item_id).await?;
         let stored = self.event_store.append_in_tx(&mut tx, item_id, &event, actor_id, metadata).await?;
         Projector::apply(&mut tx, item_id, &event, actor_id).await?;
         tx.commit().await?;
@@ -446,6 +467,7 @@ impl ItemCommands {
         let event = DomainEvent::ItemExternalCodeAdded(ExternalCodeData { code_type, value });
 
         let mut tx = self.pool.begin().await?;
+        self.verify_item_exists(&mut tx, item_id).await?;
         let stored = self.event_store.append_in_tx(&mut tx, item_id, &event, actor_id, metadata).await?;
         Projector::apply(&mut tx, item_id, &event, actor_id).await?;
         tx.commit().await?;
@@ -465,6 +487,7 @@ impl ItemCommands {
         let event = DomainEvent::ItemExternalCodeRemoved(ExternalCodeData { code_type, value });
 
         let mut tx = self.pool.begin().await?;
+        self.verify_item_exists(&mut tx, item_id).await?;
         let stored = self.event_store.append_in_tx(&mut tx, item_id, &event, actor_id, metadata).await?;
         Projector::apply(&mut tx, item_id, &event, actor_id).await?;
         tx.commit().await?;

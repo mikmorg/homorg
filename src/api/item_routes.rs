@@ -245,8 +245,10 @@ async fn remove_image(
         .remove_image(id, entry.path.clone(), auth.user_id, &metadata)
         .await?;
 
-    // Clean up file from storage
-    let _ = state.storage.delete(&entry.path).await;
+    // Clean up file from storage (best-effort, log on failure)
+    if let Err(e) = state.storage.delete(&entry.path).await {
+        tracing::warn!(path = %entry.path, error = %e, "Failed to delete image file from storage");
+    }
 
     Ok(Json(event))
 }

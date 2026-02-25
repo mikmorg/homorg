@@ -162,4 +162,43 @@ impl EventStore {
         .await?
         .ok_or_else(|| AppError::NotFound(format!("Event {event_id} not found")))
     }
+
+    /// Look up a single event by its event_id within an existing transaction.
+    pub async fn get_event_by_id_in_tx(
+        &self,
+        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        event_id: Uuid,
+    ) -> AppResult<StoredEvent> {
+        sqlx::query_as::<_, StoredEvent>(
+            r#"
+            SELECT id, event_id, aggregate_id, aggregate_type, event_type, event_data, metadata, actor_id, created_at, sequence_number, schema_version
+            FROM event_store
+            WHERE event_id = $1
+            "#,
+        )
+        .bind(event_id)
+        .fetch_optional(&mut **tx)
+        .await?
+        .ok_or_else(|| AppError::NotFound(format!("Event {event_id} not found")))
+    }
+
+    /// Get events correlated by session_id within an existing transaction.
+    pub async fn get_events_by_session_in_tx(
+        &self,
+        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        session_id: &str,
+    ) -> AppResult<Vec<StoredEvent>> {
+        let rows = sqlx::query_as::<_, StoredEvent>(
+            r#"
+            SELECT id, event_id, aggregate_id, aggregate_type, event_type, event_data, metadata, actor_id, created_at, sequence_number, schema_version
+            FROM event_store
+            WHERE metadata->>'session_id' = $1
+            ORDER BY id ASC
+            "#,
+        )
+        .bind(session_id)
+        .fetch_all(&mut **tx)
+        .await?;
+        Ok(rows)
+    }
 }

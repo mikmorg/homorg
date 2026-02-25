@@ -61,7 +61,7 @@ impl UndoCommands {
 
         // Process in reverse order (most recent first) for consistency
         for &eid in event_ids.iter().rev() {
-            let original = self.event_store.get_event_by_id(eid).await?;
+            let original = self.event_store.get_event_by_id_in_tx(&mut tx, eid).await?;
             let domain_event: DomainEvent = serde_json::from_value(original.event_data.clone())
                 .map_err(|e| AppError::Internal(format!("Failed to deserialize event: {e}")))?;
 
@@ -93,8 +93,11 @@ impl UndoCommands {
         session_id: &str,
         actor_id: Uuid,
     ) -> AppResult<Vec<StoredEvent>> {
-        let events = self.event_store.get_events_by_session(session_id).await?;
+        let mut tx = self.pool.begin().await?;
+        let events = self.event_store.get_events_by_session_in_tx(&mut tx, session_id).await?;
         let event_ids: Vec<Uuid> = events.iter().map(|e| e.event_id).collect();
+        // Drop the read-only tx; undo_batch creates its own atomic transaction
+        drop(tx);
         self.undo_batch(&event_ids, actor_id).await
     }
 

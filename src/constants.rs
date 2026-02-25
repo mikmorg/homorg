@@ -38,6 +38,11 @@ pub const JWT_AUDIENCE: &str = "homorg";
 pub const PASSWORD_MIN_LEN: usize = 8;
 pub const PASSWORD_MAX_LEN: usize = 128;
 
+// ── Barcode batch limit ─────────────────────────────────────────────────
+
+/// Maximum barcodes that can be generated in a single batch request.
+pub const MAX_BARCODE_BATCH: u32 = 1000;
+
 // ── Role hierarchy ──────────────────────────────────────────────────────
 
 /// Typed role with an ordinal level for comparison.

@@ -57,21 +57,41 @@ async fn update_user(
         auth.require_role("admin")?;
     }
 
-    // Update display_name if provided
-    if let Some(ref display_name) = req.display_name {
-        state.user_queries.update_display_name(id, display_name).await?;
-    }
-
-    // Update password if provided
+    // Validate password up front before starting the transaction
     if let Some(ref password) = req.password {
         if password.len() < PASSWORD_MIN_LEN || password.len() > PASSWORD_MAX_LEN {
             return Err(AppError::BadRequest(
                 format!("Password must be {PASSWORD_MIN_LEN}–{PASSWORD_MAX_LEN} characters"),
             ));
         }
-        let pw_hash = hash_password(password).await?;
-        state.user_queries.update_password(id, &pw_hash).await?;
     }
+
+    // Hash password outside the transaction (CPU-intensive work)
+    let pw_hash = match req.password {
+        Some(ref password) => Some(hash_password(password).await?),
+        None => None,
+    };
+
+    // Apply all updates atomically
+    let mut tx = state.pool.begin().await?;
+
+    if let Some(ref display_name) = req.display_name {
+        sqlx::query("UPDATE users SET display_name = $1 WHERE id = $2")
+            .bind(display_name)
+            .bind(id)
+            .execute(&mut *tx)
+            .await?;
+    }
+
+    if let Some(ref hash) = pw_hash {
+        sqlx::query("UPDATE users SET password_hash = $1 WHERE id = $2")
+            .bind(hash)
+            .bind(id)
+            .execute(&mut *tx)
+            .await?;
+    }
+
+    tx.commit().await?;
 
     let user = state.user_queries.find_by_id(id).await?;
     Ok(Json(user.into()))

@@ -23,7 +23,7 @@ pub struct StoredEvent {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type")]
 pub enum DomainEvent {
-    ItemCreated(ItemCreatedData),
+    ItemCreated(Box<ItemCreatedData>),
     ItemUpdated(ItemUpdatedData),
     ItemMoved(ItemMovedData),
     ItemMoveReverted(ItemMoveRevertedData),
@@ -192,7 +192,7 @@ mod tests {
 
     #[test]
     fn item_created_serde_roundtrip() {
-        let evt = DomainEvent::ItemCreated(ItemCreatedData {
+        let evt = DomainEvent::ItemCreated(Box::new(ItemCreatedData {
             system_barcode: "HOM-000001".into(),
             node_id: "n_aabbccdd0011".into(),
             name: Some("Widget".into()),
@@ -219,7 +219,7 @@ mod tests {
             depreciation_rate: None,
             warranty_expiry: None,
             metadata: serde_json::json!({}),
-        });
+        }));
         let rt = roundtrip(&evt);
         assert_eq!(rt.event_type(), "ItemCreated");
     }
@@ -345,7 +345,7 @@ mod tests {
     #[test]
     fn event_type_names_are_distinct() {
         let types = vec![
-            DomainEvent::ItemCreated(ItemCreatedData {
+            DomainEvent::ItemCreated(Box::new(ItemCreatedData {
                 system_barcode: String::new(), node_id: String::new(), name: None,
                 description: None, category: None, tags: vec![], is_container: false,
                 container_path: String::new(), parent_id: Uuid::nil(), coordinate: None,
@@ -355,7 +355,7 @@ mod tests {
                 condition: None, acquisition_date: None, acquisition_cost: None,
                 current_value: None, depreciation_rate: None, warranty_expiry: None,
                 metadata: serde_json::json!({}),
-            }).event_type(),
+            })).event_type(),
             DomainEvent::ItemUpdated(ItemUpdatedData { changes: vec![] }).event_type(),
             DomainEvent::ItemMoved(ItemMovedData {
                 from_container_id: None, to_container_id: Uuid::nil(),
