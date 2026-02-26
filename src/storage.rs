@@ -68,7 +68,14 @@ impl StorageBackend for LocalStorage {
     }
 
     async fn delete(&self, key: &str) -> AppResult<()> {
-        let file_path = self.base_path.join(key);
+        // CB-8: The stored image path is the URL form "/files/{item_id}/{file}".
+        // storage.delete() is called with this URL path, but our base_path is the
+        // storage root (e.g. "./data/images").  PathBuf::join with an absolute path
+        // replaces the base entirely, so canonicalize() then fails and images are
+        // never actually removed from disk.  Strip the known URL prefix so we
+        // always operate on the relative key no matter how it was stored.
+        let stripped = key.strip_prefix("/files/").unwrap_or(key);
+        let file_path = self.base_path.join(stripped);
         // Prevent path traversal: canonicalize and verify within base
         let canonical = file_path
             .canonicalize()

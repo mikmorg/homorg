@@ -74,6 +74,9 @@ pub(crate) fn validate_create_request(req: &CreateItemRequest) -> Result<(), App
             return Err(AppError::BadRequest(format!("external_codes count exceeds {MAX_EXTERNAL_CODES}")));
         }
         for c in codes {
+            if c.code_type.len() > MAX_CODE_TYPE_LEN {
+                return Err(AppError::BadRequest(format!("external code type exceeds {MAX_CODE_TYPE_LEN} chars")));
+            }
             if c.value.len() > MAX_CODE_VALUE_LEN {
                 return Err(AppError::BadRequest(format!("external code value exceeds {MAX_CODE_VALUE_LEN} chars")));
             }
