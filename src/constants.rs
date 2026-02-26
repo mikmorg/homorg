@@ -38,10 +38,13 @@ pub const JWT_AUDIENCE: &str = "homorg";
 pub const PASSWORD_MIN_LEN: usize = 8;
 pub const PASSWORD_MAX_LEN: usize = 128;
 
-// ── Username policy ─────────────────────────────────────────────────────
+// ── Username / display name policy ──────────────────────────────────────
 
 pub const USERNAME_MIN_LEN: usize = 2;
 pub const USERNAME_MAX_LEN: usize = 32;
+
+/// Maximum character length for a user's display name.
+pub const MAX_DISPLAY_NAME_LEN: usize = 200;
 
 /// Returns `true` if the username is well-formed (alphanumeric, underscores, hyphens).
 pub fn is_valid_username(u: &str) -> bool {
@@ -56,6 +59,17 @@ pub fn is_valid_username(u: &str) -> bool {
 
 /// Maximum barcodes that can be generated in a single batch request.
 pub const MAX_BARCODE_BATCH: u32 = 1000;
+
+// ── External codes ─────────────────────────────────────────────────────
+
+/// Maximum number of external codes (UPC, EAN, ISBN, etc.) per item.
+pub const MAX_EXTERNAL_CODES: usize = 50;
+
+/// Maximum character length of an external code value.
+pub const MAX_CODE_VALUE_LEN: usize = 200;
+
+/// Maximum character length of an external code type identifier.
+pub const MAX_CODE_TYPE_LEN: usize = 64;
 
 // ── Role hierarchy ──────────────────────────────────────────────────────
 

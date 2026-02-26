@@ -10,7 +10,7 @@ use uuid::Uuid;
 use crate::auth::jwt::create_access_token;
 use crate::auth::middleware::AuthUser;
 use crate::auth::password::{hash_password, verify_password};
-use crate::constants::{PASSWORD_MAX_LEN, PASSWORD_MIN_LEN, USERS_ID, is_valid_username};
+use crate::constants::{PASSWORD_MAX_LEN, PASSWORD_MIN_LEN, USERS_ID, MAX_DISPLAY_NAME_LEN, is_valid_username};
 use crate::errors::{AppError, AppResult};
 use crate::models::event::EventMetadata;
 use crate::models::item::CreateItemRequest;
@@ -310,6 +310,19 @@ async fn register(
             "Username must be 2–32 alphanumeric/underscore/hyphen chars; password must be 8–128 characters".into(),
         ));
     }
+    if let Some(ref dn) = req.display_name {
+        if dn.len() > MAX_DISPLAY_NAME_LEN {
+            return Err(AppError::BadRequest(format!(
+                "display_name exceeds {MAX_DISPLAY_NAME_LEN} chars"
+            )));
+        }
+    }
+
+    let user_id = Uuid::new_v4();
+    // SEC-8: Hash password BEFORE opening the transaction.
+    // Argon2 is CPU-intensive (~300 ms); holding a PG transaction open during hashing
+    // pins a pool connection unnecessarily. Same pattern as setup/update_user.
+    let pw_hash = hash_password(&req.password).await?;
 
     let mut tx = state.pool.begin().await?;
 
@@ -324,9 +337,6 @@ async fn register(
     if state.user_queries.username_exists_in_tx(&mut tx, &req.username).await? {
         return Err(AppError::Conflict("Username already taken".into()));
     }
-
-    let user_id = Uuid::new_v4();
-    let pw_hash = hash_password(&req.password).await?;
 
     let user = state.user_queries.create_in_tx(
         &mut tx, user_id, &req.username, &pw_hash, req.display_name.as_deref(), "member",

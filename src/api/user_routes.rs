@@ -9,7 +9,7 @@ use uuid::Uuid;
 
 use crate::auth::middleware::AuthUser;
 use crate::auth::password::hash_password;
-use crate::constants::{PASSWORD_MIN_LEN, PASSWORD_MAX_LEN};
+use crate::constants::{PASSWORD_MIN_LEN, PASSWORD_MAX_LEN, MAX_DISPLAY_NAME_LEN};
 use crate::errors::{AppError, AppResult};
 use crate::models::user::*;
 use crate::AppState;
@@ -64,6 +64,13 @@ async fn update_user(
             return Err(AppError::BadRequest(
                 format!("Password must be {PASSWORD_MIN_LEN}–{PASSWORD_MAX_LEN} characters"),
             ));
+        }
+    }
+    if let Some(ref dn) = req.display_name {
+        if dn.len() > MAX_DISPLAY_NAME_LEN {
+            return Err(AppError::BadRequest(format!(
+                "display_name exceeds {MAX_DISPLAY_NAME_LEN} chars"
+            )));
         }
     }
 
@@ -128,7 +135,44 @@ async fn update_role(
         return Err(AppError::BadRequest("Cannot demote yourself".into()));
     }
 
-    state.user_queries.update_role(id, &req.role).await?;
+    // SEC-2: Last-admin guard — prevent leaving zero admins.
+    // Run inside a transaction to close the TOCTOU window between counting and updating.
+    let mut tx = state.pool.begin().await?;
+
+    let current_role: Option<String> = sqlx::query_scalar(
+        "SELECT role FROM users WHERE id = $1 FOR UPDATE",
+    )
+    .bind(id)
+    .fetch_optional(&mut *tx)
+    .await?;
+
+    let current_role = current_role
+        .ok_or_else(|| AppError::NotFound(format!("User {id} not found")))?;
+
+    if current_role == "admin" && req.role != "admin" {
+        // Count remaining active admins *excluding* the one being demoted
+        let remaining_admins: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM users WHERE role = 'admin' AND is_active = TRUE AND id != $1",
+        )
+        .bind(id)
+        .fetch_one(&mut *tx)
+        .await?;
+
+        if remaining_admins == 0 {
+            return Err(AppError::BadRequest(
+                "Cannot demote the last admin. Promote another user to admin first.".into(),
+            ));
+        }
+    }
+
+    sqlx::query("UPDATE users SET role = $1 WHERE id = $2")
+        .bind(&req.role)
+        .bind(id)
+        .execute(&mut *tx)
+        .await?;
+
+    tx.commit().await?;
+
     let user = state.user_queries.find_by_id(id).await?;
     Ok(Json(user.into()))
 }

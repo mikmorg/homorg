@@ -74,11 +74,13 @@ impl SearchQueries {
               AND ($7::bool IS NULL OR is_container = $7)
               AND ($8::float8 IS NULL OR current_value >= $8)
               AND ($9::float8 IS NULL OR current_value <= $9)
-              -- Cursor: keyset pagination on (created_at, id)
+              -- Cursor: keyset pagination on (COALESCE(name,''), id) must match ORDER BY columns.
+              -- ts_rank is query-derived and cannot be stored in a cursor, so we use the stable
+              -- secondary sort (name, id) for correct multi-page continuation.
               AND (
                   $10::uuid IS NULL
-                  OR (created_at, id) > (
-                      SELECT created_at, id FROM items WHERE id = $10
+                  OR (COALESCE(name, ''), id) > (
+                      SELECT COALESCE(name, ''), id FROM items WHERE id = $10
                   )
               )
             ORDER BY
@@ -86,7 +88,8 @@ impl SearchQueries {
                    THEN ts_rank(search_vector, plainto_tsquery('english', $1))
                    ELSE 0
               END DESC,
-              name ASC
+              COALESCE(name, '') ASC,
+              id ASC
             LIMIT $11
             "#,
         )

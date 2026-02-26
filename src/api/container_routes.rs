@@ -8,10 +8,13 @@ use std::sync::Arc;
 use uuid::Uuid;
 
 use crate::auth::middleware::AuthUser;
-use crate::errors::AppResult;
+use crate::errors::{AppError, AppResult};
 use crate::models::event::{EventMetadata, StoredEvent};
 use crate::models::item::{AncestorEntry, ContainerStats, ItemSummary};
 use crate::AppState;
+
+/// Maximum serialized size of a container location schema (64 KiB).
+const MAX_SCHEMA_BYTES: usize = 65_536;
 
 pub fn router() -> Router<Arc<AppState>> {
     Router::new()
@@ -105,6 +108,15 @@ async fn update_schema(
     Json(body): Json<SchemaBody>,
 ) -> AppResult<Json<StoredEvent>> {
     auth.require_role("member")?;
+
+    // SEC-3: Reject oversized schema payloads before persisting to the event store.
+    let schema_bytes = body.schema.to_string().len();
+    if schema_bytes > MAX_SCHEMA_BYTES {
+        return Err(AppError::BadRequest(format!(
+            "schema exceeds maximum size of {MAX_SCHEMA_BYTES} bytes (got {schema_bytes})"
+        )));
+    }
+
     let metadata = EventMetadata::default();
     let event = state
         .item_commands

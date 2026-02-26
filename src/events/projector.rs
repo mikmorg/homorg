@@ -302,11 +302,14 @@ impl Projector {
         id: Uuid,
         actor_id: Uuid,
     ) -> AppResult<()> {
-        sqlx::query("UPDATE items SET is_deleted = TRUE, deleted_at = NOW(), updated_by = $1 WHERE id = $2")
+        let result = sqlx::query("UPDATE items SET is_deleted = TRUE, deleted_at = NOW(), updated_by = $1 WHERE id = $2")
             .bind(actor_id)
             .bind(id)
             .execute(&mut **tx)
             .await?;
+        if result.rows_affected() == 0 {
+            tracing::warn!(item_id = %id, "project_item_deleted: UPDATE affected 0 rows — item may already be deleted or missing");
+        }
         Ok(())
     }
 
@@ -315,11 +318,14 @@ impl Projector {
         id: Uuid,
         actor_id: Uuid,
     ) -> AppResult<()> {
-        sqlx::query("UPDATE items SET is_deleted = FALSE, deleted_at = NULL, updated_by = $1 WHERE id = $2")
+        let result = sqlx::query("UPDATE items SET is_deleted = FALSE, deleted_at = NULL, updated_by = $1 WHERE id = $2")
             .bind(actor_id)
             .bind(id)
             .execute(&mut **tx)
             .await?;
+        if result.rows_affected() == 0 {
+            tracing::warn!(item_id = %id, "project_item_restored: UPDATE affected 0 rows — item may be missing from projection");
+        }
         Ok(())
     }
 

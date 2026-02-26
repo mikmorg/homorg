@@ -211,20 +211,26 @@ impl UserQueries {
 
     /// Update a user's role.
     pub async fn update_role(&self, id: Uuid, role: &str) -> AppResult<()> {
-        sqlx::query("UPDATE users SET role = $1 WHERE id = $2")
+        let result = sqlx::query("UPDATE users SET role = $1 WHERE id = $2")
             .bind(role)
             .bind(id)
             .execute(&self.pool)
             .await?;
+        if result.rows_affected() == 0 {
+            return Err(AppError::NotFound(format!("User {id} not found")));
+        }
         Ok(())
     }
 
     /// Deactivate a user.
     pub async fn deactivate(&self, id: Uuid) -> AppResult<()> {
-        sqlx::query("UPDATE users SET is_active = FALSE WHERE id = $1")
+        let result = sqlx::query("UPDATE users SET is_active = FALSE WHERE id = $1")
             .bind(id)
             .execute(&self.pool)
             .await?;
+        if result.rows_affected() == 0 {
+            return Err(AppError::NotFound(format!("User {id} not found")));
+        }
         Ok(())
     }
 }

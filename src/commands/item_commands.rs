@@ -2,6 +2,7 @@ use sqlx::PgPool;
 use uuid::Uuid;
 use chrono::Utc;
 
+use crate::constants::{MAX_EXTERNAL_CODES, MAX_CODE_VALUE_LEN, MAX_CODE_TYPE_LEN};
 use crate::errors::{AppError, AppResult};
 use crate::events::projector::Projector;
 use crate::events::store::EventStore;
@@ -485,7 +486,7 @@ impl ItemCommands {
             .iter()
             .find(|e| e.path == path)
             .map(|e| (e.caption.clone(), Some(e.order)))
-            .unwrap_or((None, None));
+            .ok_or_else(|| AppError::NotFound(format!("Image '{}' not found on item {item_id}", path)))?;
 
         let event = DomainEvent::ItemImageRemoved(ItemImageRemovedData { path, caption, order });
         let stored = self.event_store.append_in_tx(&mut tx, item_id, &event, actor_id, metadata).await?;
@@ -544,10 +545,35 @@ impl ItemCommands {
         actor_id: Uuid,
         metadata: &EventMetadata,
     ) -> AppResult<StoredEvent> {
-        let event = DomainEvent::ItemExternalCodeAdded(ExternalCodeData { code_type, value });
+        // CB-5: Validate lengths before opening a transaction (fast rejection).
+        if code_type.len() > MAX_CODE_TYPE_LEN {
+            return Err(AppError::BadRequest(format!(
+                "code_type exceeds {MAX_CODE_TYPE_LEN} chars"
+            )));
+        }
+        if value.len() > MAX_CODE_VALUE_LEN {
+            return Err(AppError::BadRequest(format!(
+                "external code value exceeds {MAX_CODE_VALUE_LEN} chars"
+            )));
+        }
 
         let mut tx = self.pool.begin().await?;
         self.verify_item_exists(&mut tx, item_id).await?;
+
+        // CB-5: Enforce max external code count inside the transaction to prevent TOCTOU.
+        let current_count: i64 = sqlx::query_scalar(
+            "SELECT COALESCE(jsonb_array_length(external_codes), 0) FROM items WHERE id = $1 AND is_deleted = FALSE",
+        )
+        .bind(item_id)
+        .fetch_one(&mut *tx)
+        .await?;
+        if current_count >= MAX_EXTERNAL_CODES as i64 {
+            return Err(AppError::BadRequest(format!(
+                "Cannot add external code: item already has {current_count} external codes (max {MAX_EXTERNAL_CODES})"
+            )));
+        }
+
+        let event = DomainEvent::ItemExternalCodeAdded(ExternalCodeData { code_type, value });
         let stored = self.event_store.append_in_tx(&mut tx, item_id, &event, actor_id, metadata).await?;
         Projector::apply(&mut tx, item_id, &event, actor_id).await?;
         tx.commit().await?;

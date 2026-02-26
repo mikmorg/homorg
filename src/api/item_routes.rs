@@ -21,8 +21,9 @@ const MAX_CATEGORY_LEN: usize = 200;
 const MAX_TAG_COUNT: usize = 50;
 const MAX_TAG_LEN: usize = 100;
 const MAX_METADATA_BYTES: usize = 102_400; // 100 KiB
-const MAX_EXTERNAL_CODES: usize = 50;
-const MAX_CODE_VALUE_LEN: usize = 200;
+const MAX_EXTERNAL_CODES: usize = crate::constants::MAX_EXTERNAL_CODES;
+const MAX_CODE_VALUE_LEN: usize = crate::constants::MAX_CODE_VALUE_LEN;
+const MAX_CODE_TYPE_LEN: usize = crate::constants::MAX_CODE_TYPE_LEN;
 
 // ── Allowed MIME types by magic bytes (SEC-4/SEC-5) ─────────────────────
 /// Maps infer MIME type strings to canonical file extensions.
@@ -391,6 +392,19 @@ async fn add_external_code(
     Json(req): Json<AddExternalCodeRequest>,
 ) -> AppResult<(StatusCode, Json<StoredEvent>)> {
     auth.require_role("member")?;
+
+    // CB-5: Validate code_type and value lengths before hitting the command layer.
+    if req.code_type.len() > MAX_CODE_TYPE_LEN {
+        return Err(AppError::BadRequest(format!(
+            "code_type exceeds {MAX_CODE_TYPE_LEN} chars"
+        )));
+    }
+    if req.value.len() > MAX_CODE_VALUE_LEN {
+        return Err(AppError::BadRequest(format!(
+            "external code value exceeds {MAX_CODE_VALUE_LEN} chars"
+        )));
+    }
+
     let metadata = EventMetadata::default();
     let event = state
         .item_commands
