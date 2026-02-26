@@ -10,7 +10,10 @@ pub mod models;
 pub mod queries;
 pub mod storage;
 
-use std::sync::Arc;
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc,
+};
 
 use commands::barcode_commands::BarcodeCommands;
 use commands::item_commands::ItemCommands;
@@ -43,6 +46,8 @@ pub struct AppState {
     pub session_repository: SessionRepository,
     pub stats_queries: StatsQueries,
     pub storage: Arc<dyn StorageBackend>,
+    /// API-5: Tracks whether a projection rebuild is currently running.
+    pub rebuild_in_progress: Arc<AtomicBool>,
 }
 
 impl AppState {
@@ -55,7 +60,7 @@ impl AppState {
     ) -> Self {
         let item_commands = ItemCommands::new(pool.clone(), event_store.clone());
         let undo_commands = UndoCommands::new(pool.clone(), event_store.clone());
-        let barcode_commands = BarcodeCommands::new(pool.clone(), config.clone());
+        let barcode_commands = BarcodeCommands::new(pool.clone(), config.clone(), event_store.clone());
         let item_queries = ItemQueries::new(pool.clone());
         let container_queries = ContainerQueries::new(pool.clone());
         let search_queries = SearchQueries::new(pool.clone());
@@ -79,6 +84,18 @@ impl AppState {
             session_repository,
             stats_queries,
             storage,
+            rebuild_in_progress: Arc::new(AtomicBool::new(false)),
         }
     }
 }
+
+/// Guard that clears the `rebuild_in_progress` flag when dropped.
+pub struct RebuildGuard(pub Arc<AtomicBool>);
+
+impl Drop for RebuildGuard {
+    fn drop(&mut self) {
+        self.0.store(false, Ordering::Relaxed);
+    }
+}
+
+pub use std::sync::atomic::Ordering as AtomicOrdering;

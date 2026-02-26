@@ -1,5 +1,6 @@
 use sqlx::PgPool;
 use uuid::Uuid;
+use chrono::Utc;
 
 use crate::errors::{AppError, AppResult};
 use crate::events::projector::Projector;
@@ -133,10 +134,29 @@ impl ItemCommands {
             depreciation_rate: req.depreciation_rate,
             warranty_expiry: req.warranty_expiry.map(|d| d.to_string()),
             metadata: req.metadata.clone().unwrap_or_else(|| serde_json::json!({})),
+            // DI-2: Record creation timestamp in the event so rebuild_all restores original dates.
+            created_at: Some(Utc::now()),
         }));
 
         let stored = self.event_store.append_in_tx(tx, id, &event, actor_id, metadata).await?;
-        Projector::apply(tx, id, &event, actor_id).await?;
+        Projector::apply(tx, id, &event, actor_id).await.map_err(|e| {
+            // DI-6: node_id UNIQUE collision → 409 instead of opaque 500.
+            // DI-7: system_barcode concurrent-insert race → 409 instead of opaque 500.
+            if let AppError::Database(sqlx::Error::Database(ref db_err)) = e {
+                if db_err.constraint() == Some("items_node_id_key") {
+                    return AppError::Conflict(
+                        "node_id collision detected — retry with a new item UUID".into(),
+                    );
+                }
+                if db_err.constraint() == Some("items_system_barcode_key") {
+                    return AppError::Conflict(format!(
+                        "Barcode '{}' already exists",
+                        system_barcode
+                    ));
+                }
+            }
+            e
+        })?;
 
         Ok(stored)
     }
@@ -178,14 +198,18 @@ impl ItemCommands {
             };
         }
 
-        // Numeric diff: compare as f64 to avoid Decimal (string "10.50") vs f64 (number 10.5) mismatch
+        // Numeric diff: compare as f64 rounded to 6 decimal places to avoid
+        // CB-3: Decimal→f64 conversion producing phantom field-change events (e.g., 10.50 ≠ 10.500000000000001).
         macro_rules! diff_numeric {
             ($field:ident, $current_val:expr) => {
                 if let Some(ref new_val) = req.$field {
                     use rust_decimal::prelude::ToPrimitive;
                     let old_f64: Option<f64> = $current_val.as_ref().and_then(|d: &rust_decimal::Decimal| d.to_f64());
                     let new_f64: f64 = *new_val;
-                    if old_f64.map_or(true, |o| (o - new_f64).abs() > f64::EPSILON) {
+                    // Round to 6 decimal places before comparing to suppress binary-float noise.
+                    let old_r = old_f64.map(|f| (f * 1_000_000.0).round() / 1_000_000.0);
+                    let new_r = (new_f64 * 1_000_000.0).round() / 1_000_000.0;
+                    if old_r.map_or(true, |o| (o - new_r).abs() > 1e-9) {
                         changes.push(FieldChange {
                             field: stringify!($field).to_string(),
                             old: serde_json::to_value(&old_f64).unwrap_or(serde_json::Value::Null),
@@ -444,10 +468,26 @@ impl ItemCommands {
         actor_id: Uuid,
         metadata: &EventMetadata,
     ) -> AppResult<StoredEvent> {
-        let event = DomainEvent::ItemImageRemoved(ItemImageRemovedData { path });
-
         let mut tx = self.pool.begin().await?;
         self.verify_item_exists(&mut tx, item_id).await?;
+
+        // Look up caption/order for this image so undo can restore it
+        let images_json: serde_json::Value = sqlx::query_scalar(
+            "SELECT images FROM items WHERE id = $1 AND is_deleted = FALSE",
+        )
+        .bind(item_id)
+        .fetch_optional(&mut *tx)
+        .await?
+        .ok_or_else(|| AppError::NotFound(format!("Item {item_id} not found")))?;
+        let images: Vec<crate::models::item::ImageEntry> =
+            serde_json::from_value(images_json).unwrap_or_default();
+        let (caption, order) = images
+            .iter()
+            .find(|e| e.path == path)
+            .map(|e| (e.caption.clone(), Some(e.order)))
+            .unwrap_or((None, None));
+
+        let event = DomainEvent::ItemImageRemoved(ItemImageRemovedData { path, caption, order });
         let stored = self.event_store.append_in_tx(&mut tx, item_id, &event, actor_id, metadata).await?;
         Projector::apply(&mut tx, item_id, &event, actor_id).await?;
         tx.commit().await?;
@@ -484,7 +524,9 @@ impl ItemCommands {
             .ok_or_else(|| AppError::NotFound(format!("Image index {index} not found")))?;
 
         let path = entry.path.clone();
-        let event = DomainEvent::ItemImageRemoved(ItemImageRemovedData { path: path.clone() });
+        let caption = entry.caption.clone();
+        let order = Some(entry.order);
+        let event = DomainEvent::ItemImageRemoved(ItemImageRemovedData { path: path.clone(), caption, order });
 
         let stored = self.event_store.append_in_tx(&mut tx, item_id, &event, actor_id, metadata).await?;
         Projector::apply(&mut tx, item_id, &event, actor_id).await?;
@@ -553,6 +595,14 @@ impl ItemCommands {
 
         if !current.0 {
             return Err(AppError::BadRequest("Item is not fungible".into()));
+        }
+
+        // CB-5: Validate non-negative quantity here rather than letting the DB CHECK constraint
+        // surface as an opaque 500 error.
+        if req.new_quantity < 0 {
+            return Err(AppError::BadRequest(format!(
+                "New quantity must be >= 0 (got {})", req.new_quantity
+            )));
         }
 
         let event = DomainEvent::ItemQuantityAdjusted(QuantityAdjustedData {

@@ -38,6 +38,7 @@ impl UndoCommands {
             .map_err(|e| AppError::Internal(format!("Failed to deserialize event: {e}")))?;
 
         let (compensating_event, aggregate_id) = self.build_compensating_event(
+            &mut tx,
             &domain_event,
             original.aggregate_id,
             original.event_id,
@@ -80,6 +81,7 @@ impl UndoCommands {
                 .map_err(|e| AppError::Internal(format!("Failed to deserialize event: {e}")))?;
 
             let (compensating_event, aggregate_id) = self.build_compensating_event(
+                &mut tx,
                 &domain_event,
                 original.aggregate_id,
                 original.event_id,
@@ -127,6 +129,7 @@ impl UndoCommands {
                 .map_err(|e| AppError::Internal(format!("Failed to deserialize event: {e}")))?;
 
             let (compensating_event, aggregate_id) = self.build_compensating_event(
+                &mut tx,
                 &domain_event,
                 original.aggregate_id,
                 original.event_id,
@@ -150,6 +153,7 @@ impl UndoCommands {
 
     async fn build_compensating_event(
         &self,
+        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
         original: &DomainEvent,
         aggregate_id: Uuid,
         original_event_id: Uuid,
@@ -163,26 +167,38 @@ impl UndoCommands {
                     to_container_id: data.from_container_id,
                     from_path: data.to_path.clone(),
                     to_path: data.from_path.clone(),
-                    coordinate: None, // Original coordinate is lost; could be enhanced
+                    coordinate: None,
                 });
                 Ok((compensating, aggregate_id))
             }
             DomainEvent::ItemCreated(_) => {
-                // Undo creation = soft delete
+                // DI-1: Guard — cannot undo creation if item has active children
+                let child_count: i64 = sqlx::query_scalar(
+                    "SELECT COUNT(*) FROM items WHERE parent_id = $1 AND is_deleted = FALSE",
+                )
+                .bind(aggregate_id)
+                .fetch_one(&mut **tx)
+                .await?;
+
+                if child_count > 0 {
+                    return Err(AppError::Conflict(format!(
+                        "Cannot undo ItemCreated: item has {child_count} active children. \
+                         Move or delete them first."
+                    )));
+                }
+
                 let compensating = DomainEvent::ItemDeleted(ItemDeletedData {
                     reason: Some(format!("Undo of creation event {original_event_id}")),
                 });
                 Ok((compensating, aggregate_id))
             }
             DomainEvent::ItemDeleted(_) => {
-                // Undo deletion = restore
                 let compensating = DomainEvent::ItemRestored(ItemRestoredData {
                     from_event_id: Some(original_event_id),
                 });
                 Ok((compensating, aggregate_id))
             }
             DomainEvent::ItemUpdated(data) => {
-                // Reverse each field change
                 let reversed_changes: Vec<FieldChange> = data.changes.iter().map(|c| FieldChange {
                     field: c.field.clone(),
                     old: c.new.clone(),
@@ -216,17 +232,28 @@ impl UndoCommands {
                 Ok((compensating, aggregate_id))
             }
             DomainEvent::ItemImageAdded(data) => {
+                // When undoing an ItemImageAdded, preserve caption/order so further undo is lossy-free
                 let compensating = DomainEvent::ItemImageRemoved(ItemImageRemovedData {
                     path: data.path.clone(),
+                    caption: data.caption.clone(),
+                    order: Some(data.order),
                 });
                 Ok((compensating, aggregate_id))
             }
             DomainEvent::ItemImageRemoved(data) => {
-                // We don't have the full original image data; re-add with defaults
+                // ES-3: restore with preserved caption/order from the removal event
                 let compensating = DomainEvent::ItemImageAdded(ItemImageAddedData {
                     path: data.path.clone(),
-                    caption: None,
-                    order: 0,
+                    caption: data.caption.clone(),
+                    order: data.order.unwrap_or(0),
+                });
+                Ok((compensating, aggregate_id))
+            }
+            DomainEvent::ContainerSchemaUpdated(data) => {
+                // ES-1: Swap old↔new schema to restore the previous schema
+                let compensating = DomainEvent::ContainerSchemaUpdated(ContainerSchemaUpdatedData {
+                    old_schema: Some(data.new_schema.clone()),
+                    new_schema: data.old_schema.clone().unwrap_or(serde_json::Value::Null),
                 });
                 Ok((compensating, aggregate_id))
             }

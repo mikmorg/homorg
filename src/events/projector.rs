@@ -44,7 +44,10 @@ impl Projector {
         let ext_codes = serde_json::to_value(&data.external_codes)
             .unwrap_or_else(|_| serde_json::json!([]));
 
-        sqlx::query(
+        // DI-2: Use the creation timestamp stored in the event (set at command time) so that
+        // rebuild_all restores original `created_at` values rather than stamping the rebuild time.
+        // `created_at` may be None for events written before this field was added; fall back to NOW().
+        let result = sqlx::query(
             r#"
             INSERT INTO items (
                 id, system_barcode, node_id,
@@ -56,6 +59,7 @@ impl Projector {
                 external_codes,
                 condition, acquisition_date, acquisition_cost, current_value, depreciation_rate, warranty_expiry,
                 metadata,
+                created_at,
                 created_by, updated_by
             ) VALUES (
                 $1, $2, $3,
@@ -67,7 +71,8 @@ impl Projector {
                 $20,
                 $21, $22::date, $23, $24, $25, $26::date,
                 $27,
-                $28, $28
+                COALESCE($28::timestamptz, NOW()),
+                $29, $29
             )
             ON CONFLICT (id) DO NOTHING
             "#,
@@ -99,9 +104,15 @@ impl Projector {
         .bind(data.depreciation_rate)
         .bind(&data.warranty_expiry)
         .bind(&data.metadata)
+        .bind(data.created_at)  // DI-2: bind original timestamp
         .bind(actor_id)
         .execute(&mut **tx)
         .await?;
+
+        // ES-4: Log a warning if ON CONFLICT DO NOTHING silently swallowed a duplicate.
+        if result.rows_affected() == 0 {
+            tracing::warn!(item_id = %id, "project_item_created: ON CONFLICT DO NOTHING — duplicate ItemCreated event detected");
+        }
 
         Ok(())
     }
@@ -464,13 +475,30 @@ impl Projector {
     /// Rebuild all projections by replaying the entire event store.
     /// WARNING: This truncates the items table (except seed data) and replays everything.
     /// Uses a PostgreSQL advisory lock to prevent concurrent rebuilds.
+    /// ES-2/RM-1: Fetches events in batches (1 000 at a time) to keep memory usage bounded.
+    /// EH-3: Skips individual deserialization failures with a warning instead of aborting.
     pub async fn rebuild_all(pool: &PgPool) -> AppResult<u64> {
         let mut tx = pool.begin().await?;
+
+        // CONC-3: Limit how long we will wait to acquire the advisory lock.  This
+        // prevents a queued rebuild from blocking indefinitely if another rebuild is
+        // still running, and surfaces a clear error instead of a silent hang.
+        sqlx::query("SET LOCAL lock_timeout = '10s'")
+            .execute(&mut *tx)
+            .await
+            .map_err(|e| AppError::Internal(format!("Failed to set lock_timeout: {e}")))?;
 
         // Advisory lock prevents concurrent rebuilds
         sqlx::query("SELECT pg_advisory_xact_lock(7307942)")
             .execute(&mut *tx)
-            .await?;
+            .await
+            .map_err(|e| {
+                if e.to_string().contains("lock timeout") || e.to_string().contains("55P03") {
+                    AppError::Conflict("A projection rebuild is already in progress".into())
+                } else {
+                    AppError::Database(e)
+                }
+            })?;
 
         // Delete all non-seed items; seed rows will be re-inserted via ON CONFLICT below
         sqlx::query("DELETE FROM items WHERE id NOT IN ($1, $2)")
@@ -479,29 +507,61 @@ impl Projector {
             .execute(&mut *tx)
             .await?;
 
-        // Replay all events in order
-        let events = sqlx::query_as::<_, StoredEvent>(
-            r#"
-            SELECT id, event_id, aggregate_id, aggregate_type, event_type, event_data, metadata, actor_id, created_at, sequence_number, schema_version
-            FROM event_store
-            ORDER BY id ASC
-            "#,
-        )
-        .fetch_all(&mut *tx)
-        .await?;
+        const BATCH: i64 = 1_000;
+        let mut last_id: i64 = 0;
+        let mut total: u64 = 0;
+        let mut skipped: u64 = 0;
 
-        let count = events.len() as u64;
-        for stored in &events {
-            let domain_event: DomainEvent = serde_json::from_value(stored.event_data.clone())
-                .map_err(|e| AppError::Internal(format!(
-                    "Failed to deserialize event {}: {e}", stored.event_id
-                )))?;
+        loop {
+            // ES-2/RM-1: Load one batch instead of the entire event store at once.
+            let batch = sqlx::query_as::<_, StoredEvent>(
+                r#"
+                SELECT id, event_id, aggregate_id, aggregate_type, event_type, event_data, metadata,
+                       actor_id, created_at, sequence_number, schema_version
+                FROM event_store
+                WHERE id > $1
+                ORDER BY id ASC
+                LIMIT $2
+                "#,
+            )
+            .bind(last_id)
+            .bind(BATCH)
+            .fetch_all(&mut *tx)
+            .await?;
 
-            let actor = stored.actor_id.unwrap_or(Uuid::nil());
-            Self::apply(&mut tx, stored.aggregate_id, &domain_event, actor).await?;
+            if batch.is_empty() {
+                break;
+            }
+
+            for stored in &batch {
+                last_id = stored.id;
+
+                let domain_event: DomainEvent = match serde_json::from_value(stored.event_data.clone()) {
+                    Ok(e) => e,
+                    // EH-3: Log and skip individual bad events instead of aborting the whole rebuild.
+                    Err(e) => {
+                        tracing::warn!(
+                            event_id = %stored.event_id,
+                            event_type = %stored.event_type,
+                            error = %e,
+                            "rebuild_all: skipping undeserializable event"
+                        );
+                        skipped += 1;
+                        continue;
+                    }
+                };
+
+                let actor = stored.actor_id.unwrap_or(Uuid::nil());
+                Self::apply(&mut tx, stored.aggregate_id, &domain_event, actor).await?;
+                total += 1;
+            }
+        }
+
+        if skipped > 0 {
+            tracing::warn!(skipped, "rebuild_all: {skipped} events skipped due to deserialization errors");
         }
 
         tx.commit().await?;
-        Ok(count)
+        Ok(total)
     }
 }

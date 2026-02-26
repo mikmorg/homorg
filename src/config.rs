@@ -28,6 +28,26 @@ pub struct AppConfig {
     pub log_format: String, // "text" or "json"
 }
 
+/// SEC-9: Parse an env var with a fallback default.
+/// Prints a warning to stderr when the var is set but cannot be parsed, so operators
+/// are never silently surprised by a wrong value being replaced with a default.
+fn parse_env<T>(var: &str, default: T) -> T
+where
+    T: std::str::FromStr + std::fmt::Display,
+    T::Err: std::fmt::Display,
+{
+    match env::var(var) {
+        Err(_) => default, // not set → use default silently
+        Ok(val) => val.parse().unwrap_or_else(|e| {
+            eprintln!(
+                "WARNING: env var {var}='{}' could not be parsed ({}); using default {}",
+                val, e, default
+            );
+            default
+        }),
+    }
+}
+
 impl AppConfig {
     pub fn from_env() -> Result<Self, String> {
         let jwt_secret = env::var("JWT_SECRET").map_err(|e| format!("JWT_SECRET: {e}"))?;
@@ -38,28 +58,26 @@ impl AppConfig {
             ));
         }
 
+        // DB-5: Validate BARCODE_PREFIX ≤ 8 chars to match the barcode_sequences column width.
+        let barcode_prefix = env::var("BARCODE_PREFIX").unwrap_or_else(|_| "HOM".into());
+        if barcode_prefix.len() > 8 {
+            return Err(format!(
+                "BARCODE_PREFIX '{}' is too long (max 8 characters, got {})",
+                barcode_prefix,
+                barcode_prefix.len()
+            ));
+        }
+
         Ok(Self {
             database_url: env::var("DATABASE_URL").map_err(|e| format!("DATABASE_URL: {e}"))?,
             jwt_secret,
-            jwt_access_ttl_secs: env::var("JWT_ACCESS_TTL_SECS")
-                .unwrap_or_else(|_| "900".into())
-                .parse()
-                .unwrap_or(900),
-            jwt_refresh_ttl_days: env::var("JWT_REFRESH_TTL_DAYS")
-                .unwrap_or_else(|_| "30".into())
-                .parse()
-                .unwrap_or(30),
+            jwt_access_ttl_secs: parse_env("JWT_ACCESS_TTL_SECS", 900u64),
+            jwt_refresh_ttl_days: parse_env("JWT_REFRESH_TTL_DAYS", 30u64),
             listen_addr: env::var("LISTEN_ADDR").unwrap_or_else(|_| "0.0.0.0:8080".into()),
-            barcode_prefix: env::var("BARCODE_PREFIX").unwrap_or_else(|_| "HOM".into()),
-            barcode_pad_width: env::var("BARCODE_PAD_WIDTH")
-                .unwrap_or_else(|_| "6".into())
-                .parse()
-                .unwrap_or(6),
+            barcode_prefix,
+            barcode_pad_width: parse_env("BARCODE_PAD_WIDTH", 6usize),
             storage_path: env::var("STORAGE_PATH").unwrap_or_else(|_| "./data/images".into()),
-            max_batch_size: env::var("MAX_BATCH_SIZE")
-                .unwrap_or_else(|_| "500".into())
-                .parse()
-                .unwrap_or(500),
+            max_batch_size: parse_env("MAX_BATCH_SIZE", 500usize),
             cors_origins: env::var("CORS_ORIGINS")
                 .unwrap_or_else(|_| "*".into())
                 .split(',')
@@ -67,31 +85,13 @@ impl AppConfig {
                 .filter(|s| !s.is_empty())
                 .collect(),
             // DB pool
-            db_max_connections: env::var("DB_MAX_CONNECTIONS")
-                .unwrap_or_else(|_| "20".into())
-                .parse()
-                .unwrap_or(20),
-            db_min_connections: env::var("DB_MIN_CONNECTIONS")
-                .unwrap_or_else(|_| "2".into())
-                .parse()
-                .unwrap_or(2),
-            db_acquire_timeout_secs: env::var("DB_ACQUIRE_TIMEOUT_SECS")
-                .unwrap_or_else(|_| "30".into())
-                .parse()
-                .unwrap_or(30),
-            db_idle_timeout_secs: env::var("DB_IDLE_TIMEOUT_SECS")
-                .unwrap_or_else(|_| "600".into())
-                .parse()
-                .unwrap_or(600),
-            db_max_lifetime_secs: env::var("DB_MAX_LIFETIME_SECS")
-                .unwrap_or_else(|_| "1800".into())
-                .parse()
-                .unwrap_or(1800),
+            db_max_connections: parse_env("DB_MAX_CONNECTIONS", 20u32),
+            db_min_connections: parse_env("DB_MIN_CONNECTIONS", 2u32),
+            db_acquire_timeout_secs: parse_env("DB_ACQUIRE_TIMEOUT_SECS", 30u64),
+            db_idle_timeout_secs: parse_env("DB_IDLE_TIMEOUT_SECS", 600u64),
+            db_max_lifetime_secs: parse_env("DB_MAX_LIFETIME_SECS", 1800u64),
             // Upload limits
-            max_upload_bytes: env::var("MAX_UPLOAD_BYTES")
-                .unwrap_or_else(|_| "10485760".into()) // 10 MiB
-                .parse()
-                .unwrap_or(10_485_760),
+            max_upload_bytes: parse_env("MAX_UPLOAD_BYTES", 10_485_760usize), // 10 MiB
             allowed_image_mimes: env::var("ALLOWED_IMAGE_MIMES")
                 .unwrap_or_else(|_| "image/jpeg,image/png,image/webp,image/gif".into())
                 .split(',')
@@ -99,14 +99,8 @@ impl AppConfig {
                 .filter(|s| !s.is_empty())
                 .collect(),
             // Rate limiting
-            rate_limit_rps: env::var("RATE_LIMIT_RPS")
-                .unwrap_or_else(|_| "10".into())
-                .parse()
-                .unwrap_or(10),
-            rate_limit_burst: env::var("RATE_LIMIT_BURST")
-                .unwrap_or_else(|_| "30".into())
-                .parse()
-                .unwrap_or(30),
+            rate_limit_rps: parse_env("RATE_LIMIT_RPS", 10u64),
+            rate_limit_burst: parse_env("RATE_LIMIT_BURST", 30u32),
             // Logging
             log_format: env::var("LOG_FORMAT").unwrap_or_else(|_| "text".into()),
         })

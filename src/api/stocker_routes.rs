@@ -13,6 +13,7 @@ use crate::errors::{AppError, AppResult};
 use crate::models::event::EventMetadata;
 use crate::models::item::{CreateItemRequest, MoveItemRequest};
 use crate::models::session::*;
+use crate::api::item_routes::validate_create_request;
 use crate::AppState;
 
 pub fn router() -> Router<Arc<AppState>> {
@@ -112,11 +113,11 @@ async fn submit_batch(
             )
             .await?; // ? propagates error, rolling back tx on drop
 
-            items_scanned += 1;
+            // CB-6: Count inline per result type rather than a fragile +1/-1 dance.
             match &result {
-                StockerBatchResult::Created { .. } => items_created += 1,
-                StockerBatchResult::Moved { .. } => items_moved += 1,
-                StockerBatchResult::ContextSet { .. } => { items_scanned -= 1; }
+                StockerBatchResult::Created { .. } => { items_scanned += 1; items_created += 1; }
+                StockerBatchResult::Moved { .. } => { items_scanned += 1; items_moved += 1; }
+                StockerBatchResult::ContextSet { .. } => {} // context change is not a physical scan
             }
             results.push(result);
         }
@@ -147,11 +148,11 @@ async fn submit_batch(
 
             match result {
                 Ok(batch_result) => {
-                    items_scanned += 1;
+                    // CB-6: Count inline per result type.
                     match &batch_result {
-                        StockerBatchResult::Created { .. } => items_created += 1,
-                        StockerBatchResult::Moved { .. } => items_moved += 1,
-                        StockerBatchResult::ContextSet { .. } => { items_scanned -= 1; }
+                        StockerBatchResult::Created { .. } => { items_scanned += 1; items_created += 1; }
+                        StockerBatchResult::Moved { .. } => { items_scanned += 1; items_moved += 1; }
+                        StockerBatchResult::ContextSet { .. } => {}
                     }
                     results.push(batch_result);
                 }
@@ -331,6 +332,9 @@ async fn process_batch_event_in_tx(
                 warranty_expiry: None,
                 metadata: item_metadata.clone(),
             };
+
+            // API-2: Apply the same field-length validation used by the items API.
+            validate_create_request(&create_req)?;
 
             let stored = state
                 .item_commands

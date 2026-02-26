@@ -60,7 +60,7 @@ impl FromRequestParts<Arc<crate::AppState>> for AuthUser {
             .bind(claims.sub)
             .fetch_optional(&pool)
             .await
-            .map_err(|_| AppError::Unauthorized)?;
+            .map_err(AppError::Database)?;
 
             match row {
                 Some((true, role)) => Ok(AuthUser {

@@ -1,14 +1,15 @@
 use axum::{
     extract::State,
     http::StatusCode,
+    response::IntoResponse,
     routing::{get, post},
     Json, Router,
 };
 use serde::Serialize;
-use std::sync::Arc;
+use std::sync::{atomic::Ordering, Arc};
 
 use crate::auth::middleware::AuthUser;
-use crate::errors::AppResult;
+use crate::errors::{AppError, AppResult};
 use crate::events::projector::Projector;
 use crate::queries::stats_queries::StatsResponse;
 use crate::AppState;
@@ -16,14 +17,18 @@ use crate::AppState;
 pub fn router() -> Router<Arc<AppState>> {
     Router::new()
         .route("/health", get(health))
+        .route("/metrics", get(metrics))
         .route("/stats", get(stats))
         .route("/admin/rebuild-projections", post(rebuild_projections))
+        .route("/admin/rebuild-status", get(rebuild_status))
 }
 
 #[derive(Debug, Serialize)]
 struct HealthResponse {
     status: String,
     database: String,
+    /// OP-3: Include version and build metadata so operators can confirm which build is running.
+    version: &'static str,
 }
 
 /// Liveness check with DB connectivity status.
@@ -45,7 +50,11 @@ async fn health(State(state): State<Arc<AppState>>) -> (StatusCode, Json<HealthR
         }
     };
 
-    (status_code, Json(HealthResponse { status, database }))
+    (status_code, Json(HealthResponse {
+        status,
+        database,
+        version: env!("CARGO_PKG_VERSION"),
+    }))
 }
 
 /// System statistics.
@@ -57,6 +66,31 @@ async fn stats(
     Ok(Json(stats))
 }
 
+/// OP-1: Stub Prometheus-compatible metrics endpoint.
+/// Returns basic build metadata as gauges.  Replace with a real prometheus/openmetrics
+/// exporter (e.g., `metrics-exporter-prometheus`) when runtime instrumentation is added.
+async fn metrics(State(state): State<Arc<AppState>>) -> impl IntoResponse {
+    let in_progress = if state.rebuild_in_progress.load(Ordering::Relaxed) {
+        1
+    } else {
+        0
+    };
+    let body = format!(
+        "# HELP homorg_build_info Static build information.\n\
+         # TYPE homorg_build_info gauge\n\
+         homorg_build_info{{version=\"{}\"}} 1\n\
+         # HELP homorg_rebuild_in_progress Whether a projection rebuild is currently running.\n\
+         # TYPE homorg_rebuild_in_progress gauge\n\
+         homorg_rebuild_in_progress {}\n",
+        env!("CARGO_PKG_VERSION"),
+        in_progress,
+    );
+    (
+        [(axum::http::header::CONTENT_TYPE, "text/plain; version=0.0.4; charset=utf-8")],
+        body,
+    )
+}
+
 /// Replay event store and rebuild the items projection table.
 /// Long-running — returns 202 Accepted and processes in background.
 async fn rebuild_projections(
@@ -65,15 +99,44 @@ async fn rebuild_projections(
 ) -> AppResult<StatusCode> {
     auth.require_role("admin")?;
 
-    // Spawn rebuild in background
+    // API-5: Guard against launching two simultaneous rebuilds.
+    let was_running = state
+        .rebuild_in_progress
+        .compare_exchange(false, true, Ordering::AcqRel, Ordering::Relaxed)
+        .is_err();
+    if was_running {
+        return Err(AppError::Conflict("A projection rebuild is already in progress".into()));
+    }
+
+    // Spawn rebuild in background; guard clears the flag when it drops.
     let pool = state.pool.clone();
+    let flag = Arc::clone(&state.rebuild_in_progress);
     tokio::spawn(async move {
+        use crate::RebuildGuard;
+        let _guard = RebuildGuard(flag);
         tracing::info!("Starting projection rebuild...");
         match Projector::rebuild_all(&pool).await {
             Ok(count) => tracing::info!("Projection rebuild complete: {count} events replayed"),
             Err(e) => tracing::error!("Projection rebuild failed: {e}"),
         }
+        // _guard drops here, clearing rebuild_in_progress
     });
 
     Ok(StatusCode::ACCEPTED)
+}
+
+/// API-5: Poll whether a rebuild is currently running.
+#[derive(Debug, Serialize)]
+struct RebuildStatusResponse {
+    in_progress: bool,
+}
+
+async fn rebuild_status(
+    State(state): State<Arc<AppState>>,
+    auth: AuthUser,
+) -> AppResult<Json<RebuildStatusResponse>> {
+    auth.require_role("admin")?;
+    Ok(Json(RebuildStatusResponse {
+        in_progress: state.rebuild_in_progress.load(Ordering::Relaxed),
+    }))
 }

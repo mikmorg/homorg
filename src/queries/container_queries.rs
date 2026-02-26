@@ -16,7 +16,7 @@ impl ContainerQueries {
         Self { pool }
     }
 
-    /// Get direct children of a container, paginated with created_at + id keyset cursor.
+    /// Get direct children of a container, paginated with keyset cursor.
     pub async fn get_children(
         &self,
         container_id: Uuid,
@@ -46,9 +46,21 @@ impl ContainerQueries {
             _ => "name",
         };
         let order_dir = if sort_dir.unwrap_or("asc") == "desc" { "DESC" } else { "ASC" };
+        // CB-2: Cursor comparison operator must match sort direction.
+        let cursor_op = if order_dir == "DESC" { "<" } else { ">" };
 
-        // Keyset pagination: when a cursor UUID is given, resolve its (created_at, id)
-        // and use that compound key for stable pagination.
+        // CB-2: Keyset cursor uses the SAME column as ORDER BY (+ id as stable tiebreaker).
+        // For nullable text columns we COALESCE to '' so NULL rows sort at one end.
+        let cursor_subquery = match order_col {
+            "created_at" | "updated_at" => format!(
+                "OR ({order_col}, id) {cursor_op} (SELECT {order_col}, id FROM items WHERE id = $2)"
+            ),
+            _ => format!(
+                "OR (COALESCE({order_col}, ''), id::text) {cursor_op} \
+                 (SELECT COALESCE({order_col}, ''), id::text FROM items WHERE id = $2)"
+            ),
+        };
+
         let query = format!(
             r#"
             SELECT id, system_barcode, name, category, is_container, container_path::text as container_path,
@@ -57,11 +69,9 @@ impl ContainerQueries {
             WHERE parent_id = $1 AND is_deleted = FALSE
               AND (
                   $2::uuid IS NULL
-                  OR (created_at, id) > (
-                      SELECT created_at, id FROM items WHERE id = $2
-                  )
+                  {cursor_subquery}
               )
-            ORDER BY {order_col} {order_dir}
+            ORDER BY {order_col} {order_dir}, id {order_dir}
             LIMIT $3
             "#
         );
@@ -153,6 +163,7 @@ impl ContainerQueries {
     }
 
     /// Get container statistics.
+    /// DB-2: Single CTE query instead of 6 separate round-trips.
     pub async fn get_stats(&self, container_id: Uuid) -> AppResult<ContainerStats> {
         let path: Option<String> = sqlx::query_scalar(
             "SELECT container_path::text FROM items WHERE id = $1 AND is_container = TRUE AND is_deleted = FALSE",
@@ -164,51 +175,48 @@ impl ContainerQueries {
 
         let path = path.ok_or_else(|| AppError::Internal("Container has no path".into()))?;
 
-        let child_count: i64 = sqlx::query_scalar(
-            "SELECT COUNT(*) FROM items WHERE parent_id = $1 AND is_deleted = FALSE",
-        )
-        .bind(container_id)
-        .fetch_one(&self.pool)
-        .await?;
-
-        let descendant_count: i64 = sqlx::query_scalar(
-            "SELECT COUNT(*) FROM items WHERE container_path <@ $1::ltree AND id != $2 AND is_deleted = FALSE",
-        )
-        .bind(&path)
-        .bind(container_id)
-        .fetch_one(&self.pool)
-        .await?;
-
-        let total_weight: Option<f64> = sqlx::query_scalar(
-            "SELECT SUM(weight_grams::float8) FROM items WHERE parent_id = $1 AND is_deleted = FALSE AND weight_grams IS NOT NULL",
-        )
-        .bind(container_id)
-        .fetch_one(&self.pool)
-        .await?;
-
-        // Get container's max capacity
-        let (max_cap, _max_weight): (Option<f64>, Option<f64>) = sqlx::query_as(
-            "SELECT max_capacity_cc::float8, max_weight_grams::float8 FROM items WHERE id = $1",
-        )
-        .bind(container_id)
-        .fetch_one(&self.pool)
-        .await?;
-
-        // Estimate volume usage from children's dimensions (simplified: sum of w*h*d)
-        let capacity_used: Option<f64> = sqlx::query_scalar(
+        // Single CTE replaces all 5 subsequent queries.
+        let row: (i64, i64, Option<f64>, Option<f64>, Option<f64>, Option<f64>) = sqlx::query_as(
             r#"
-            SELECT SUM(
-                COALESCE((dimensions->>'width_cm')::float8, 0) *
-                COALESCE((dimensions->>'height_cm')::float8, 0) *
-                COALESCE((dimensions->>'depth_cm')::float8, 0)
-            )
-            FROM items
-            WHERE parent_id = $1 AND is_deleted = FALSE AND dimensions IS NOT NULL
+            WITH
+              container AS (
+                SELECT max_capacity_cc::float8  AS max_cap,
+                       max_weight_grams::float8 AS max_weight
+                FROM items WHERE id = $1
+              ),
+              children AS (
+                SELECT
+                  COUNT(*)                         AS child_count,
+                  SUM(weight_grams::float8)        AS total_weight,
+                  SUM(
+                    COALESCE((dimensions->>'width_cm')::float8,  0) *
+                    COALESCE((dimensions->>'height_cm')::float8, 0) *
+                    COALESCE((dimensions->>'depth_cm')::float8,  0)
+                  )                                AS capacity_used
+                FROM items
+                WHERE parent_id = $1 AND is_deleted = FALSE
+              ),
+              descendants AS (
+                SELECT COUNT(*) AS desc_count
+                FROM items
+                WHERE container_path <@ $2::ltree AND id != $1 AND is_deleted = FALSE
+              )
+            SELECT
+              children.child_count,
+              descendants.desc_count,
+              children.total_weight,
+              children.capacity_used,
+              container.max_cap,
+              container.max_weight
+            FROM container, children, descendants
             "#,
         )
         .bind(container_id)
+        .bind(&path)
         .fetch_one(&self.pool)
         .await?;
+
+        let (child_count, descendant_count, total_weight, capacity_used, max_cap, _max_weight) = row;
 
         let utilization_pct = match (capacity_used, max_cap) {
             (Some(used), Some(max)) if max > 0.0 => Some((used / max) * 100.0),

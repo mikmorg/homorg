@@ -87,6 +87,10 @@ pub struct ItemCreatedData {
     pub depreciation_rate: Option<f64>,
     pub warranty_expiry: Option<String>,
     pub metadata: serde_json::Value,
+    /// DI-2: Original creation timestamp preserved for accurate projection rebuild.
+    /// Absent in events written before this field was added; defaults to None.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub created_at: Option<DateTime<Utc>>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -140,6 +144,12 @@ pub struct ItemImageAddedData {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ItemImageRemovedData {
     pub path: String,
+    /// Preserved from the original image for undo restoration.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub caption: Option<String>,
+    /// Preserved from the original image for undo restoration.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub order: Option<i32>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -219,6 +229,7 @@ mod tests {
             depreciation_rate: None,
             warranty_expiry: None,
             metadata: serde_json::json!({}),
+            created_at: None,
         }));
         let rt = roundtrip(&evt);
         assert_eq!(rt.event_type(), "ItemCreated");
@@ -292,6 +303,8 @@ mod tests {
     fn item_image_removed_serde_roundtrip() {
         let evt = DomainEvent::ItemImageRemoved(ItemImageRemovedData {
             path: "/img/a.jpg".into(),
+            caption: None,
+            order: None,
         });
         assert_eq!(roundtrip(&evt).event_type(), "ItemImageRemoved");
     }
@@ -354,7 +367,7 @@ mod tests {
                 fungible_quantity: None, fungible_unit: None, external_codes: vec![],
                 condition: None, acquisition_date: None, acquisition_cost: None,
                 current_value: None, depreciation_rate: None, warranty_expiry: None,
-                metadata: serde_json::json!({}),
+                metadata: serde_json::json!({}), created_at: None,
             })).event_type(),
             DomainEvent::ItemUpdated(ItemUpdatedData { changes: vec![] }).event_type(),
             DomainEvent::ItemMoved(ItemMovedData {
@@ -366,7 +379,7 @@ mod tests {
             DomainEvent::ItemImageAdded(ItemImageAddedData {
                 path: String::new(), caption: None, order: 0,
             }).event_type(),
-            DomainEvent::ItemImageRemoved(ItemImageRemovedData { path: String::new() }).event_type(),
+            DomainEvent::ItemImageRemoved(ItemImageRemovedData { path: String::new(), caption: None, order: None }).event_type(),
             DomainEvent::ItemExternalCodeAdded(ExternalCodeData {
                 code_type: String::new(), value: String::new(),
             }).event_type(),

@@ -57,20 +57,32 @@ async fn undo_batch(
         }
     }
 
+    // API-3: If both are provided, it's ambiguous — reject with a clear error.
+    match (&body.session_id, &body.event_ids) {
+        (Some(_), Some(_)) => {
+            return Err(crate::errors::AppError::BadRequest(
+                "Provide either event_ids or session_id, not both".into(),
+            ));
+        }
+        (None, None) => {
+            return Err(crate::errors::AppError::BadRequest(
+                "Provide either event_ids or session_id".into(),
+            ));
+        }
+        _ => {}
+    }
+
     let events = if let Some(session_id) = &body.session_id {
         state
             .undo_commands
             .undo_session(session_id, auth.user_id)
             .await?
-    } else if let Some(event_ids) = &body.event_ids {
+    } else {
+        // SAFETY: validated above that event_ids is Some when session_id is None.
         state
             .undo_commands
-            .undo_batch(event_ids, auth.user_id)
+            .undo_batch(body.event_ids.as_ref().unwrap(), auth.user_id)
             .await?
-    } else {
-        return Err(crate::errors::AppError::BadRequest(
-            "Provide either event_ids or session_id".into(),
-        ));
     };
 
     Ok(Json(events))

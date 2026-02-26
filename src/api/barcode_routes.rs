@@ -22,8 +22,9 @@ pub fn router() -> Router<Arc<AppState>> {
 /// Generate a single new system barcode.
 async fn generate(
     State(state): State<Arc<AppState>>,
-    _auth: AuthUser,
+    auth: AuthUser,
 ) -> AppResult<(StatusCode, Json<GeneratedBarcode>)> {
+    auth.require_role("member")?;
     let barcode = state.barcode_commands.generate_barcode().await?;
     Ok((StatusCode::CREATED, Json(barcode)))
 }
@@ -31,9 +32,10 @@ async fn generate(
 /// Generate a batch of system barcodes.
 async fn generate_batch(
     State(state): State<Arc<AppState>>,
-    _auth: AuthUser,
+    auth: AuthUser,
     Json(req): Json<GenerateBatchRequest>,
 ) -> AppResult<(StatusCode, Json<Vec<GeneratedBarcode>>)> {
+    auth.require_role("member")?;
     if req.count == 0 || req.count > MAX_BARCODE_BATCH {
         return Err(AppError::BadRequest(format!(
             "count must be between 1 and {MAX_BARCODE_BATCH}"

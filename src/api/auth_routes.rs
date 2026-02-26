@@ -28,9 +28,16 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/register", post(register))
 }
 
+/// Advisory lock ID for the one-time setup operation.
+/// Derived from FNV-1a("homorg:setup") to avoid colliding with other advisory locks.
+const ADVISORY_LOCK_SETUP: i64 = 0x1A2B_3C4D_5E6F_0011u64 as i64;
+
 /// Build a [`CreateItemRequest`] for a new user's personal container.
 fn build_user_container_request(username: &str, display_name: Option<&str>) -> CreateItemRequest {
-    let container_barcode = format!("USR-{}", username.to_uppercase());
+    // CB-1: Barcode column is VARCHAR(32). "USR-" prefix = 4 chars → username limited to 28 chars.
+    let upper = username.to_uppercase();
+    let trimmed = &upper[..upper.len().min(28)];
+    let container_barcode = format!("USR-{trimmed}");
     let label = display_name.unwrap_or(username);
     CreateItemRequest {
         system_barcode: Some(container_barcode),
@@ -66,19 +73,6 @@ async fn setup(
     State(state): State<Arc<AppState>>,
     Json(req): Json<SetupRequest>,
 ) -> AppResult<(StatusCode, Json<AuthResponse>)> {
-    // Acquire advisory lock to prevent concurrent setup race
-    let mut tx = state.pool.begin().await?;
-    sqlx::query("SELECT pg_advisory_xact_lock(1)")
-        .execute(&mut *tx)
-        .await?;
-
-    // Check no users exist (now safe under advisory lock)
-    let count = state.user_queries.count_in_tx(&mut tx).await?;
-
-    if count > 0 {
-        return Err(AppError::Conflict("Setup already completed".into()));
-    }
-
     let pw_chars = req.password.chars().count();
     if !is_valid_username(&req.username) || !(PASSWORD_MIN_LEN..=PASSWORD_MAX_LEN).contains(&pw_chars) {
         return Err(AppError::BadRequest(
@@ -87,7 +81,23 @@ async fn setup(
     }
 
     let user_id = Uuid::new_v4();
+    // SEC-8: Hash password BEFORE acquiring the advisory lock.
+    // Argon2 is CPU-intensive (~300 ms); holding the pg advisory lock while hashing
+    // serialises all concurrent callers unnecessarily.
     let pw_hash = hash_password(&req.password).await?;
+
+    // SEC-10: Use a named, non-colliding advisory lock ID.
+    let mut tx = state.pool.begin().await?;
+    sqlx::query("SELECT pg_advisory_xact_lock($1)")
+        .bind(ADVISORY_LOCK_SETUP)
+        .execute(&mut *tx)
+        .await?;
+
+    // Check no users exist (now safe under advisory lock)
+    let count = state.user_queries.count_in_tx(&mut tx).await?;
+    if count > 0 {
+        return Err(AppError::Conflict("Setup already completed".into()));
+    }
 
     // Create the admin user within the advisory-locked transaction
     let user = state.user_queries.create_in_tx(
@@ -134,16 +144,27 @@ async fn login(
     State(state): State<Arc<AppState>>,
     Json(req): Json<LoginRequest>,
 ) -> AppResult<Json<AuthResponse>> {
-    let user = state
+    // SEC-2: Prevent timing oracle — run dummy Argon2 verify when user is not found
+    // so an attacker cannot distinguish "user not found" from "wrong password" by timing.
+    let user_opt = state
         .user_queries
         .find_active_by_username(&req.username)
-        .await?
-        .ok_or(AppError::Unauthorized)?;
+        .await?;
 
-    let valid = verify_password(&req.password, &user.password_hash).await?;
-    if !valid {
-        return Err(AppError::Unauthorized);
-    }
+    const DUMMY_HASH: &str = "$argon2id$v=19$m=19456,t=2,p=1$c29tZXNhbHRzb21lc2FsdA$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+    let (user, real_hash) = match user_opt {
+        Some(u) => {
+            let hash = u.password_hash.clone();
+            (Some(u), hash)
+        }
+        None => (None, DUMMY_HASH.to_string()),
+    };
+
+    let valid = verify_password(&req.password, &real_hash).await?;
+    let user = match user {
+        Some(u) if valid => u,
+        _ => return Err(AppError::Unauthorized),
+    };
 
     let access_token = create_access_token(
         user.id,

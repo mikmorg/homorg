@@ -49,9 +49,19 @@ impl StorageBackend for LocalStorage {
         let storage_filename = format!("{file_id}.{ext}");
         let file_path = dir.join(&storage_filename);
 
-        fs::write(&file_path, data)
+        // RM-2: Atomic write — write to a temp file then rename so a crash during
+        // write never leaves a partial/corrupt file at the final path.
+        let tmp_path = file_path.with_extension(format!("{ext}.tmp"));
+        fs::write(&tmp_path, data)
             .await
-            .map_err(|e| AppError::Storage(format!("Failed to write file: {e}")))?;
+            .map_err(|e| AppError::Storage(format!("Failed to write temp file: {e}")))?;
+        fs::rename(&tmp_path, &file_path)
+            .await
+            .map_err(|e| {
+                // Best-effort cleanup of the temp file; ignore secondary errors.
+                let _ = std::fs::remove_file(&tmp_path);
+                AppError::Storage(format!("Failed to finalize file (rename): {e}"))
+            })?;
 
         let key = format!("{}/{}", item_id, storage_filename);
         Ok(key)

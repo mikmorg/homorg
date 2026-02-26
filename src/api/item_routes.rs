@@ -24,8 +24,20 @@ const MAX_METADATA_BYTES: usize = 102_400; // 100 KiB
 const MAX_EXTERNAL_CODES: usize = 50;
 const MAX_CODE_VALUE_LEN: usize = 200;
 
+// ── Allowed MIME types by magic bytes (SEC-4/SEC-5) ─────────────────────
+/// Maps infer MIME type strings to canonical file extensions.
+fn mime_to_extension(mime: &str) -> Option<&'static str> {
+    match mime {
+        "image/jpeg" => Some("jpg"),
+        "image/png" => Some("png"),
+        "image/webp" => Some("webp"),
+        "image/gif" => Some("gif"),
+        _ => None,
+    }
+}
+
 /// Validate lengths on create requests.
-fn validate_create_request(req: &CreateItemRequest) -> Result<(), AppError> {
+pub(crate) fn validate_create_request(req: &CreateItemRequest) -> Result<(), AppError> {
     if let Some(ref n) = req.name {
         if n.len() > MAX_NAME_LEN {
             return Err(AppError::BadRequest(format!("name exceeds {MAX_NAME_LEN} chars")));
@@ -259,22 +271,8 @@ async fn upload_image(
         let name = field.name().unwrap_or_default().to_string();
         match name.as_str() {
             "file" => {
-                // Validate MIME type
-                let content_type = field
-                    .content_type()
-                    .unwrap_or("application/octet-stream")
-                    .to_string();
-                if !state.config.allowed_image_mimes.iter().any(|m| m == &content_type) {
-                    return Err(AppError::BadRequest(format!(
-                        "Unsupported file type '{content_type}'. Allowed: {}",
-                        state.config.allowed_image_mimes.join(", ")
-                    )));
-                }
-
-                let filename = field
-                    .file_name()
-                    .unwrap_or("upload.bin")
-                    .to_string();
+                // RM-3: Read the body bytes; axum DefaultBodyLimit (set globally) gates
+                // the total request size, so this read won't exceed max_upload_bytes + headers.
                 let data = field
                     .bytes()
                     .await
@@ -288,7 +286,38 @@ async fn upload_image(
                     )));
                 }
 
-                file_data = Some((filename, data.to_vec()));
+                // SEC-4/SEC-5: Detect MIME type from magic bytes — do NOT trust the
+                // client-supplied Content-Type header, which can be trivially forged.
+                let detected_mime = infer::get(&data)
+                    .map(|t| t.mime_type())
+                    .unwrap_or("application/octet-stream");
+
+                let ext = mime_to_extension(detected_mime).ok_or_else(|| {
+                    AppError::BadRequest(format!(
+                        "Unsupported file type detected from content ('{detected_mime}'). \
+                         Allowed: {}",
+                        state.config.allowed_image_mimes.join(", ")
+                    ))
+                })?;
+
+                // Verify the detected MIME is in the configured allow-list.
+                if !state
+                    .config
+                    .allowed_image_mimes
+                    .iter()
+                    .any(|m| m == detected_mime)
+                {
+                    return Err(AppError::BadRequest(format!(
+                        "File content type '{detected_mime}' is not allowed. \
+                         Allowed: {}",
+                        state.config.allowed_image_mimes.join(", ")
+                    )));
+                }
+
+                // Use a canonical filename derived from magic bytes, not the user upload name.
+                let file_id = uuid::Uuid::new_v4();
+                let safe_filename = format!("{file_id}.{ext}");
+                file_data = Some((safe_filename, data.to_vec()));
             }
             "caption" => {
                 caption = field.text().await.ok();
@@ -308,10 +337,25 @@ async fn upload_image(
     let url = state.storage.get_url(&key);
 
     let metadata = EventMetadata::default();
-    let event = state
+    // CONC-2: If appending the domain event fails, roll back the uploaded file so we
+    // don't accumulate orphaned blobs on disk.
+    let event = match state
         .item_commands
         .add_image(id, url, caption, order, auth.user_id, &metadata)
-        .await?;
+        .await
+    {
+        Ok(ev) => ev,
+        Err(e) => {
+            if let Err(del_err) = state.storage.delete(&key).await {
+                tracing::warn!(
+                    key = %key,
+                    error = %del_err,
+                    "Failed to clean up orphaned image after event-store error"
+                );
+            }
+            return Err(e);
+        }
+    };
 
     Ok((StatusCode::CREATED, Json(event)))
 }

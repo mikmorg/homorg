@@ -2,9 +2,11 @@ use std::sync::Arc;
 
 use axum::extract::DefaultBodyLimit;
 use tower_http::compression::CompressionLayer;
-use tower_http::cors::{Any, CorsLayer};
+use tower_http::cors::{CorsLayer};
 use tower_http::request_id::{MakeRequestUuid, PropagateRequestIdLayer, SetRequestIdLayer};
 use tower_http::trace::TraceLayer;
+use axum::http::{header, Method};
+use tracing::Level;
 use tracing_subscriber::EnvFilter;
 
 use homorg::api;
@@ -93,19 +95,47 @@ async fn main() {
             .iter()
             .filter_map(|o| o.parse().ok())
             .collect();
+        // SEC-7: Restrict methods and headers for non-wildcard origins.
         CorsLayer::new()
             .allow_origin(origins)
-            .allow_methods(Any)
-            .allow_headers(Any)
+            .allow_methods([
+                Method::GET,
+                Method::POST,
+                Method::PUT,
+                Method::DELETE,
+                Method::OPTIONS,
+            ])
+            .allow_headers([
+                header::AUTHORIZATION,
+                header::CONTENT_TYPE,
+                header::ACCEPT,
+            ])
     };
 
     // Build router with compression, body limits, request ID
     // NOTE: /files is served inside the API router with auth (see api/mod.rs)
+    // OP-2: Custom TraceLayer span includes the x-request-id so every log line for
+    // a request can be correlated back to the HTTP call.
+    let trace_layer = TraceLayer::new_for_http().make_span_with(|request: &axum::http::Request<_>| {
+        let request_id = request
+            .headers()
+            .get("x-request-id")
+            .and_then(|v| v.to_str().ok())
+            .unwrap_or("-");
+        tracing::span!(
+            Level::INFO,
+            "request",
+            method = %request.method(),
+            uri = %request.uri(),
+            request_id = %request_id,
+        )
+    });
+
     let app = api::build_router(state, &config)
         .layer(DefaultBodyLimit::max(config.max_upload_bytes))
         .layer(PropagateRequestIdLayer::x_request_id())
         .layer(CompressionLayer::new())
-        .layer(TraceLayer::new_for_http())
+        .layer(trace_layer)
         .layer(SetRequestIdLayer::x_request_id(MakeRequestUuid))
         .layer(cors);
 

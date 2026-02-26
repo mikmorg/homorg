@@ -76,6 +76,17 @@ async fn update_user(
     // Apply all updates atomically
     let mut tx = state.pool.begin().await?;
 
+    // EH-4: Lock and verify user exists before updating to produce a proper 404.
+    let found: Option<Uuid> = sqlx::query_scalar(
+        "SELECT id FROM users WHERE id = $1 FOR UPDATE",
+    )
+    .bind(id)
+    .fetch_optional(&mut *tx)
+    .await?;
+    if found.is_none() {
+        return Err(AppError::NotFound(format!("User {id} not found")));
+    }
+
     if let Some(ref display_name) = req.display_name {
         sqlx::query("UPDATE users SET display_name = $1 WHERE id = $2")
             .bind(display_name)
