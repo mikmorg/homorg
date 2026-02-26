@@ -112,6 +112,14 @@ async fn update_user(
 
     tx.commit().await?;
 
+    // SEC-5: Invalidate all existing refresh tokens when the password changes so that
+    // a stolen token cannot be exchanged after the legitimate user rotates their password.
+    // Run outside the transaction — if this fails the password was still changed (the user
+    // retains protection) and stale tokens will expire naturally within jwt_refresh_ttl_days.
+    if pw_hash.is_some() {
+        state.token_repository.revoke_all_for_user(id).await?;
+    }
+
     let user = state.user_queries.find_by_id(id).await?;
     Ok(Json(user.into()))
 }

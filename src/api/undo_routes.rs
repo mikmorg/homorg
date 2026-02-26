@@ -75,7 +75,7 @@ async fn undo_batch(
     let events = if let Some(session_id) = &body.session_id {
         state
             .undo_commands
-            .undo_session(session_id, auth.user_id)
+            .undo_session(session_id, auth.user_id, state.config.max_batch_size)
             .await?
     } else {
         // SAFETY: validated above that event_ids is Some when session_id is None.

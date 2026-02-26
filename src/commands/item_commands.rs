@@ -590,10 +590,36 @@ impl ItemCommands {
         actor_id: Uuid,
         metadata: &EventMetadata,
     ) -> AppResult<StoredEvent> {
-        let event = DomainEvent::ItemExternalCodeRemoved(ExternalCodeData { code_type, value });
-
         let mut tx = self.pool.begin().await?;
         self.verify_item_exists(&mut tx, item_id).await?;
+
+        // CB-6: Check that the code actually exists before emitting a removal event.
+        // Without this guard a caller could litter the event store with phantom
+        // ItemExternalCodeRemoved events for codes that were never present.
+        let codes_json: serde_json::Value = sqlx::query_scalar(
+            "SELECT COALESCE(external_codes, '[]'::jsonb) FROM items WHERE id = $1 AND is_deleted = FALSE",
+        )
+        .bind(item_id)
+        .fetch_one(&mut *tx)
+        .await?;
+
+        let exists = codes_json
+            .as_array()
+            .map(|arr| {
+                arr.iter().any(|c| {
+                    c.get("type").and_then(|v| v.as_str()) == Some(code_type.as_str())
+                        && c.get("value").and_then(|v| v.as_str()) == Some(value.as_str())
+                })
+            })
+            .unwrap_or(false);
+
+        if !exists {
+            return Err(AppError::NotFound(format!(
+                "External code '{code_type}:{value}' not found on item {item_id}"
+            )));
+        }
+
+        let event = DomainEvent::ItemExternalCodeRemoved(ExternalCodeData { code_type, value });
         let stored = self.event_store.append_in_tx(&mut tx, item_id, &event, actor_id, metadata).await?;
         Projector::apply(&mut tx, item_id, &event, actor_id).await?;
         tx.commit().await?;

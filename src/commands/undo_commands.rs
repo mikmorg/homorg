@@ -106,13 +106,28 @@ impl UndoCommands {
     /// Undo all events from a stocker session.
     /// Reads session events and generates compensating events in a single transaction (no TOCTOU).
     /// Any member can undo any session (no item ownership model).
+    ///
+    /// `max_events` caps the number of events that can be undone in a single session call to
+    /// prevent unexpectedly large transactions (DoS-1).  Pass `config.max_batch_size`.
     pub async fn undo_session(
         &self,
         session_id: &str,
         actor_id: Uuid,
+        max_events: usize,
     ) -> AppResult<Vec<StoredEvent>> {
         let mut tx = self.pool.begin().await?;
         let events = self.event_store.get_events_by_session_in_tx(&mut tx, session_id).await?;
+
+        // DoS-1: Reject sessions with more events than the configured batch limit so a
+        // long-running session cannot trigger an unbounded single transaction.
+        if events.len() > max_events {
+            return Err(AppError::BadRequest(format!(
+                "Session has {} events; maximum undo batch is {max_events}. \
+                 Use event_ids for a partial undo.",
+                events.len()
+            )));
+        }
+
         let event_ids: Vec<Uuid> = events.iter().map(|e| e.event_id).collect();
 
         let mut results = Vec::new();
