@@ -9,6 +9,7 @@ use std::sync::Arc;
 use uuid::Uuid;
 
 use crate::auth::middleware::AuthUser;
+use crate::constants::is_valid_condition;
 use crate::errors::{AppError, AppResult};
 use crate::models::event::{EventMetadata, StoredEvent};
 use crate::models::item::*;
@@ -82,6 +83,39 @@ pub(crate) fn validate_create_request(req: &CreateItemRequest) -> Result<(), App
             }
         }
     }
+    // VAL-2: Reject invalid condition values before they hit the DB CHECK constraint.
+    if !is_valid_condition(req.condition.as_deref()) {
+        return Err(AppError::BadRequest(format!(
+            "Invalid condition '{}'. Allowed: {}",
+            req.condition.as_deref().unwrap_or(""),
+            crate::constants::ALLOWED_CONDITIONS.join(", ")
+        )));
+    }
+    // VAL-4: Reject fungible_quantity on non-fungible items (mirrors DB CHECK).
+    if !req.is_fungible.unwrap_or(false) && req.fungible_quantity.is_some() {
+        return Err(AppError::BadRequest(
+            "fungible_quantity cannot be set when is_fungible is false".into(),
+        ));
+    }
+    // VAL-5: Reject negative numeric values (mirrors DB CHECK constraints).
+    if let Some(v) = req.weight_grams {
+        if v < 0.0 { return Err(AppError::BadRequest("weight_grams must be >= 0".into())); }
+    }
+    if let Some(v) = req.max_capacity_cc {
+        if v < 0.0 { return Err(AppError::BadRequest("max_capacity_cc must be >= 0".into())); }
+    }
+    if let Some(v) = req.max_weight_grams {
+        if v < 0.0 { return Err(AppError::BadRequest("max_weight_grams must be >= 0".into())); }
+    }
+    if let Some(v) = req.acquisition_cost {
+        if v < 0.0 { return Err(AppError::BadRequest("acquisition_cost must be >= 0".into())); }
+    }
+    if let Some(v) = req.current_value {
+        if v < 0.0 { return Err(AppError::BadRequest("current_value must be >= 0".into())); }
+    }
+    if let Some(v) = req.fungible_quantity {
+        if v < 0 { return Err(AppError::BadRequest("fungible_quantity must be >= 0".into())); }
+    }
     Ok(())
 }
 
@@ -116,6 +150,30 @@ fn validate_update_request(req: &UpdateItemRequest) -> Result<(), AppError> {
         if m.to_string().len() > MAX_METADATA_BYTES {
             return Err(AppError::BadRequest(format!("metadata exceeds {MAX_METADATA_BYTES} bytes")));
         }
+    }
+    // VAL-2: Reject invalid condition values before they hit the DB CHECK constraint.
+    if !is_valid_condition(req.condition.as_deref()) {
+        return Err(AppError::BadRequest(format!(
+            "Invalid condition '{}'. Allowed: {}",
+            req.condition.as_deref().unwrap_or(""),
+            crate::constants::ALLOWED_CONDITIONS.join(", ")
+        )));
+    }
+    // VAL-5: Reject negative numeric values (mirrors DB CHECK constraints).
+    if let Some(v) = req.weight_grams {
+        if v < 0.0 { return Err(AppError::BadRequest("weight_grams must be >= 0".into())); }
+    }
+    if let Some(v) = req.max_capacity_cc {
+        if v < 0.0 { return Err(AppError::BadRequest("max_capacity_cc must be >= 0".into())); }
+    }
+    if let Some(v) = req.max_weight_grams {
+        if v < 0.0 { return Err(AppError::BadRequest("max_weight_grams must be >= 0".into())); }
+    }
+    if let Some(v) = req.acquisition_cost {
+        if v < 0.0 { return Err(AppError::BadRequest("acquisition_cost must be >= 0".into())); }
+    }
+    if let Some(v) = req.current_value {
+        if v < 0.0 { return Err(AppError::BadRequest("current_value must be >= 0".into())); }
     }
     Ok(())
 }

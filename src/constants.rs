@@ -44,7 +44,8 @@ pub const USERNAME_MIN_LEN: usize = 2;
 pub const USERNAME_MAX_LEN: usize = 32;
 
 /// Maximum character length for a user's display name.
-pub const MAX_DISPLAY_NAME_LEN: usize = 200;
+/// Must match the `VARCHAR(128)` column width in migration 0002.
+pub const MAX_DISPLAY_NAME_LEN: usize = 128;
 
 /// Returns `true` if the username is well-formed (alphanumeric, underscores, hyphens).
 pub fn is_valid_username(u: &str) -> bool {
@@ -70,6 +71,22 @@ pub const MAX_CODE_VALUE_LEN: usize = 200;
 
 /// Maximum character length of an external code type identifier.
 pub const MAX_CODE_TYPE_LEN: usize = 64;
+
+// ── Item condition ──────────────────────────────────────────────────────
+
+/// Allowed values for the `condition` field.
+/// Must match the CHECK constraint in migration 0003_items.sql.
+pub const ALLOWED_CONDITIONS: &[&str] = &[
+    "new", "like_new", "good", "fair", "poor", "broken",
+];
+
+/// Returns `true` if the condition value is valid (or absent).
+pub fn is_valid_condition(condition: Option<&str>) -> bool {
+    match condition {
+        None => true,
+        Some(c) => ALLOWED_CONDITIONS.contains(&c),
+    }
+}
 
 // ── Role hierarchy ──────────────────────────────────────────────────────
 
@@ -147,5 +164,30 @@ mod tests {
         const { assert!(NODE_ID_HEX_LEN > 0) };
         // Must be ≤ 32 (UUID simple string length)
         const { assert!(NODE_ID_HEX_LEN <= 32) };
+    }
+
+    #[test]
+    fn is_valid_condition_accepts_allowed_values() {
+        for &c in ALLOWED_CONDITIONS {
+            assert!(is_valid_condition(Some(c)), "expected '{c}' to be valid");
+        }
+    }
+
+    #[test]
+    fn is_valid_condition_accepts_none() {
+        assert!(is_valid_condition(None));
+    }
+
+    #[test]
+    fn is_valid_condition_rejects_invalid() {
+        assert!(!is_valid_condition(Some("excellent")));
+        assert!(!is_valid_condition(Some("")));
+        assert!(!is_valid_condition(Some("NEW"))); // case-sensitive
+    }
+
+    #[test]
+    fn display_name_len_matches_db_column() {
+        // The DB column is VARCHAR(128); this test documents the contract.
+        assert_eq!(MAX_DISPLAY_NAME_LEN, 128);
     }
 }

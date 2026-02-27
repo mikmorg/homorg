@@ -79,6 +79,14 @@ async fn setup(
             "Username must be 2–32 alphanumeric/underscore/hyphen chars; password must be 8–128 characters".into(),
         ));
     }
+    // VAL-3: Validate display_name length (same check as register).
+    if let Some(ref dn) = req.display_name {
+        if dn.len() > MAX_DISPLAY_NAME_LEN {
+            return Err(AppError::BadRequest(format!(
+                "display_name exceeds {MAX_DISPLAY_NAME_LEN} chars"
+            )));
+        }
+    }
 
     let user_id = Uuid::new_v4();
     // SEC-8: Hash password BEFORE acquiring the advisory lock.
