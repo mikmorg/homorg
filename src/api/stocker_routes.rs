@@ -27,13 +27,64 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/sessions/{id}/end", put(end_session))
 }
 
+// Field limits matching DB schema column widths for scan sessions.
+const MAX_SESSION_DEVICE_ID_LEN: usize = 128;
+const MAX_SESSION_NOTES_BYTES: usize = 10_000;
+
 /// Start a new scan session.
 async fn start_session(
     State(state): State<Arc<AppState>>,
     auth: AuthUser,
+    body: Option<Json<StartSessionRequest>>,
 ) -> AppResult<(StatusCode, Json<ScanSession>)> {
+    auth.require_role("member")?;
+    let req = body.map(|b| b.0).unwrap_or_default();
+
+    // Resolve initial container barcode if provided.
+    let initial_container_id = if let Some(ref barcode) = req.initial_container_barcode {
+        let container = sqlx::query_as::<_, (Uuid, bool)>(
+            "SELECT id, is_container FROM items WHERE system_barcode = $1 AND is_deleted = FALSE",
+        )
+        .bind(barcode)
+        .fetch_optional(&state.pool)
+        .await?
+        .ok_or_else(|| AppError::NotFound(format!("Container barcode {barcode} not found")))?;
+
+        if !container.1 {
+            return Err(AppError::BadRequest(format!(
+                "Barcode {barcode} is not a container"
+            )));
+        }
+        Some(container.0)
+    } else {
+        None
+    };
+
     let session_id = Uuid::new_v4();
-    let session = state.session_repository.create(session_id, auth.user_id).await?;
+
+    // VAL: Validate VARCHAR(128) device_id and unbounded TEXT notes before hitting the DB.
+    if let Some(ref did) = req.device_id {
+        if did.chars().count() > MAX_SESSION_DEVICE_ID_LEN {
+            return Err(AppError::BadRequest(format!(
+                "device_id exceeds maximum length of {MAX_SESSION_DEVICE_ID_LEN} characters"
+            )));
+        }
+    }
+    if let Some(ref notes) = req.notes {
+        if notes.len() > MAX_SESSION_NOTES_BYTES {
+            return Err(AppError::BadRequest(format!(
+                "notes exceeds maximum size of {MAX_SESSION_NOTES_BYTES} bytes"
+            )));
+        }
+    }
+
+    let session = state.session_repository.create(
+        session_id,
+        auth.user_id,
+        req.device_id.as_deref(),
+        req.notes.as_deref(),
+        initial_container_id,
+    ).await?;
     Ok((StatusCode::CREATED, Json(session)))
 }
 
@@ -71,6 +122,7 @@ async fn submit_batch(
     Query(params): Query<BatchQueryParams>,
     Json(req): Json<StockerBatchRequest>,
 ) -> AppResult<Json<StockerBatchResponse>> {
+    auth.require_role("member")?;
     // Validate session exists and belongs to user
     let session = state.session_repository.get_active_for_user(session_id, auth.user_id).await?;
 
@@ -97,16 +149,11 @@ async fn submit_batch(
         let mut tx = state.pool.begin().await?;
 
         for (index, batch_event) in req.events.iter().enumerate() {
-            let metadata = EventMetadata {
-                session_id: Some(session_id.to_string()),
-                ..Default::default()
-            };
-
             let result = process_batch_event_in_tx(
                 &state,
                 &mut tx,
                 auth.user_id,
-                &metadata,
+                session_id,
                 batch_event,
                 &mut active_container_id,
                 index,
@@ -117,7 +164,7 @@ async fn submit_batch(
             match &result {
                 StockerBatchResult::Created { .. } => { items_scanned += 1; items_created += 1; }
                 StockerBatchResult::Moved { .. } => { items_scanned += 1; items_moved += 1; }
-                StockerBatchResult::ContextSet { .. } => {} // context change is not a physical scan
+                StockerBatchResult::ContextSet { .. } | StockerBatchResult::Resolved { .. } => {} // not a physical scan
             }
             results.push(result);
         }
@@ -131,15 +178,10 @@ async fn submit_batch(
     } else {
         // Best-effort mode: each event commits independently, errors are collected
         for (index, batch_event) in req.events.iter().enumerate() {
-            let metadata = EventMetadata {
-                session_id: Some(session_id.to_string()),
-                ..Default::default()
-            };
-
             let result = process_batch_event(
                 &state,
                 auth.user_id,
-                &metadata,
+                session_id,
                 batch_event,
                 &mut active_container_id,
                 index,
@@ -152,7 +194,7 @@ async fn submit_batch(
                     match &batch_result {
                         StockerBatchResult::Created { .. } => { items_scanned += 1; items_created += 1; }
                         StockerBatchResult::Moved { .. } => { items_scanned += 1; items_moved += 1; }
-                        StockerBatchResult::ContextSet { .. } => {}
+                        StockerBatchResult::ContextSet { .. } | StockerBatchResult::Resolved { .. } => {}
                     }
                     results.push(batch_result);
                 }
@@ -160,7 +202,7 @@ async fn submit_batch(
                     items_errored += 1;
                     errors.push(StockerBatchError {
                         index,
-                        code: "BATCH_EVENT_FAILED".into(),
+                        code: e.error_code().to_string(),
                         message: e.to_string(),
                     });
                 }
@@ -190,7 +232,7 @@ struct BatchQueryParams {
 async fn process_batch_event(
     state: &Arc<AppState>,
     actor_id: Uuid,
-    metadata: &EventMetadata,
+    session_id: Uuid,
     event: &StockerBatchEvent,
     active_container_id: &mut Option<Uuid>,
     index: usize,
@@ -200,7 +242,7 @@ async fn process_batch_event(
         state,
         &mut tx,
         actor_id,
-        metadata,
+        session_id,
         event,
         active_container_id,
         index,
@@ -215,11 +257,23 @@ async fn process_batch_event_in_tx(
     state: &Arc<AppState>,
     tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
     actor_id: Uuid,
-    metadata: &EventMetadata,
+    session_id: Uuid,
     event: &StockerBatchEvent,
     active_container_id: &mut Option<Uuid>,
     index: usize,
 ) -> AppResult<StockerBatchResult> {
+    // H-2: Build metadata here so we can capture client-side scanned_at per event.
+    let scanned_at_str = match event {
+        StockerBatchEvent::SetContext { scanned_at, .. }
+        | StockerBatchEvent::MoveItem { scanned_at, .. }
+        | StockerBatchEvent::CreateAndPlace { scanned_at, .. }
+        | StockerBatchEvent::Resolve { scanned_at, .. } => Some(scanned_at.to_rfc3339()),
+    };
+    let metadata = EventMetadata {
+        session_id: Some(session_id.to_string()),
+        scanned_at: scanned_at_str,
+        ..Default::default()
+    };
     match event {
         StockerBatchEvent::SetContext { barcode, .. } => {
             let container = sqlx::query_as::<_, (Uuid, bool)>(
@@ -268,7 +322,7 @@ async fn process_batch_event_in_tx(
 
             let stored = state
                 .item_commands
-                .move_item_in_tx(tx, item_id, &move_req, actor_id, metadata)
+                .move_item_in_tx(tx, item_id, &move_req, actor_id, &metadata)
                 .await?;
 
             Ok(StockerBatchResult::Moved {
@@ -287,6 +341,11 @@ async fn process_batch_event_in_tx(
             coordinate,
             condition,
             metadata: item_metadata,
+            is_fungible,
+            fungible_quantity,
+            fungible_unit,
+            external_codes,
+            container_type_id,
             ..
         } => {
             let container_id = active_container_id.ok_or_else(|| {
@@ -295,19 +354,17 @@ async fn process_batch_event_in_tx(
 
             let item_id = Uuid::new_v4();
 
-            let system_barcode = if barcode.is_empty() {
-                state.barcode_commands.generate_barcode_in_tx(tx).await?.barcode
+            // Barcodes are optional. A non-empty scanned barcode string is used directly;
+            // empty means the item has no barcode yet (can be assigned later via
+            // POST /items/{id}/barcode).
+            let system_barcode: Option<String> = if barcode.is_empty() {
+                None
             } else {
-                let prefix = format!("{}-", state.config.barcode_prefix);
-                if barcode.starts_with(&prefix) {
-                    barcode.clone()
-                } else {
-                    state.barcode_commands.generate_barcode_in_tx(tx).await?.barcode
-                }
+                Some(barcode.clone())
             };
 
             let create_req = CreateItemRequest {
-                system_barcode: Some(system_barcode),
+                system_barcode,
                 parent_id: container_id,
                 name: name.clone(),
                 description: description.clone(),
@@ -320,10 +377,10 @@ async fn process_batch_event_in_tx(
                 max_weight_grams: None,
                 dimensions: None,
                 weight_grams: None,
-                is_fungible: None,
-                fungible_quantity: None,
-                fungible_unit: None,
-                external_codes: None,
+                is_fungible: *is_fungible,
+                fungible_quantity: *fungible_quantity,
+                fungible_unit: fungible_unit.clone(),
+                external_codes: external_codes.clone(),
                 condition: condition.clone(),
                 acquisition_date: None,
                 acquisition_cost: None,
@@ -331,6 +388,7 @@ async fn process_batch_event_in_tx(
                 depreciation_rate: None,
                 warranty_expiry: None,
                 metadata: item_metadata.clone(),
+                container_type_id: *container_type_id,
             };
 
             // API-2: Apply the same field-length validation used by the items API.
@@ -338,7 +396,7 @@ async fn process_batch_event_in_tx(
 
             let stored = state
                 .item_commands
-                .create_item_in_tx(tx, item_id, &create_req, actor_id, metadata)
+                .create_item_in_tx(tx, item_id, &create_req, actor_id, &metadata)
                 .await?;
 
             let needs_details = name.is_none() || name.as_deref().is_none_or(|n| n.is_empty());
@@ -351,6 +409,16 @@ async fn process_batch_event_in_tx(
                 needs_details,
             })
         }
+        StockerBatchEvent::Resolve { barcode, .. } => {
+            // M-3: Use resolve_barcode_in_tx so that items created earlier in the
+            // same atomic batch are visible (they exist only inside the open tx).
+            let resolution = state.barcode_commands.resolve_barcode_in_tx(tx, barcode).await?;
+            Ok(StockerBatchResult::Resolved {
+                index,
+                status: "ok".into(),
+                resolution,
+            })
+        }
     }
 }
 
@@ -360,6 +428,7 @@ async fn end_session(
     auth: AuthUser,
     Path(id): Path<Uuid>,
 ) -> AppResult<Json<ScanSession>> {
+    auth.require_role("member")?;
     let session = state.session_repository.end_session(id, auth.user_id).await?;
     Ok(Json(session))
 }

@@ -67,7 +67,7 @@ async fn update_user(
         }
     }
     if let Some(ref dn) = req.display_name {
-        if dn.len() > MAX_DISPLAY_NAME_LEN {
+        if dn.chars().count() > MAX_DISPLAY_NAME_LEN {
             return Err(AppError::BadRequest(format!(
                 "display_name exceeds {MAX_DISPLAY_NAME_LEN} chars"
             )));

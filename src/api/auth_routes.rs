@@ -64,6 +64,7 @@ fn build_user_container_request(username: &str, display_name: Option<&str>) -> C
         depreciation_rate: None,
         warranty_expiry: None,
         metadata: None,
+        container_type_id: None,
     }
 }
 
@@ -81,7 +82,7 @@ async fn setup(
     }
     // VAL-3: Validate display_name length (same check as register).
     if let Some(ref dn) = req.display_name {
-        if dn.len() > MAX_DISPLAY_NAME_LEN {
+        if dn.chars().count() > MAX_DISPLAY_NAME_LEN {
             return Err(AppError::BadRequest(format!(
                 "display_name exceeds {MAX_DISPLAY_NAME_LEN} chars"
             )));
@@ -319,7 +320,7 @@ async fn register(
         ));
     }
     if let Some(ref dn) = req.display_name {
-        if dn.len() > MAX_DISPLAY_NAME_LEN {
+        if dn.chars().count() > MAX_DISPLAY_NAME_LEN {
             return Err(AppError::BadRequest(format!(
                 "display_name exceeds {MAX_DISPLAY_NAME_LEN} chars"
             )));

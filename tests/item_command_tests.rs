@@ -35,7 +35,7 @@ async fn create_item_happy_path() {
     assert_eq!(item.item.name.as_deref(), Some("Widget"));
     assert!(!item.item.is_container);
     assert!(!item.item.is_deleted);
-    assert_eq!(item.item.system_barcode, bc.barcode);
+    assert_eq!(item.item.system_barcode, Some(bc.barcode));
 }
 
 #[tokio::test]
@@ -143,8 +143,11 @@ async fn update_item_computes_diffs() {
         location_schema: None,
         max_capacity_cc: None,
         max_weight_grams: None,
+        container_type_id: None,
         dimensions: None,
         weight_grams: None,
+        is_fungible: None,
+        fungible_unit: None,
         condition: None,
         acquisition_date: None,
         acquisition_cost: None,
@@ -194,8 +197,11 @@ async fn update_item_no_changes_returns_error() {
         location_schema: None,
         max_capacity_cc: None,
         max_weight_grams: None,
+        container_type_id: None,
         dimensions: None,
         weight_grams: None,
+        is_fungible: None,
+        fungible_unit: None,
         condition: None,
         acquisition_date: None,
         acquisition_cost: None,
@@ -250,8 +256,11 @@ async fn update_prevents_removing_container_with_children() {
         location_schema: None,
         max_capacity_cc: None,
         max_weight_grams: None,
+        container_type_id: None,
         dimensions: None,
         weight_grams: None,
+        is_fungible: None,
+        fungible_unit: None,
         condition: None,
         acquisition_date: None,
         acquisition_cost: None,

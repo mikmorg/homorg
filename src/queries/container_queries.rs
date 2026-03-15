@@ -5,6 +5,29 @@ use crate::errors::{AppError, AppResult};
 use crate::models::item::{ContainerStats, ItemSummary};
 use crate::queries::common::resolve_ancestors;
 
+// ── Base SELECT for slim ItemSummary rows ───────────────────────────────────
+pub(crate) const ITEM_SUMMARY_SELECT: &str = r#"
+    i.id,
+    i.system_barcode,
+    i.name,
+    cat.name AS category,
+    i.is_container,
+    i.container_path::text AS container_path,
+    i.parent_id,
+    i.condition,
+    COALESCE(ARRAY(
+        SELECT t.name FROM item_tags it2
+        JOIN tags t ON t.id = it2.tag_id
+        WHERE it2.item_id = i.id
+        ORDER BY t.name
+    ), ARRAY[]::text[]) AS tags,
+    i.is_deleted,
+    i.created_at,
+    i.updated_at
+FROM items i
+LEFT JOIN categories cat ON cat.id = i.category_id
+"#;
+
 /// Read-side query handler for container operations.
 #[derive(Clone)]
 pub struct ContainerQueries {
@@ -38,40 +61,42 @@ impl ContainerQueries {
         }
 
         let order_col = match sort_by.unwrap_or("name") {
-            "name" => "name",
-            "created_at" => "created_at",
-            "updated_at" => "updated_at",
-            "category" => "category",
-            "system_barcode" => "system_barcode",
-            _ => "name",
+            "name" => "i.name",
+            "created_at" => "i.created_at",
+            "updated_at" => "i.updated_at",
+            "category" => "cat.name",
+            "system_barcode" => "i.system_barcode",
+            _ => "i.name",
         };
         let order_dir = if sort_dir.unwrap_or("asc") == "desc" { "DESC" } else { "ASC" };
         // CB-2: Cursor comparison operator must match sort direction.
         let cursor_op = if order_dir == "DESC" { "<" } else { ">" };
 
-        // CB-2: Keyset cursor uses the SAME column as ORDER BY (+ id as stable tiebreaker).
-        // For nullable text columns we COALESCE to '' so NULL rows sort at one end.
-        let cursor_subquery = match order_col {
-            "created_at" | "updated_at" => format!(
-                "OR ({order_col}, id) {cursor_op} (SELECT {order_col}, id FROM items WHERE id = $2)"
-            ),
+        // CB-2: Keyset cursor — align column aliases with ORDER BY.
+        let cursor_subquery = match sort_by.unwrap_or("name") {
+            "created_at" | "updated_at" => {
+                let col = sort_by.unwrap_or("created_at");
+                format!(
+                    "OR (i.{col}, i.id) {cursor_op} (SELECT {col}, id FROM items WHERE id = $2)"
+                )
+            }
             _ => format!(
-                "OR (COALESCE({order_col}, ''), id::text) {cursor_op} \
-                 (SELECT COALESCE({order_col}, ''), id::text FROM items WHERE id = $2)"
+                "OR (COALESCE({order_col}, ''), i.id::text) {cursor_op} \
+                 (SELECT COALESCE({order_col}, ''), i.id::text FROM items i2 \
+                  LEFT JOIN categories cat ON cat.id = i2.category_id \
+                  WHERE i2.id = $2)"
             ),
         };
 
         let query = format!(
             r#"
-            SELECT id, system_barcode, name, category, is_container, container_path::text as container_path,
-                   parent_id, condition, tags, is_deleted, created_at, updated_at
-            FROM items
-            WHERE parent_id = $1 AND is_deleted = FALSE
+            SELECT {ITEM_SUMMARY_SELECT}
+            WHERE i.parent_id = $1 AND i.is_deleted = FALSE
               AND (
                   $2::uuid IS NULL
                   {cursor_subquery}
               )
-            ORDER BY {order_col} {order_dir}, id {order_dir}
+            ORDER BY {order_col} {order_dir}, i.id {order_dir}
             LIMIT $3
             "#
         );
@@ -107,43 +132,41 @@ impl ContainerQueries {
         let path_depth = path.split('.').count() as i32;
 
         let rows = if let Some(max_d) = max_depth {
-            sqlx::query_as::<_, ItemSummary>(
+            let sql = format!(
                 r#"
-                SELECT id, system_barcode, name, category, is_container, container_path::text as container_path,
-                       parent_id, condition, tags, is_deleted, created_at, updated_at
-                FROM items
-                WHERE container_path <@ $1::ltree
-                  AND id != $2
-                  AND is_deleted = FALSE
-                  AND nlevel(container_path) <= $3
-                ORDER BY container_path
+                SELECT {ITEM_SUMMARY_SELECT}
+                WHERE i.container_path <@ $1::ltree
+                  AND i.id != $2
+                  AND i.is_deleted = FALSE
+                  AND nlevel(i.container_path) <= $3
+                ORDER BY i.container_path
                 LIMIT $4
-                "#,
-            )
-            .bind(&path)
-            .bind(container_id)
-            .bind(path_depth + max_d)
-            .bind(limit)
-            .fetch_all(&self.pool)
-            .await?
+                "#
+            );
+            sqlx::query_as::<_, ItemSummary>(&sql)
+                .bind(&path)
+                .bind(container_id)
+                .bind(path_depth + max_d)
+                .bind(limit)
+                .fetch_all(&self.pool)
+                .await?
         } else {
-            sqlx::query_as::<_, ItemSummary>(
+            let sql = format!(
                 r#"
-                SELECT id, system_barcode, name, category, is_container, container_path::text as container_path,
-                       parent_id, condition, tags, is_deleted, created_at, updated_at
-                FROM items
-                WHERE container_path <@ $1::ltree
-                  AND id != $2
-                  AND is_deleted = FALSE
-                ORDER BY container_path
+                SELECT {ITEM_SUMMARY_SELECT}
+                WHERE i.container_path <@ $1::ltree
+                  AND i.id != $2
+                  AND i.is_deleted = FALSE
+                ORDER BY i.container_path
                 LIMIT $3
-                "#,
-            )
-            .bind(&path)
-            .bind(container_id)
-            .bind(limit)
-            .fetch_all(&self.pool)
-            .await?
+                "#
+            );
+            sqlx::query_as::<_, ItemSummary>(&sql)
+                .bind(&path)
+                .bind(container_id)
+                .bind(limit)
+                .fetch_all(&self.pool)
+                .await?
         };
 
         Ok(rows)
@@ -175,14 +198,16 @@ impl ContainerQueries {
 
         let path = path.ok_or_else(|| AppError::Internal("Container has no path".into()))?;
 
-        // Single CTE replaces all 5 subsequent queries.
+        // Single CTE. max_capacity_cc and max_weight_grams now live in container_properties.
         let row: (i64, i64, Option<f64>, Option<f64>, Option<f64>, Option<f64>) = sqlx::query_as(
             r#"
             WITH
               container AS (
-                SELECT max_capacity_cc::float8  AS max_cap,
-                       max_weight_grams::float8 AS max_weight
-                FROM items WHERE id = $1
+                SELECT cp.max_capacity_cc::float8  AS max_cap,
+                       cp.max_weight_grams::float8 AS max_weight
+                FROM items i
+                LEFT JOIN container_properties cp ON cp.item_id = i.id
+                WHERE i.id = $1
               ),
               children AS (
                 SELECT

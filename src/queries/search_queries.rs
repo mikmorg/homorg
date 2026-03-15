@@ -4,6 +4,7 @@ use uuid::Uuid;
 
 use crate::errors::AppResult;
 use crate::models::item::ItemSummary;
+use crate::queries::container_queries::ITEM_SUMMARY_SELECT;
 
 /// Read-side query handler for search operations.
 #[derive(Clone)]
@@ -15,10 +16,10 @@ pub struct SearchQueries {
 pub struct SearchParams {
     pub q: Option<String>,          // full-text / fuzzy query
     pub path: Option<String>,       // LTREE lquery pattern
-    pub category: Option<String>,
+    pub category: Option<String>,   // category name (exact)
     pub condition: Option<String>,
     pub container_id: Option<Uuid>, // restrict to subtree
-    pub tags: Option<String>,       // comma-separated
+    pub tags: Option<String>,       // comma-separated tag names
     pub is_container: Option<bool>,
     pub min_value: Option<f64>,
     pub max_value: Option<f64>,
@@ -51,59 +52,66 @@ impl SearchQueries {
         // Escape ILIKE wildcards so user input is literal
         let ilike_q: Option<String> = params.q.as_ref().map(|q| escape_ilike(q));
 
+        // Tag filter: all provided tag names must be present on the item (AND semantics).
+        // We use a NOT EXISTS + unnest approach so we don't need to join + group.
+        // $6 is NULL → skip tag filter; non-NULL → all tags must match.
         let rows = sqlx::query_as::<_, ItemSummary>(
-            r#"
-            SELECT id, system_barcode, name, category, is_container, container_path::text as container_path,
-                   parent_id, condition, tags, is_deleted, created_at, updated_at
-            FROM items
-            WHERE is_deleted = FALSE
+            &format!(r#"
+            SELECT {ITEM_SUMMARY_SELECT}
+            WHERE i.is_deleted = FALSE
               -- Full-text search
               AND (
                   $1::text IS NULL
-                  OR search_vector @@ plainto_tsquery('english', $1)
-                  OR name % $1
-                  OR name ILIKE '%' || $12 || '%'
+                  OR i.search_vector @@ plainto_tsquery('english', $1)
+                  OR i.name % $1
+                  OR i.name ILIKE '%' || $12 || '%'
               )
               -- LTREE path pattern
-              AND ($2::text IS NULL OR container_path ~ $2::lquery)
-              -- Structured filters
-              AND ($3::text IS NULL OR category = $3)
-              AND ($4::text IS NULL OR condition = $4)
-              AND ($5::uuid IS NULL OR container_path <@ (SELECT container_path FROM items WHERE id = $5))
-              AND ($6::text[] IS NULL OR tags @> $6)
-              AND ($7::bool IS NULL OR is_container = $7)
-              AND ($8::float8 IS NULL OR current_value >= $8)
-              AND ($9::float8 IS NULL OR current_value <= $9)
-              -- Cursor: keyset pagination on (COALESCE(name,''), id) must match ORDER BY columns.
-              -- ts_rank is query-derived and cannot be stored in a cursor, so we use the stable
-              -- secondary sort (name, id) for correct multi-page continuation.
+              AND ($2::text IS NULL OR i.container_path ~ $2::lquery)
+              -- Category filter (by name via JOIN)
+              AND ($3::text IS NULL OR cat.name = $3)
+              AND ($4::text IS NULL OR i.condition = $4)
+              AND ($5::uuid IS NULL OR i.container_path <@ (SELECT container_path FROM items WHERE id = $5))
+              -- Tag filter: all listed tags must be present
+              AND ($6::text[] IS NULL OR NOT EXISTS (
+                  SELECT 1 FROM unnest($6::text[]) AS required_tag
+                  WHERE NOT EXISTS (
+                      SELECT 1 FROM item_tags it3
+                      JOIN tags tg ON tg.id = it3.tag_id
+                      WHERE it3.item_id = i.id AND tg.name = required_tag
+                  )
+              ))
+              AND ($7::bool IS NULL OR i.is_container = $7)
+              AND ($8::float8 IS NULL OR i.current_value >= $8)
+              AND ($9::float8 IS NULL OR i.current_value <= $9)
+              -- Keyset cursor on (COALESCE(name,''), id)
               AND (
                   $10::uuid IS NULL
-                  OR (COALESCE(name, ''), id) > (
+                  OR (COALESCE(i.name, ''), i.id) > (
                       SELECT COALESCE(name, ''), id FROM items WHERE id = $10
                   )
               )
             ORDER BY
-              CASE WHEN $1::text IS NOT NULL AND search_vector @@ plainto_tsquery('english', $1)
-                   THEN ts_rank(search_vector, plainto_tsquery('english', $1))
+              CASE WHEN $1::text IS NOT NULL AND i.search_vector @@ plainto_tsquery('english', $1)
+                   THEN ts_rank(i.search_vector, plainto_tsquery('english', $1))
                    ELSE 0
               END DESC,
-              COALESCE(name, '') ASC,
-              id ASC
+              COALESCE(i.name, '') ASC,
+              i.id ASC
             LIMIT $11
-            "#,
+            "#),
         )
         .bind(&params.q)         // $1: raw text for FTS + trigram
-        .bind(&params.path)
-        .bind(&params.category)
-        .bind(&params.condition)
-        .bind(params.container_id)
-        .bind(tags.as_deref())
-        .bind(params.is_container)
-        .bind(params.min_value)
-        .bind(params.max_value)
-        .bind(params.cursor)
-        .bind(limit)
+        .bind(&params.path)      // $2
+        .bind(&params.category)  // $3
+        .bind(&params.condition) // $4
+        .bind(params.container_id) // $5
+        .bind(tags.as_deref())   // $6
+        .bind(params.is_container) // $7
+        .bind(params.min_value)  // $8
+        .bind(params.max_value)  // $9
+        .bind(params.cursor)     // $10
+        .bind(limit)             // $11
         .bind(&ilike_q)          // $12: ILIKE-escaped text
         .fetch_all(&self.pool)
         .await?;

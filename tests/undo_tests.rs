@@ -189,8 +189,11 @@ async fn undo_update_reverses_fields() {
         location_schema: None,
         max_capacity_cc: None,
         max_weight_grams: None,
+        container_type_id: None,
         dimensions: None,
         weight_grams: None,
+        is_fungible: None,
+        fungible_unit: None,
         condition: None,
         acquisition_date: None,
         acquisition_cost: None,
@@ -270,9 +273,9 @@ async fn undo_session_reverses_full_session() {
     let ctx = common::setup().await;
     let state = &ctx.state;
 
-    let session_id = "undo-session-test-001";
+    let session_id = Uuid::new_v4().to_string();
     let metadata = EventMetadata {
-        session_id: Some(session_id.to_string()),
+        session_id: Some(session_id.clone()),
         ..Default::default()
     };
 
@@ -293,7 +296,7 @@ async fn undo_session_reverses_full_session() {
     // Undo the entire session
     let results = state
         .undo_commands
-        .undo_session(session_id, ctx.admin_id)
+        .undo_session(&session_id, ctx.admin_id, 500)
         .await
         .unwrap();
     assert_eq!(results.len(), 2);
@@ -311,12 +314,12 @@ async fn undo_session_reverses_full_session() {
 
 #[tokio::test]
 #[ignore]
-async fn undo_unsupported_event_type_returns_error() {
+async fn undo_container_schema_restores_previous() {
     let ctx = common::setup().await;
     let state = &ctx.state;
     let metadata = EventMetadata::default();
 
-    // Create a container and update its schema (ContainerSchemaUpdated is not undoable)
+    // Create a container and update its schema
     let container_id = Uuid::new_v4();
     let bc = state.barcode_commands.generate_barcode().await.unwrap();
     state
@@ -341,9 +344,14 @@ async fn undo_unsupported_event_type_returns_error() {
         .await
         .unwrap();
 
-    let result = state
+    // Undo should succeed and restore previous schema (NULL)
+    let compensating = state
         .undo_commands
         .undo_event(schema_event.event_id, ctx.admin_id)
-        .await;
-    assert!(result.is_err());
+        .await
+        .unwrap();
+    assert_eq!(compensating.event_type, "ContainerSchemaUpdated");
+
+    let item = state.item_queries.get_by_id(container_id).await.unwrap();
+    assert!(item.item.location_schema.is_none() || item.item.location_schema == Some(serde_json::Value::Null));
 }

@@ -7,13 +7,19 @@ use uuid::Uuid;
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct Item {
     pub id: Uuid,
-    pub system_barcode: String,
+    /// NULL when no barcode has been assigned yet (pre-printed label workflow).
+    pub system_barcode: Option<String>,
     pub node_id: String,
 
     // Classification
     pub name: Option<String>,
     pub description: Option<String>,
+    /// Resolved category name (from JOIN with categories table).
     pub category: Option<String>,
+    /// Category foreign key — used internally for update diffs.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub category_id: Option<Uuid>,
+    /// Tag names (aggregated from item_tags JOIN).
     pub tags: Vec<String>,
 
     // Hierarchy
@@ -24,16 +30,18 @@ pub struct Item {
     // Coordinate within parent
     pub coordinate: Option<serde_json::Value>,
 
-    // Container properties
+    // Container properties (NULL for non-container items — from container_properties JOIN)
     pub location_schema: Option<serde_json::Value>,
     pub max_capacity_cc: Option<rust_decimal::Decimal>,
     pub max_weight_grams: Option<rust_decimal::Decimal>,
+    /// Container type FK (from container_properties JOIN).
+    pub container_type_id: Option<Uuid>,
 
     // Physical properties
     pub dimensions: Option<serde_json::Value>,
     pub weight_grams: Option<rust_decimal::Decimal>,
 
-    // Fungible
+    // Fungible (NULL for non-fungible items — from fungible_properties JOIN)
     pub is_fungible: bool,
     pub fungible_quantity: Option<i32>,
     pub fungible_unit: Option<String>,
@@ -79,13 +87,16 @@ pub struct Item {
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct ItemSummary {
     pub id: Uuid,
-    pub system_barcode: String,
+    /// NULL when no barcode has been assigned to this item yet.
+    pub system_barcode: Option<String>,
     pub name: Option<String>,
+    /// Resolved category name (from JOIN).
     pub category: Option<String>,
     pub is_container: bool,
     pub container_path: Option<String>,
     pub parent_id: Option<Uuid>,
     pub condition: Option<String>,
+    /// Tag names (aggregated from item_tags JOIN).
     pub tags: Vec<String>,
     pub is_deleted: bool,
     pub created_at: DateTime<Utc>,
@@ -96,7 +107,7 @@ pub struct ItemSummary {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AncestorEntry {
     pub id: Uuid,
-    pub system_barcode: String,
+    pub system_barcode: Option<String>,
     pub name: Option<String>,
     pub node_id: String,
     pub depth: usize,
@@ -124,20 +135,29 @@ pub struct ContainerStats {
 /// Request to create an item.
 #[derive(Debug, Clone, Deserialize)]
 pub struct CreateItemRequest {
-    pub system_barcode: Option<String>, // auto-generate if absent
+    /// Explicit system barcode.  If absent the item is created without one;
+    /// a barcode can be assigned later via POST /items/{id}/barcode.
+    pub system_barcode: Option<String>,
     pub parent_id: Uuid,
     pub name: Option<String>,
     pub description: Option<String>,
     pub category: Option<String>,
     pub tags: Option<Vec<String>>,
+    /// When true, a row is inserted into container_properties.
     pub is_container: Option<bool>,
     pub coordinate: Option<serde_json::Value>,
+    // Container-specific (only meaningful when is_container = true)
     pub location_schema: Option<serde_json::Value>,
     pub max_capacity_cc: Option<f64>,
     pub max_weight_grams: Option<f64>,
+    /// Pre-existing container type to inherit defaults from.
+    pub container_type_id: Option<Uuid>,
+    // Physical properties
     pub dimensions: Option<serde_json::Value>,
     pub weight_grams: Option<f64>,
+    /// When true, a row is inserted into fungible_properties.
     pub is_fungible: Option<bool>,
+    // Fungible-specific (only meaningful when is_fungible = true)
     pub fungible_quantity: Option<i32>,
     pub fungible_unit: Option<String>,
     pub external_codes: Option<Vec<ExternalCode>>,
@@ -151,19 +171,30 @@ pub struct CreateItemRequest {
 }
 
 /// Request to partially update an item.
+/// Container-specific fields are only meaningful when the item is (or becomes) a container.
+/// Fungible-specific fields are only meaningful when the item is (or becomes) fungible.
+/// Providing both container and fungible fields produces a validation error.
 #[derive(Debug, Clone, Deserialize)]
 pub struct UpdateItemRequest {
     pub name: Option<String>,
     pub description: Option<String>,
+    /// Category name string (resolved to category_id server-side, created if new).
     pub category: Option<String>,
     pub tags: Option<Vec<String>>,
-    pub is_container: Option<bool>,
     pub coordinate: Option<serde_json::Value>,
+    // Container toggle — inserts/removes container_properties row
+    pub is_container: Option<bool>,
     pub location_schema: Option<serde_json::Value>,
     pub max_capacity_cc: Option<f64>,
     pub max_weight_grams: Option<f64>,
+    pub container_type_id: Option<Uuid>,
+    // Physical properties
     pub dimensions: Option<serde_json::Value>,
     pub weight_grams: Option<f64>,
+    // Fungible toggle — inserts/removes fungible_properties row
+    pub is_fungible: Option<bool>,
+    pub fungible_unit: Option<String>,
+    // Valuation
     pub condition: Option<String>,
     pub acquisition_date: Option<NaiveDate>,
     pub acquisition_cost: Option<f64>,

@@ -3,9 +3,10 @@ use uuid::Uuid;
 
 use crate::config::AppConfig;
 use crate::errors::{AppError, AppResult};
+use crate::events::projector::Projector;
 use crate::events::store::EventStore;
 use crate::models::barcode::{BarcodeResolution, GeneratedBarcode};
-use crate::models::event::{BarcodeGeneratedData, DomainEvent, EventMetadata};
+use crate::models::event::{BarcodeGeneratedData, DomainEvent, EventMetadata, ItemBarcodeAssignedData};
 
 /// Command handler for barcode generation and resolution.
 #[derive(Clone)]
@@ -172,19 +173,19 @@ impl BarcodeCommands {
             // Attempt to identify as a commercial code
             let code_type = classify_commercial_code(code);
 
-            // Check if any item has this external code
-            let found: Option<Uuid> = sqlx::query_scalar(
-                "SELECT id FROM items WHERE external_codes @> $1::jsonb AND is_deleted = FALSE LIMIT 1",
+            // Check if any item(s) have this external code — collect all matches (multi-match).
+            let found: Vec<Uuid> = sqlx::query_scalar(
+                "SELECT id FROM items WHERE external_codes @> $1::jsonb AND is_deleted = FALSE ORDER BY created_at",
             )
             .bind(serde_json::json!([{"value": code}]))
-            .fetch_optional(&self.pool)
+            .fetch_all(&self.pool)
             .await?;
 
             if let Some(ct) = code_type {
                 Ok(BarcodeResolution::External {
                     code_type: ct.to_string(),
                     value: code.to_string(),
-                    item_id: found,
+                    item_ids: found,
                 })
             } else {
                 Ok(BarcodeResolution::Unknown {
@@ -192,6 +193,119 @@ impl BarcodeCommands {
                 })
             }
         }
+    }
+
+    /// Resolve a scanned barcode string within an open transaction.
+    ///
+    /// Identical to [`resolve_barcode`] but uses the provided transaction as
+    /// executor so that items created earlier in the same transaction are
+    /// visible (important for atomic stocker batches where a `Resolve` event
+    /// follows a `CreateAndPlace` in the same batch).
+    pub async fn resolve_barcode_in_tx(
+        &self,
+        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        code: &str,
+    ) -> AppResult<BarcodeResolution> {
+        let prefix_with_dash = format!("{}-", self.config.barcode_prefix);
+
+        if code.starts_with(&prefix_with_dash) {
+            let item_id: Option<Uuid> = sqlx::query_scalar(
+                "SELECT id FROM items WHERE system_barcode = $1 AND is_deleted = FALSE",
+            )
+            .bind(code)
+            .fetch_optional(&mut **tx)
+            .await?;
+
+            match item_id {
+                Some(id) => Ok(BarcodeResolution::System {
+                    barcode: code.to_string(),
+                    item_id: id,
+                }),
+                None => Ok(BarcodeResolution::UnknownSystem {
+                    barcode: code.to_string(),
+                }),
+            }
+        } else {
+            let code_type = classify_commercial_code(code);
+
+            let found: Vec<Uuid> = sqlx::query_scalar(
+                "SELECT id FROM items WHERE external_codes @> $1::jsonb AND is_deleted = FALSE ORDER BY created_at",
+            )
+            .bind(serde_json::json!([{"value": code}]))
+            .fetch_all(&mut **tx)
+            .await?;
+
+            if let Some(ct) = code_type {
+                Ok(BarcodeResolution::External {
+                    code_type: ct.to_string(),
+                    value: code.to_string(),
+                    item_ids: found,
+                })
+            } else {
+                Ok(BarcodeResolution::Unknown {
+                    value: code.to_string(),
+                })
+            }
+        }
+    }
+
+    /// Assign a barcode to a specific item.
+    ///
+    /// Emits an `ItemBarcodeAssigned` event which records both the new barcode and the
+    /// previous one so the undo system can reverse the assignment.
+    pub async fn assign_barcode(
+        &self,
+        item_id: Uuid,
+        barcode: &str,
+        actor_id: Uuid,
+        metadata: &EventMetadata,
+    ) -> AppResult<crate::models::event::StoredEvent> {
+        let mut tx = self.pool.begin().await?;
+
+        // Fetch current item to get previous barcode and verify item exists.
+        let current: Option<(Uuid, Option<String>)> = sqlx::query_as(
+            "SELECT id, system_barcode FROM items WHERE id = $1 AND is_deleted = FALSE",
+        )
+        .bind(item_id)
+        .fetch_optional(&mut *tx)
+        .await?;
+
+        let (_, previous_barcode) = current
+            .ok_or_else(|| AppError::NotFound(format!("Item {item_id} not found")))?;
+
+        // If assigning the same barcode, reject early.
+        if previous_barcode.as_deref() == Some(barcode) {
+            return Err(AppError::BadRequest(
+                "Item already has this barcode".into(),
+            ));
+        }
+
+        // Ensure the new barcode is not already in use by another item.
+        let taken_by: Option<Uuid> = sqlx::query_scalar(
+            "SELECT id FROM items WHERE system_barcode = $1 AND is_deleted = FALSE",
+        )
+        .bind(barcode)
+        .fetch_optional(&mut *tx)
+        .await?;
+
+        if let Some(owner) = taken_by {
+            return Err(AppError::Conflict(format!(
+                "Barcode '{barcode}' is already assigned to item {owner}"
+            )));
+        }
+
+        let event = DomainEvent::ItemBarcodeAssigned(ItemBarcodeAssignedData {
+            barcode: barcode.to_string(),
+            previous_barcode: previous_barcode.clone(),
+        });
+
+        let stored = self.event_store
+            .append_in_tx(&mut tx, item_id, &event, actor_id, metadata)
+            .await?;
+        Projector::apply(&mut tx, item_id, &event, actor_id).await?;
+        tx.commit().await?;
+
+        Ok(stored)
     }
 }
 

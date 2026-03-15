@@ -54,6 +54,23 @@ pub enum AppError {
     Internal(String),
 }
 
+impl AppError {
+    /// Machine-readable error code for batch/structured error responses.
+    pub fn error_code(&self) -> &'static str {
+        match self {
+            AppError::NotFound(_) => "NOT_FOUND",
+            AppError::Conflict(_) => "CONFLICT",
+            AppError::Validation(_) => "VALIDATION_ERROR",
+            AppError::Unauthorized => "UNAUTHORIZED",
+            AppError::Forbidden => "FORBIDDEN",
+            AppError::BadRequest(_) => "BAD_REQUEST",
+            AppError::Database(_) => "INTERNAL_ERROR",
+            AppError::Storage(_) => "STORAGE_ERROR",
+            AppError::Internal(_) => "INTERNAL_ERROR",
+        }
+    }
+}
+
 impl IntoResponse for AppError {
     fn into_response(self) -> Response {
         let (status, code, message, details) = match &self {
@@ -182,5 +199,35 @@ mod tests {
     #[test]
     fn internal_returns_500() {
         assert_eq!(status_of(AppError::Internal("x".into())), StatusCode::INTERNAL_SERVER_ERROR);
+    }
+
+    #[test]
+    fn error_code_not_found() {
+        assert_eq!(AppError::NotFound("x".into()).error_code(), "NOT_FOUND");
+    }
+
+    #[test]
+    fn error_code_conflict() {
+        assert_eq!(AppError::Conflict("x".into()).error_code(), "CONFLICT");
+    }
+
+    #[test]
+    fn error_code_bad_request() {
+        assert_eq!(AppError::BadRequest("x".into()).error_code(), "BAD_REQUEST");
+    }
+
+    #[test]
+    fn error_code_internal() {
+        assert_eq!(AppError::Internal("x".into()).error_code(), "INTERNAL_ERROR");
+    }
+
+    #[test]
+    fn error_code_unauthorized() {
+        assert_eq!(AppError::Unauthorized.error_code(), "UNAUTHORIZED");
+    }
+
+    #[test]
+    fn error_code_forbidden() {
+        assert_eq!(AppError::Forbidden.error_code(), "FORBIDDEN");
     }
 }

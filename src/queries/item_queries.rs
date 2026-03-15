@@ -6,6 +6,61 @@ use crate::models::event::StoredEvent;
 use crate::models::item::{ImageEntry, Item, ItemDetail};
 use crate::queries::common::resolve_ancestors;
 
+// ── Base SELECT for full Item rows ──────────────────────────────────────────
+// Joins categories, container_properties and fungible_properties so the flat
+// Item struct keeps its existing field names without any `SELECT *`.
+pub(crate) const ITEM_FULL_SELECT: &str = r#"
+    i.id,
+    i.system_barcode,
+    i.node_id,
+    i.name,
+    i.description,
+    cat.name                                                           AS category,
+    i.category_id,
+    COALESCE(ARRAY(
+        SELECT t.name FROM item_tags it2
+        JOIN tags t ON t.id = it2.tag_id
+        WHERE it2.item_id = i.id
+        ORDER BY t.name
+    ), ARRAY[]::text[])                                                AS tags,
+    i.is_container,
+    i.container_path::text                                             AS container_path,
+    i.parent_id,
+    i.coordinate,
+    cp.location_schema,
+    cp.max_capacity_cc,
+    cp.max_weight_grams,
+    cp.container_type_id,
+    i.dimensions,
+    i.weight_grams,
+    i.is_fungible,
+    fp.quantity                                                        AS fungible_quantity,
+    fp.unit                                                            AS fungible_unit,
+    i.external_codes,
+    i.condition,
+    i.acquisition_date,
+    i.acquisition_cost,
+    i.current_value,
+    i.depreciation_rate,
+    i.warranty_expiry,
+    i.metadata,
+    i.images,
+    i.is_deleted,
+    i.deleted_at,
+    i.created_at,
+    i.updated_at,
+    i.created_by,
+    i.updated_by,
+    i.currency,
+    i.classification_confidence,
+    i.needs_review,
+    i.ai_description
+FROM items i
+LEFT JOIN categories        cat ON cat.id      = i.category_id
+LEFT JOIN container_properties cp ON cp.item_id = i.id
+LEFT JOIN fungible_properties  fp ON fp.item_id = i.id
+"#;
+
 /// Read-side query handler for items.
 #[derive(Clone)]
 pub struct ItemQueries {
@@ -19,13 +74,14 @@ impl ItemQueries {
 
     /// Get full item detail by ID, including ancestor breadcrumbs.
     pub async fn get_by_id(&self, id: Uuid) -> AppResult<ItemDetail> {
-        let item = sqlx::query_as::<_, Item>(
-            "SELECT * FROM items WHERE id = $1 AND is_deleted = FALSE",
-        )
-        .bind(id)
-        .fetch_optional(&self.pool)
-        .await?
-        .ok_or_else(|| AppError::NotFound(format!("Item {id} not found")))?;
+        let sql = format!(
+            "SELECT {ITEM_FULL_SELECT} WHERE i.id = $1 AND i.is_deleted = FALSE"
+        );
+        let item = sqlx::query_as::<_, Item>(&sql)
+            .bind(id)
+            .fetch_optional(&self.pool)
+            .await?
+            .ok_or_else(|| AppError::NotFound(format!("Item {id} not found")))?;
 
         let ancestors = resolve_ancestors(&self.pool, &item.container_path).await?;
 
@@ -34,13 +90,16 @@ impl ItemQueries {
 
     /// Get full item detail by system barcode.
     pub async fn get_by_barcode(&self, barcode: &str) -> AppResult<ItemDetail> {
-        let item = sqlx::query_as::<_, Item>(
-            "SELECT * FROM items WHERE system_barcode = $1 AND is_deleted = FALSE",
-        )
-        .bind(barcode)
-        .fetch_optional(&self.pool)
-        .await?
-        .ok_or_else(|| AppError::NotFound(format!("Item with barcode {barcode} not found")))?;
+        let sql = format!(
+            "SELECT {ITEM_FULL_SELECT} WHERE i.system_barcode = $1 AND i.is_deleted = FALSE"
+        );
+        let item = sqlx::query_as::<_, Item>(&sql)
+            .bind(barcode)
+            .fetch_optional(&self.pool)
+            .await?
+            .ok_or_else(|| {
+                AppError::NotFound(format!("Item with barcode '{barcode}' not found"))
+            })?;
 
         let ancestors = resolve_ancestors(&self.pool, &item.container_path).await?;
 
@@ -88,3 +147,4 @@ impl ItemQueries {
         Ok(images)
     }
 }
+

@@ -5,17 +5,19 @@ use crate::errors::{AppError, AppResult};
 use crate::events::projector::Projector;
 use crate::events::store::EventStore;
 use crate::models::event::*;
+use crate::queries::session_queries::SessionRepository;
 
 /// Command handler for undo operations.
 #[derive(Clone)]
 pub struct UndoCommands {
     pool: PgPool,
     event_store: EventStore,
+    session_repo: SessionRepository,
 }
 
 impl UndoCommands {
-    pub fn new(pool: PgPool, event_store: EventStore) -> Self {
-        Self { pool, event_store }
+    pub fn new(pool: PgPool, event_store: EventStore, session_repo: SessionRepository) -> Self {
+        Self { pool, event_store, session_repo }
     }
 
     /// Undo a single event by generating a compensating event.
@@ -129,8 +131,14 @@ impl UndoCommands {
         }
 
         let event_ids: Vec<Uuid> = events.iter().map(|e| e.event_id).collect();
+        // Extract session_id from the first event's metadata (all share the same session).
+        let session_id_str: Option<String> = events.first().and_then(|e| {
+            e.metadata.get("session_id").and_then(|v| v.as_str()).map(|s| s.to_string())
+        });
 
         let mut results = Vec::new();
+        let mut undone_created: i32 = 0;
+        let mut undone_moved: i32 = 0;
 
         // Process in reverse order within the same transaction
         for &eid in event_ids.iter().rev() {
@@ -159,7 +167,25 @@ impl UndoCommands {
                 &mut tx, aggregate_id, &compensating_event, actor_id, &metadata,
             ).await?;
             Projector::apply(&mut tx, aggregate_id, &compensating_event, actor_id).await?;
+
+            // H-3: Track which event types were compensated for stats reversal.
+            match &domain_event {
+                DomainEvent::ItemCreated(_) => { undone_created += 1; }
+                DomainEvent::ItemMoved(_) => { undone_moved += 1; }
+                _ => {}
+            }
+
             results.push(stored);
+        }
+
+        // H-3: Revert session stats if this undo belongs to a tracked session.
+        let undone_scanned = undone_created + undone_moved;
+        if undone_scanned > 0 {
+            if let Some(ref sid) = session_id_str {
+                self.session_repo.decrement_stats_in_tx(
+                    &mut tx, sid, undone_scanned, undone_created, undone_moved,
+                ).await?;
+            }
         }
 
         tx.commit().await?;
@@ -269,6 +295,15 @@ impl UndoCommands {
                 let compensating = DomainEvent::ContainerSchemaUpdated(ContainerSchemaUpdatedData {
                     old_schema: Some(data.new_schema.clone()),
                     new_schema: data.old_schema.clone().unwrap_or(serde_json::Value::Null),
+                });
+                Ok((compensating, aggregate_id))
+            }
+            DomainEvent::ItemBarcodeAssigned(data) => {
+                // Reverse: restore the previous barcode (empty string signals "clear barcode"
+                // to the projector, which treats it as NULL).
+                let compensating = DomainEvent::ItemBarcodeAssigned(ItemBarcodeAssignedData {
+                    barcode: data.previous_barcode.clone().unwrap_or_default(),
+                    previous_barcode: Some(data.barcode.clone()),
                 });
                 Ok((compensating, aggregate_id))
             }

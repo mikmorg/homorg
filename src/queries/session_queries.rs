@@ -16,16 +16,26 @@ impl SessionRepository {
     }
 
     /// Create a new scan session.
-    pub async fn create(&self, session_id: Uuid, user_id: Uuid) -> AppResult<ScanSession> {
+    pub async fn create(
+        &self,
+        session_id: Uuid,
+        user_id: Uuid,
+        device_id: Option<&str>,
+        notes: Option<&str>,
+        active_container_id: Option<Uuid>,
+    ) -> AppResult<ScanSession> {
         let session = sqlx::query_as::<_, ScanSession>(
             r#"
-            INSERT INTO scan_sessions (id, user_id)
-            VALUES ($1, $2)
+            INSERT INTO scan_sessions (id, user_id, device_id, notes, active_container_id)
+            VALUES ($1, $2, $3, $4, $5)
             RETURNING *
             "#,
         )
         .bind(session_id)
         .bind(user_id)
+        .bind(device_id)
+        .bind(notes)
+        .bind(active_container_id)
         .fetch_one(&self.pool)
         .await?;
         Ok(session)
@@ -163,5 +173,41 @@ impl SessionRepository {
         .fetch_optional(&self.pool)
         .await?
         .ok_or_else(|| AppError::NotFound("Active session not found".into()))
+    }
+
+    /// Decrement session stats (for undo). Uses GREATEST to prevent underflow.
+    ///
+    /// If `session_id` is not a valid UUID the call is a no-op: the metadata
+    /// field is stored as free text, so non-UUID values cannot match any
+    /// `scan_sessions.id` row.
+    pub async fn decrement_stats_in_tx(
+        &self,
+        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        session_id: &str,
+        items_scanned: i32,
+        items_created: i32,
+        items_moved: i32,
+    ) -> AppResult<()> {
+        // session_id is stored as free text in event metadata; gracefully skip
+        // if it cannot be parsed as a UUID (would never match a scan_sessions row).
+        let Ok(session_uuid) = uuid::Uuid::parse_str(session_id) else {
+            return Ok(());
+        };
+        sqlx::query(
+            r#"
+            UPDATE scan_sessions
+            SET items_scanned = GREATEST(items_scanned - $1, 0),
+                items_created = GREATEST(items_created - $2, 0),
+                items_moved   = GREATEST(items_moved   - $3, 0)
+            WHERE id = $4
+            "#,
+        )
+        .bind(items_scanned)
+        .bind(items_created)
+        .bind(items_moved)
+        .bind(session_uuid)
+        .execute(&mut **tx)
+        .await?;
+        Ok(())
     }
 }

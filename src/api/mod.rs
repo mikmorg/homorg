@@ -7,6 +7,9 @@ pub mod search_routes;
 pub mod undo_routes;
 pub mod user_routes;
 pub mod system_routes;
+pub mod container_type_routes;
+pub mod tag_routes;
+pub mod category_routes;
 
 use axum::{
     extract::State,
@@ -134,6 +137,9 @@ pub fn build_router(state: Arc<AppState>, config: &AppConfig) -> Router {
         .nest("/search", search_routes::router())
         .nest("/undo", undo_routes::router())
         .nest("/users", user_routes::router())
+        .nest("/container-types", container_type_routes::router())
+        .nest("/tags", tag_routes::router())
+        .nest("/categories", category_routes::router())
         .merge(system_routes::router())
         .layer(GovernorLayer::new(api_governor_conf));
 

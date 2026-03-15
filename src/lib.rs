@@ -21,10 +21,12 @@ use commands::undo_commands::UndoCommands;
 use config::AppConfig;
 use events::store::EventStore;
 use queries::container_queries::ContainerQueries;
+use queries::container_type_queries::ContainerTypeQueries;
 use queries::item_queries::ItemQueries;
 use queries::search_queries::SearchQueries;
 use queries::session_queries::SessionRepository;
 use queries::stats_queries::StatsQueries;
+use queries::taxonomy_queries::TaxonomyQueries;
 use queries::token_queries::TokenRepository;
 use queries::user_queries::UserQueries;
 use sqlx::PgPool;
@@ -45,6 +47,8 @@ pub struct AppState {
     pub token_repository: TokenRepository,
     pub session_repository: SessionRepository,
     pub stats_queries: StatsQueries,
+    pub container_type_queries: ContainerTypeQueries,
+    pub taxonomy_queries: TaxonomyQueries,
     pub storage: Arc<dyn StorageBackend>,
     /// API-5: Tracks whether a projection rebuild is currently running.
     pub rebuild_in_progress: Arc<AtomicBool>,
@@ -59,15 +63,17 @@ impl AppState {
         storage: Arc<dyn StorageBackend>,
     ) -> Self {
         let item_commands = ItemCommands::new(pool.clone(), event_store.clone());
-        let undo_commands = UndoCommands::new(pool.clone(), event_store.clone());
+        let session_repository = SessionRepository::new(pool.clone());
+        let undo_commands = UndoCommands::new(pool.clone(), event_store.clone(), session_repository.clone());
         let barcode_commands = BarcodeCommands::new(pool.clone(), config.clone(), event_store.clone());
         let item_queries = ItemQueries::new(pool.clone());
         let container_queries = ContainerQueries::new(pool.clone());
         let search_queries = SearchQueries::new(pool.clone());
         let user_queries = UserQueries::new(pool.clone());
         let token_repository = TokenRepository::new(pool.clone());
-        let session_repository = SessionRepository::new(pool.clone());
         let stats_queries = StatsQueries::new(pool.clone());
+        let container_type_queries = ContainerTypeQueries::new(pool.clone());
+        let taxonomy_queries = TaxonomyQueries::new(pool.clone());
 
         Self {
             config,
@@ -83,6 +89,8 @@ impl AppState {
             token_repository,
             session_repository,
             stats_queries,
+            container_type_queries,
+            taxonomy_queries,
             storage,
             rebuild_in_progress: Arc::new(AtomicBool::new(false)),
         }

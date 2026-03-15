@@ -12,6 +12,7 @@ use crate::auth::middleware::AuthUser;
 use crate::constants::is_valid_condition;
 use crate::errors::{AppError, AppResult};
 use crate::models::event::{EventMetadata, StoredEvent};
+use crate::models::barcode::AssignBarcodeRequest;
 use crate::models::item::*;
 use crate::AppState;
 
@@ -41,17 +42,17 @@ fn mime_to_extension(mime: &str) -> Option<&'static str> {
 /// Validate lengths on create requests.
 pub(crate) fn validate_create_request(req: &CreateItemRequest) -> Result<(), AppError> {
     if let Some(ref n) = req.name {
-        if n.len() > MAX_NAME_LEN {
+        if n.chars().count() > MAX_NAME_LEN {
             return Err(AppError::BadRequest(format!("name exceeds {MAX_NAME_LEN} chars")));
         }
     }
     if let Some(ref d) = req.description {
         if d.len() > MAX_DESCRIPTION_LEN {
-            return Err(AppError::BadRequest(format!("description exceeds {MAX_DESCRIPTION_LEN} chars")));
+            return Err(AppError::BadRequest(format!("description exceeds {MAX_DESCRIPTION_LEN} bytes")));
         }
     }
     if let Some(ref c) = req.category {
-        if c.len() > MAX_CATEGORY_LEN {
+        if c.chars().count() > MAX_CATEGORY_LEN {
             return Err(AppError::BadRequest(format!("category exceeds {MAX_CATEGORY_LEN} chars")));
         }
     }
@@ -60,7 +61,7 @@ pub(crate) fn validate_create_request(req: &CreateItemRequest) -> Result<(), App
             return Err(AppError::BadRequest(format!("tags count exceeds {MAX_TAG_COUNT}")));
         }
         for t in tags {
-            if t.len() > MAX_TAG_LEN {
+            if t.chars().count() > MAX_TAG_LEN {
                 return Err(AppError::BadRequest(format!("tag exceeds {MAX_TAG_LEN} chars")));
             }
         }
@@ -122,17 +123,17 @@ pub(crate) fn validate_create_request(req: &CreateItemRequest) -> Result<(), App
 /// Validate lengths on update requests.
 fn validate_update_request(req: &UpdateItemRequest) -> Result<(), AppError> {
     if let Some(ref n) = req.name {
-        if n.len() > MAX_NAME_LEN {
+        if n.chars().count() > MAX_NAME_LEN {
             return Err(AppError::BadRequest(format!("name exceeds {MAX_NAME_LEN} chars")));
         }
     }
     if let Some(ref d) = req.description {
         if d.len() > MAX_DESCRIPTION_LEN {
-            return Err(AppError::BadRequest(format!("description exceeds {MAX_DESCRIPTION_LEN} chars")));
+            return Err(AppError::BadRequest(format!("description exceeds {MAX_DESCRIPTION_LEN} bytes")));
         }
     }
     if let Some(ref c) = req.category {
-        if c.len() > MAX_CATEGORY_LEN {
+        if c.chars().count() > MAX_CATEGORY_LEN {
             return Err(AppError::BadRequest(format!("category exceeds {MAX_CATEGORY_LEN} chars")));
         }
     }
@@ -141,7 +142,7 @@ fn validate_update_request(req: &UpdateItemRequest) -> Result<(), AppError> {
             return Err(AppError::BadRequest(format!("tags count exceeds {MAX_TAG_COUNT}")));
         }
         for t in tags {
-            if t.len() > MAX_TAG_LEN {
+            if t.chars().count() > MAX_TAG_LEN {
                 return Err(AppError::BadRequest(format!("tag exceeds {MAX_TAG_LEN} chars")));
             }
         }
@@ -175,6 +176,23 @@ fn validate_update_request(req: &UpdateItemRequest) -> Result<(), AppError> {
     if let Some(v) = req.current_value {
         if v < 0.0 { return Err(AppError::BadRequest("current_value must be >= 0".into())); }
     }
+    // VAL-4: Reject container-specific fields when explicitly disabling container status.
+    if req.is_container == Some(false)
+        && (req.location_schema.is_some()
+            || req.max_capacity_cc.is_some()
+            || req.max_weight_grams.is_some()
+            || req.container_type_id.is_some())
+    {
+        return Err(AppError::BadRequest(
+            "Cannot set container-specific fields when is_container is false".into(),
+        ));
+    }
+    // VAL-4b: Reject fungible-specific fields when explicitly disabling fungible status.
+    if req.is_fungible == Some(false) && req.fungible_unit.is_some() {
+        return Err(AppError::BadRequest(
+            "Cannot set fungible_unit when is_fungible is false".into(),
+        ));
+    }
     Ok(())
 }
 
@@ -193,22 +211,17 @@ pub fn router() -> Router<Arc<AppState>> {
             delete(remove_external_code),
         )
         .route("/{id}/quantity", post(adjust_quantity))
+        .route("/{id}/barcode", post(assign_barcode))
 }
 
 /// Create a new item.
 async fn create_item(
     State(state): State<Arc<AppState>>,
     auth: AuthUser,
-    Json(mut req): Json<CreateItemRequest>,
+    Json(req): Json<CreateItemRequest>,
 ) -> AppResult<(StatusCode, Json<StoredEvent>)> {
     auth.require_role("member")?;
     validate_create_request(&req)?;
-
-    // Auto-generate barcode if not provided
-    if req.system_barcode.is_none() {
-        let generated = state.barcode_commands.generate_barcode().await?;
-        req.system_barcode = Some(generated.barcode);
-    }
 
     let item_id = Uuid::new_v4();
     let metadata = EventMetadata::default();
@@ -501,6 +514,32 @@ async fn adjust_quantity(
     let event = state
         .item_commands
         .adjust_quantity(id, &req, auth.user_id, &metadata)
+        .await?;
+    Ok(Json(event))
+}
+
+/// Assign (or re-assign) a barcode to an existing item.
+/// POST /items/{id}/barcode  { "barcode": "ACME-00042" }
+async fn assign_barcode(
+    State(state): State<Arc<AppState>>,
+    auth: AuthUser,
+    Path(id): Path<Uuid>,
+    Json(req): Json<AssignBarcodeRequest>,
+) -> AppResult<Json<StoredEvent>> {
+    auth.require_role("member")?;
+    // VAL-6: Validate barcode bounds before hitting VARCHAR(32) constraint.
+    if req.barcode.is_empty() {
+        return Err(AppError::BadRequest("Barcode cannot be empty".into()));
+    }
+    if req.barcode.chars().count() > 32 {
+        return Err(AppError::BadRequest(
+            "Barcode exceeds maximum length of 32 characters".into(),
+        ));
+    }
+    let metadata = EventMetadata::default();
+    let event = state
+        .barcode_commands
+        .assign_barcode(id, &req.barcode, auth.user_id, &metadata)
         .await?;
     Ok(Json(event))
 }

@@ -20,7 +20,7 @@ pub async fn resolve_ancestors(
     let labels_owned: Vec<String> = labels.iter().map(|s| s.to_string()).collect();
 
     // Single batch query for all ancestor node_ids
-    let rows = sqlx::query_as::<_, (uuid::Uuid, String, Option<String>, String)>(
+    let rows = sqlx::query_as::<_, (uuid::Uuid, Option<String>, Option<String>, String)>(
         "SELECT id, system_barcode, name, node_id FROM items WHERE node_id = ANY($1)",
     )
     .bind(&labels_owned)
@@ -28,7 +28,7 @@ pub async fn resolve_ancestors(
     .await?;
 
     // Build lookup map and reorder by path position
-    let lookup: std::collections::HashMap<&str, &(uuid::Uuid, String, Option<String>, String)> =
+    let lookup: std::collections::HashMap<&str, &(uuid::Uuid, Option<String>, Option<String>, String)> =
         rows.iter().map(|r| (r.3.as_str(), r)).collect();
 
     let mut ancestors = Vec::with_capacity(labels.len());

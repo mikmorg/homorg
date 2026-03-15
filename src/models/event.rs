@@ -36,6 +36,9 @@ pub enum DomainEvent {
     ItemQuantityAdjusted(QuantityAdjustedData),
     ContainerSchemaUpdated(ContainerSchemaUpdatedData),
     BarcodeGenerated(BarcodeGeneratedData),
+    /// Assigns (or reassigns) a system barcode to an existing item.
+    /// The previous barcode is stored for undo support.
+    ItemBarcodeAssigned(ItemBarcodeAssignedData),
 }
 
 impl DomainEvent {
@@ -55,13 +58,19 @@ impl DomainEvent {
             DomainEvent::ItemQuantityAdjusted(_) => "ItemQuantityAdjusted",
             DomainEvent::ContainerSchemaUpdated(_) => "ContainerSchemaUpdated",
             DomainEvent::BarcodeGenerated(_) => "BarcodeGenerated",
+            DomainEvent::ItemBarcodeAssigned(_) => "ItemBarcodeAssigned",
         }
     }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ItemCreatedData {
-    pub system_barcode: String,
+    /// System barcode assigned to the item at creation time.
+    /// May be None if the item was created without a barcode (opt-in assignment later).
+    /// Old events written before migration 0012 always have a value; deserialization
+    /// via `#[serde(default)]` handles forward/backward compatibility.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub system_barcode: Option<String>,
     pub node_id: String,
     pub name: Option<String>,
     pub description: Option<String>,
@@ -91,6 +100,10 @@ pub struct ItemCreatedData {
     /// Absent in events written before this field was added; defaults to None.
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub created_at: Option<DateTime<Utc>>,
+    /// Container type FK (only meaningful when is_container = true).
+    /// Absent in events written before this field was added.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub container_type_id: Option<Uuid>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -177,6 +190,16 @@ pub struct BarcodeGeneratedData {
     pub assigned_to: Option<Uuid>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ItemBarcodeAssignedData {
+    /// The new barcode value being assigned.
+    pub barcode: String,
+    /// Previous barcode (None if the item had no barcode before).
+    /// Stored so the assignment can be undone.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub previous_barcode: Option<String>,
+}
+
 /// Metadata attached to events for correlation/causation tracking.
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct EventMetadata {
@@ -188,6 +211,9 @@ pub struct EventMetadata {
     pub session_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub batch_id: Option<String>,
+    /// Client-side scan timestamp (RFC 3339). Preserved from StockerBatchEvent.scanned_at.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub scanned_at: Option<String>,
 }
 
 #[cfg(test)]
@@ -203,7 +229,7 @@ mod tests {
     #[test]
     fn item_created_serde_roundtrip() {
         let evt = DomainEvent::ItemCreated(Box::new(ItemCreatedData {
-            system_barcode: "HOM-000001".into(),
+            system_barcode: Some("HOM-000001".into()),
             node_id: "n_aabbccdd0011".into(),
             name: Some("Widget".into()),
             description: None,
@@ -230,6 +256,7 @@ mod tests {
             warranty_expiry: None,
             metadata: serde_json::json!({}),
             created_at: None,
+            container_type_id: None,
         }));
         let rt = roundtrip(&evt);
         assert_eq!(rt.event_type(), "ItemCreated");
@@ -356,10 +383,42 @@ mod tests {
     }
 
     #[test]
+    fn item_barcode_assigned_serde_roundtrip() {
+        let evt = DomainEvent::ItemBarcodeAssigned(ItemBarcodeAssignedData {
+            barcode: "HOM-000099".into(),
+            previous_barcode: None,
+        });
+        assert_eq!(roundtrip(&evt).event_type(), "ItemBarcodeAssigned");
+    }
+
+    #[test]
+    fn item_created_without_barcode_roundtrip() {
+        // Ensure system_barcode: None serialises correctly and is backward-compat
+        let evt = DomainEvent::ItemCreated(Box::new(ItemCreatedData {
+            system_barcode: None,
+            node_id: "n_aabbccdd0011".into(),
+            name: None, description: None, category: None, tags: vec![],
+            is_container: false, container_path: "n_root".into(),
+            parent_id: Uuid::nil(), coordinate: None, location_schema: None,
+            max_capacity_cc: None, max_weight_grams: None, dimensions: None,
+            weight_grams: None, is_fungible: false, fungible_quantity: None,
+            fungible_unit: None, external_codes: vec![], condition: None,
+            acquisition_date: None, acquisition_cost: None, current_value: None,
+            depreciation_rate: None, warranty_expiry: None,
+            metadata: serde_json::json!({}), created_at: None,
+            container_type_id: None,
+        }));
+        let rt = roundtrip(&evt);
+        if let DomainEvent::ItemCreated(d) = rt {
+            assert!(d.system_barcode.is_none());
+        } else { panic!("wrong variant"); }
+    }
+
+    #[test]
     fn event_type_names_are_distinct() {
         let types = vec![
             DomainEvent::ItemCreated(Box::new(ItemCreatedData {
-                system_barcode: String::new(), node_id: String::new(), name: None,
+                system_barcode: None, node_id: String::new(), name: None,
                 description: None, category: None, tags: vec![], is_container: false,
                 container_path: String::new(), parent_id: Uuid::nil(), coordinate: None,
                 location_schema: None, max_capacity_cc: None, max_weight_grams: None,
@@ -368,6 +427,7 @@ mod tests {
                 condition: None, acquisition_date: None, acquisition_cost: None,
                 current_value: None, depreciation_rate: None, warranty_expiry: None,
                 metadata: serde_json::json!({}), created_at: None,
+                container_type_id: None,
             })).event_type(),
             DomainEvent::ItemUpdated(ItemUpdatedData { changes: vec![] }).event_type(),
             DomainEvent::ItemMoved(ItemMovedData {
@@ -394,6 +454,9 @@ mod tests {
             }).event_type(),
             DomainEvent::BarcodeGenerated(BarcodeGeneratedData {
                 barcode: String::new(), assigned_to: None,
+            }).event_type(),
+            DomainEvent::ItemBarcodeAssigned(ItemBarcodeAssignedData {
+                barcode: String::new(), previous_barcode: None,
             }).event_type(),
         ];
         let set: std::collections::HashSet<&str> = types.iter().copied().collect();

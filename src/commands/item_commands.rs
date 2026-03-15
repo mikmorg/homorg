@@ -3,6 +3,7 @@ use uuid::Uuid;
 use chrono::Utc;
 
 use crate::constants::{MAX_EXTERNAL_CODES, MAX_CODE_VALUE_LEN, MAX_CODE_TYPE_LEN};
+use crate::queries::item_queries::ITEM_FULL_SELECT;
 use crate::errors::{AppError, AppResult};
 use crate::events::projector::Projector;
 use crate::events::store::EventStore;
@@ -78,30 +79,36 @@ impl ItemCommands {
             )));
         }
 
-        let system_barcode = req.system_barcode.clone()
-            .ok_or_else(|| AppError::BadRequest("system_barcode is required".into()))?;
+        let is_container = req.is_container.unwrap_or(false);
+        let is_fungible = req.is_fungible.unwrap_or(false);
 
-        // Check barcode uniqueness
-        let exists: bool = sqlx::query_scalar(
-            "SELECT EXISTS(SELECT 1 FROM items WHERE system_barcode = $1)",
-        )
-        .bind(&system_barcode)
-        .fetch_one(&mut **tx)
-        .await?;
+        // Mutual-exclusivity: an item cannot be both a container and fungible.
+        if is_container && is_fungible {
+            return Err(AppError::BadRequest(
+                "An item cannot be both a container and fungible".into(),
+            ));
+        }
 
-        if exists {
-            return Err(AppError::Conflict(format!(
-                "Barcode {} already exists", system_barcode
-            )));
+        let system_barcode = req.system_barcode.clone();
+
+        // If a barcode is provided, check it is unique (prevents silent collision on concurrent requests).
+        if let Some(ref bc) = system_barcode {
+            let exists: bool = sqlx::query_scalar(
+                "SELECT EXISTS(SELECT 1 FROM items WHERE system_barcode = $1)",
+            )
+            .bind(bc)
+            .fetch_one(&mut **tx)
+            .await?;
+
+            if exists {
+                return Err(AppError::Conflict(format!("Barcode {bc} already exists")));
+            }
         }
 
         // Derive immutable node_id from item UUID and build path
         let node_id = uuid_to_node_id(&id);
         let parent_path = parent.2.unwrap_or_else(|| "n_root".to_string());
         let container_path = format!("{}.{}", parent_path, node_id);
-
-        let is_container = req.is_container.unwrap_or(false);
-        let is_fungible = req.is_fungible.unwrap_or(false);
 
         let external_codes: Vec<serde_json::Value> = req.external_codes
             .as_ref()
@@ -137,6 +144,7 @@ impl ItemCommands {
             metadata: req.metadata.clone().unwrap_or_else(|| serde_json::json!({})),
             // DI-2: Record creation timestamp in the event so rebuild_all restores original dates.
             created_at: Some(Utc::now()),
+            container_type_id: req.container_type_id,
         }));
 
         let stored = self.event_store.append_in_tx(tx, id, &event, actor_id, metadata).await?;
@@ -152,7 +160,7 @@ impl ItemCommands {
                 if db_err.constraint() == Some("items_system_barcode_key") {
                     return AppError::Conflict(format!(
                         "Barcode '{}' already exists",
-                        system_barcode
+                        system_barcode.as_deref().unwrap_or("(unknown)")
                     ));
                 }
             }
@@ -172,9 +180,11 @@ impl ItemCommands {
     ) -> AppResult<StoredEvent> {
         let mut tx = self.pool.begin().await?;
 
-        // Fetch current state to compute diffs (inside tx to prevent TOCTOU)
+        // Fetch current state to compute diffs (inside tx to prevent TOCTOU).
+        // Use the full JOIN query so extension-table fields (fungible_unit, location_schema…)
+        // are populated on the Item struct.
         let current = sqlx::query_as::<_, Item>(
-            "SELECT * FROM items WHERE id = $1 AND is_deleted = FALSE",
+            &format!("SELECT {ITEM_FULL_SELECT} WHERE i.id = $1 AND i.is_deleted = FALSE"),
         )
         .bind(item_id)
         .fetch_optional(&mut *tx)
@@ -239,6 +249,18 @@ impl ItemCommands {
         diff_numeric!(depreciation_rate, current.depreciation_rate);
         diff_field!(warranty_expiry, current.warranty_expiry);
         diff_field!(metadata, current.metadata);
+        diff_field!(is_fungible, current.is_fungible);
+        diff_field!(fungible_unit, current.fungible_unit);
+        diff_field!(container_type_id, current.container_type_id);
+
+        // Mutual exclusivity: reject if the update would result in is_container AND is_fungible both being true.
+        let will_be_container = req.is_container.unwrap_or(current.is_container);
+        let will_be_fungible  = req.is_fungible.unwrap_or(current.is_fungible);
+        if will_be_container && will_be_fungible {
+            return Err(AppError::BadRequest(
+                "An item cannot be both a container and fungible".into(),
+            ));
+        }
 
         if changes.is_empty() {
             return Err(AppError::BadRequest("No changes detected".into()));
@@ -314,6 +336,13 @@ impl ItemCommands {
             return Err(AppError::BadRequest(format!(
                 "Destination {} is not a container", req.container_id
             )));
+        }
+
+        // H-4: Idempotency — reject no-op moves (item is already in the target container).
+        if item.1 == Some(req.container_id) {
+            return Err(AppError::BadRequest(
+                "Item is already in this container".into(),
+            ));
         }
 
         // Circular reference check: destination must not be a descendant of the moved item
@@ -638,7 +667,7 @@ impl ItemCommands {
         let mut tx = self.pool.begin().await?;
 
         let current = sqlx::query_as::<_, (bool, Option<i32>)>(
-            "SELECT is_fungible, fungible_quantity FROM items WHERE id = $1 AND is_deleted = FALSE",
+            "SELECT i.is_fungible, fp.quantity FROM items i LEFT JOIN fungible_properties fp ON fp.item_id = i.id WHERE i.id = $1 AND i.is_deleted = FALSE",
         )
         .bind(item_id)
         .fetch_optional(&mut *tx)
@@ -681,7 +710,7 @@ impl ItemCommands {
         let mut tx = self.pool.begin().await?;
 
         let current_schema: Option<serde_json::Value> = sqlx::query_scalar(
-            "SELECT location_schema FROM items WHERE id = $1 AND is_container = TRUE AND is_deleted = FALSE",
+            "SELECT cp.location_schema FROM items i LEFT JOIN container_properties cp ON cp.item_id = i.id WHERE i.id = $1 AND i.is_container = TRUE AND i.is_deleted = FALSE",
         )
         .bind(container_id)
         .fetch_optional(&mut *tx)

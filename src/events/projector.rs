@@ -31,6 +31,7 @@ impl Projector {
             DomainEvent::ItemExternalCodeRemoved(data) => Self::project_ext_code_removed(tx, aggregate_id, data, actor_id).await,
             DomainEvent::ItemQuantityAdjusted(data) => Self::project_quantity_adjusted(tx, aggregate_id, data, actor_id).await,
             DomainEvent::ContainerSchemaUpdated(data) => Self::project_schema_updated(tx, aggregate_id, data, actor_id).await,
+            DomainEvent::ItemBarcodeAssigned(data) => Self::project_barcode_assigned(tx, aggregate_id, data, actor_id).await,
             DomainEvent::BarcodeGenerated(_) => Ok(()), // No projection change
         }
     }
@@ -44,35 +45,34 @@ impl Projector {
         let ext_codes = serde_json::to_value(&data.external_codes)
             .unwrap_or_else(|_| serde_json::json!([]));
 
-        // DI-2: Use the creation timestamp stored in the event (set at command time) so that
-        // rebuild_all restores original `created_at` values rather than stamping the rebuild time.
-        // `created_at` may be None for events written before this field was added; fall back to NOW().
+        // DI-2: Use the creation timestamp stored in the event so rebuild_all restores original
+        // `created_at` values.  May be None for older events; fall back to NOW().
         let result = sqlx::query(
             r#"
             INSERT INTO items (
                 id, system_barcode, node_id,
-                name, description, category, tags,
+                name, description,
                 is_container, container_path, parent_id, coordinate,
-                location_schema, max_capacity_cc, max_weight_grams,
                 dimensions, weight_grams,
-                is_fungible, fungible_quantity, fungible_unit,
+                is_fungible,
                 external_codes,
-                condition, acquisition_date, acquisition_cost, current_value, depreciation_rate, warranty_expiry,
+                condition, acquisition_date, acquisition_cost, current_value,
+                depreciation_rate, warranty_expiry,
                 metadata,
                 created_at,
                 created_by, updated_by
             ) VALUES (
                 $1, $2, $3,
-                $4, $5, $6, $7,
-                $8, $9::ltree, $10, $11,
-                $12, $13, $14,
-                $15, $16,
-                $17, $18, $19,
+                $4, $5,
+                $6, $7::ltree, $8, $9,
+                $10, $11,
+                $12,
+                $13,
+                $14, $15::date, $16, $17,
+                $18, $19::date,
                 $20,
-                $21, $22::date, $23, $24, $25, $26::date,
-                $27,
-                COALESCE($28::timestamptz, NOW()),
-                $29, $29
+                COALESCE($21::timestamptz, NOW()),
+                $22, $22
             )
             ON CONFLICT (id) DO NOTHING
             "#,
@@ -82,20 +82,13 @@ impl Projector {
         .bind(&data.node_id)
         .bind(&data.name)
         .bind(&data.description)
-        .bind(&data.category)
-        .bind(&data.tags)
         .bind(data.is_container)
         .bind(&data.container_path)
         .bind(data.parent_id)
         .bind(&data.coordinate)
-        .bind(&data.location_schema)
-        .bind(data.max_capacity_cc)
-        .bind(data.max_weight_grams)
         .bind(&data.dimensions)
         .bind(data.weight_grams)
         .bind(data.is_fungible)
-        .bind(data.fungible_quantity)
-        .bind(&data.fungible_unit)
         .bind(&ext_codes)
         .bind(&data.condition)
         .bind(&data.acquisition_date)
@@ -104,7 +97,7 @@ impl Projector {
         .bind(data.depreciation_rate)
         .bind(&data.warranty_expiry)
         .bind(&data.metadata)
-        .bind(data.created_at)  // DI-2: bind original timestamp
+        .bind(data.created_at) // DI-2: bind original timestamp
         .bind(actor_id)
         .execute(&mut **tx)
         .await?;
@@ -112,6 +105,80 @@ impl Projector {
         // ES-4: Log a warning if ON CONFLICT DO NOTHING silently swallowed a duplicate.
         if result.rows_affected() == 0 {
             tracing::warn!(item_id = %id, "project_item_created: ON CONFLICT DO NOTHING — duplicate ItemCreated event detected");
+            // Row already exists; skip extension-table inserts to stay idempotent.
+            return Ok(());
+        }
+
+        // ── Normalized category ──────────────────────────────────────────────────────
+        if let Some(cat_name) = &data.category {
+            if !cat_name.is_empty() {
+                let cat_id: Uuid = sqlx::query_scalar(
+                    "INSERT INTO categories (name) VALUES ($1) \
+                     ON CONFLICT (name) DO UPDATE SET name = EXCLUDED.name \
+                     RETURNING id",
+                )
+                .bind(cat_name)
+                .fetch_one(&mut **tx)
+                .await?;
+
+                sqlx::query("UPDATE items SET category_id = $1 WHERE id = $2")
+                    .bind(cat_id)
+                    .bind(id)
+                    .execute(&mut **tx)
+                    .await?;
+            }
+        }
+
+        // ── Normalized tags ──────────────────────────────────────────────────────────
+        for tag_name in &data.tags {
+            if tag_name.is_empty() {
+                continue;
+            }
+            let tag_id: Uuid = sqlx::query_scalar(
+                "INSERT INTO tags (name) VALUES ($1) \
+                 ON CONFLICT (name) DO UPDATE SET name = EXCLUDED.name \
+                 RETURNING id",
+            )
+            .bind(tag_name)
+            .fetch_one(&mut **tx)
+            .await?;
+
+            sqlx::query(
+                "INSERT INTO item_tags (item_id, tag_id) VALUES ($1, $2) ON CONFLICT DO NOTHING",
+            )
+            .bind(id)
+            .bind(tag_id)
+            .execute(&mut **tx)
+            .await?;
+        }
+
+        // ── Container extension row ──────────────────────────────────────────────────
+        if data.is_container {
+            sqlx::query(
+                "INSERT INTO container_properties \
+                 (item_id, location_schema, max_capacity_cc, max_weight_grams, container_type_id) \
+                 VALUES ($1, $2, $3, $4, $5) ON CONFLICT (item_id) DO NOTHING",
+            )
+            .bind(id)
+            .bind(&data.location_schema)
+            .bind(data.max_capacity_cc)
+            .bind(data.max_weight_grams)
+            .bind(data.container_type_id)
+            .execute(&mut **tx)
+            .await?;
+        }
+
+        // ── Fungible extension row ───────────────────────────────────────────────────
+        if data.is_fungible {
+            sqlx::query(
+                "INSERT INTO fungible_properties (item_id, quantity, unit) \
+                 VALUES ($1, $2, $3) ON CONFLICT (item_id) DO NOTHING",
+            )
+            .bind(id)
+            .bind(data.fungible_quantity)
+            .bind(&data.fungible_unit)
+            .execute(&mut **tx)
+            .await?;
         }
 
         Ok(())
@@ -125,16 +192,21 @@ impl Projector {
     ) -> AppResult<()> {
         // Apply each field change individually via dynamic SQL.
         // We use a safe allowlist of fields to prevent injection.
-        let allowed_text_fields = [
-            "name", "description", "category", "condition", "fungible_unit",
-        ];
+        let allowed_text_fields = ["name", "description", "condition"];
         let allowed_numeric_fields = [
-            "max_capacity_cc", "max_weight_grams", "weight_grams",
+            "weight_grams",
             "acquisition_cost", "current_value", "depreciation_rate",
         ];
-        let allowed_jsonb_fields = [
-            "coordinate", "location_schema", "dimensions", "metadata",
+        let allowed_jsonb_fields = ["coordinate", "dimensions", "metadata"];
+
+        // Fields that ONLY write to extension/junction tables (no direct items UPDATE).
+        // If all changes target these fields, we still need to touch items.updated_by.
+        let extension_only_fields = [
+            "tags", "location_schema", "max_capacity_cc", "max_weight_grams",
+            "container_type_id", "fungible_unit", "fungible_quantity",
         ];
+        let items_touched = data.changes.iter()
+            .any(|c| !extension_only_fields.contains(&c.field.as_str()));
 
         for change in &data.changes {
             let field = change.field.as_str();
@@ -148,6 +220,7 @@ impl Projector {
                     .bind(id)
                     .execute(&mut **tx)
                     .await?;
+
             } else if allowed_numeric_fields.contains(&field) {
                 let value = change.new.as_f64();
                 let query = format!("UPDATE items SET {field} = $1, updated_by = $2 WHERE id = $3");
@@ -157,6 +230,7 @@ impl Projector {
                     .bind(id)
                     .execute(&mut **tx)
                     .await?;
+
             } else if allowed_jsonb_fields.contains(&field) {
                 let query = format!("UPDATE items SET {field} = $1, updated_by = $2 WHERE id = $3");
                 sqlx::query(&query)
@@ -165,31 +239,178 @@ impl Projector {
                     .bind(id)
                     .execute(&mut **tx)
                     .await?;
+
+            } else if field == "category" {
+                // Normalize: get-or-create category row, update foreign key.
+                let new_name = change.new.as_str().filter(|s| !s.is_empty());
+                let cat_id: Option<Uuid> = if let Some(name) = new_name {
+                    let cid: Uuid = sqlx::query_scalar(
+                        "INSERT INTO categories (name) VALUES ($1) \
+                         ON CONFLICT (name) DO UPDATE SET name = EXCLUDED.name \
+                         RETURNING id",
+                    )
+                    .bind(name)
+                    .fetch_one(&mut **tx)
+                    .await?;
+                    Some(cid)
+                } else {
+                    None
+                };
+                sqlx::query("UPDATE items SET category_id = $1, updated_by = $2 WHERE id = $3")
+                    .bind(cat_id)
+                    .bind(actor_id)
+                    .bind(id)
+                    .execute(&mut **tx)
+                    .await?;
+
             } else if field == "tags" {
-                let tags: Vec<String> = serde_json::from_value(change.new.clone()).unwrap_or_default();
-                sqlx::query("UPDATE items SET tags = $1, updated_by = $2 WHERE id = $3")
-                    .bind(&tags)
-                    .bind(actor_id)
+                // Normalize: replace all item_tags entries.
+                let tags: Vec<String> =
+                    serde_json::from_value(change.new.clone()).unwrap_or_default();
+                sqlx::query("DELETE FROM item_tags WHERE item_id = $1")
                     .bind(id)
                     .execute(&mut **tx)
                     .await?;
-            } else if field == "is_container" || field == "is_fungible" {
-                let value = change.new.as_bool().unwrap_or(false);
-                let query = format!("UPDATE items SET {field} = $1, updated_by = $2 WHERE id = $3");
-                sqlx::query(&query)
-                    .bind(value)
-                    .bind(actor_id)
+                for tag_name in &tags {
+                    if tag_name.is_empty() {
+                        continue;
+                    }
+                    let tag_id: Uuid = sqlx::query_scalar(
+                        "INSERT INTO tags (name) VALUES ($1) \
+                         ON CONFLICT (name) DO UPDATE SET name = EXCLUDED.name \
+                         RETURNING id",
+                    )
+                    .bind(tag_name)
+                    .fetch_one(&mut **tx)
+                    .await?;
+                    sqlx::query(
+                        "INSERT INTO item_tags (item_id, tag_id) VALUES ($1, $2) ON CONFLICT DO NOTHING",
+                    )
                     .bind(id)
+                    .bind(tag_id)
                     .execute(&mut **tx)
                     .await?;
+                }
+
+            } else if field == "location_schema" {
+                sqlx::query(
+                    "INSERT INTO container_properties (item_id, location_schema) VALUES ($1, $2) \
+                     ON CONFLICT (item_id) DO UPDATE SET location_schema = EXCLUDED.location_schema",
+                )
+                .bind(id)
+                .bind(&change.new)
+                .execute(&mut **tx)
+                .await?;
+
+            } else if field == "max_capacity_cc" {
+                let value = change.new.as_f64();
+                sqlx::query(
+                    "INSERT INTO container_properties (item_id, max_capacity_cc) VALUES ($1, $2) \
+                     ON CONFLICT (item_id) DO UPDATE SET max_capacity_cc = EXCLUDED.max_capacity_cc",
+                )
+                .bind(id)
+                .bind(value)
+                .execute(&mut **tx)
+                .await?;
+
+            } else if field == "max_weight_grams" {
+                let value = change.new.as_f64();
+                sqlx::query(
+                    "INSERT INTO container_properties (item_id, max_weight_grams) VALUES ($1, $2) \
+                     ON CONFLICT (item_id) DO UPDATE SET max_weight_grams = EXCLUDED.max_weight_grams",
+                )
+                .bind(id)
+                .bind(value)
+                .execute(&mut **tx)
+                .await?;
+
+            } else if field == "container_type_id" {
+                let value: Option<Uuid> = change.new.as_str()
+                    .and_then(|s| Uuid::parse_str(s).ok())
+                    .or_else(|| {
+                        serde_json::from_value::<Option<Uuid>>(change.new.clone()).ok().flatten()
+                    });
+                sqlx::query(
+                    "INSERT INTO container_properties (item_id, container_type_id) VALUES ($1, $2) \
+                     ON CONFLICT (item_id) DO UPDATE SET container_type_id = EXCLUDED.container_type_id",
+                )
+                .bind(id)
+                .bind(value)
+                .execute(&mut **tx)
+                .await?;
+
+            } else if field == "fungible_unit" {
+                let value = change.new.as_str().map(|s| s.to_string());
+                sqlx::query(
+                    "INSERT INTO fungible_properties (item_id, unit) VALUES ($1, $2) \
+                     ON CONFLICT (item_id) DO UPDATE SET unit = EXCLUDED.unit",
+                )
+                .bind(id)
+                .bind(&value)
+                .execute(&mut **tx)
+                .await?;
+
             } else if field == "fungible_quantity" {
+                // Legacy: quantity changes should go through ItemQuantityAdjusted but
+                // handle here for backward compat with older events.
                 let value = change.new.as_i64().map(|v| v as i32);
-                sqlx::query("UPDATE items SET fungible_quantity = $1, updated_by = $2 WHERE id = $3")
+                sqlx::query(
+                    "INSERT INTO fungible_properties (item_id, quantity) VALUES ($1, $2) \
+                     ON CONFLICT (item_id) DO UPDATE SET quantity = EXCLUDED.quantity",
+                )
+                .bind(id)
+                .bind(value)
+                .execute(&mut **tx)
+                .await?;
+
+            } else if field == "is_container" {
+                let value = change.new.as_bool().unwrap_or(false);
+                sqlx::query("UPDATE items SET is_container = $1, updated_by = $2 WHERE id = $3")
                     .bind(value)
                     .bind(actor_id)
                     .bind(id)
                     .execute(&mut **tx)
                     .await?;
+                if value {
+                    // Toggled on: ensure a container_properties row exists.
+                    sqlx::query(
+                        "INSERT INTO container_properties (item_id) VALUES ($1) ON CONFLICT DO NOTHING",
+                    )
+                    .bind(id)
+                    .execute(&mut **tx)
+                    .await?;
+                } else {
+                    // Toggled off: remove the extension row.
+                    sqlx::query("DELETE FROM container_properties WHERE item_id = $1")
+                        .bind(id)
+                        .execute(&mut **tx)
+                        .await?;
+                }
+
+            } else if field == "is_fungible" {
+                let value = change.new.as_bool().unwrap_or(false);
+                sqlx::query("UPDATE items SET is_fungible = $1, updated_by = $2 WHERE id = $3")
+                    .bind(value)
+                    .bind(actor_id)
+                    .bind(id)
+                    .execute(&mut **tx)
+                    .await?;
+                if value {
+                    // Toggled on: ensure a fungible_properties row exists.
+                    sqlx::query(
+                        "INSERT INTO fungible_properties (item_id) VALUES ($1) ON CONFLICT DO NOTHING",
+                    )
+                    .bind(id)
+                    .execute(&mut **tx)
+                    .await?;
+                } else {
+                    // Toggled off: remove the extension row.
+                    sqlx::query("DELETE FROM fungible_properties WHERE item_id = $1")
+                        .bind(id)
+                        .execute(&mut **tx)
+                        .await?;
+                }
+
             } else if field == "acquisition_date" || field == "warranty_expiry" {
                 let value = change.new.as_str().map(|s| s.to_string());
                 let query = format!("UPDATE items SET {field} = $1::date, updated_by = $2 WHERE id = $3");
@@ -199,9 +420,19 @@ impl Projector {
                     .bind(id)
                     .execute(&mut **tx)
                     .await?;
+
             } else {
                 tracing::warn!(field, "Ignoring unknown field in ItemUpdated projection");
             }
+        }
+
+        // Only touch updated_by when no branch above already wrote to the items table.
+        if !items_touched {
+            sqlx::query("UPDATE items SET updated_by = $1 WHERE id = $2")
+                .bind(actor_id)
+                .bind(id)
+                .execute(&mut **tx)
+                .await?;
         }
 
         Ok(())
@@ -454,12 +685,23 @@ impl Projector {
         data: &QuantityAdjustedData,
         actor_id: Uuid,
     ) -> AppResult<()> {
-        sqlx::query("UPDATE items SET fungible_quantity = $1, updated_by = $2 WHERE id = $3")
-            .bind(data.new_qty)
+        // Quantity lives in fungible_properties.  Use UPSERT so replay is safe
+        // even if the row was created after this event (unlikely but possible in replay).
+        sqlx::query(
+            "INSERT INTO fungible_properties (item_id, quantity) VALUES ($1, $2) \
+             ON CONFLICT (item_id) DO UPDATE SET quantity = EXCLUDED.quantity",
+        )
+        .bind(id)
+        .bind(data.new_qty)
+        .execute(&mut **tx)
+        .await?;
+
+        sqlx::query("UPDATE items SET updated_by = $1 WHERE id = $2")
             .bind(actor_id)
             .bind(id)
             .execute(&mut **tx)
             .await?;
+
         Ok(())
     }
 
@@ -469,12 +711,46 @@ impl Projector {
         data: &ContainerSchemaUpdatedData,
         actor_id: Uuid,
     ) -> AppResult<()> {
-        sqlx::query("UPDATE items SET location_schema = $1, updated_by = $2 WHERE id = $3")
-            .bind(&data.new_schema)
+        // Location schema lives in container_properties.  UPSERT for idempotent replay.
+        sqlx::query(
+            "INSERT INTO container_properties (item_id, location_schema) VALUES ($1, $2) \
+             ON CONFLICT (item_id) DO UPDATE SET location_schema = EXCLUDED.location_schema",
+        )
+        .bind(id)
+        .bind(&data.new_schema)
+        .execute(&mut **tx)
+        .await?;
+
+        sqlx::query("UPDATE items SET updated_by = $1 WHERE id = $2")
             .bind(actor_id)
             .bind(id)
             .execute(&mut **tx)
             .await?;
+
+        Ok(())
+    }
+
+    async fn project_barcode_assigned(
+        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        id: Uuid,
+        data: &ItemBarcodeAssignedData,
+        actor_id: Uuid,
+    ) -> AppResult<()> {
+        let barcode: Option<&str> = if data.barcode.is_empty() {
+            None // empty string means "clear barcode"
+        } else {
+            Some(&data.barcode)
+        };
+
+        sqlx::query(
+            "UPDATE items SET system_barcode = $1, updated_by = $2 WHERE id = $3",
+        )
+        .bind(barcode)
+        .bind(actor_id)
+        .bind(id)
+        .execute(&mut **tx)
+        .await?;
+
         Ok(())
     }
 
@@ -506,12 +782,33 @@ impl Projector {
                 }
             })?;
 
-        // Delete all non-seed items; seed rows will be re-inserted via ON CONFLICT below
+        // Delete all non-seed items; seed rows will be re-inserted via ON CONFLICT below.
+        // Cascade constraints on container_properties, fungible_properties and item_tags
+        // will clean up those tables automatically.
         sqlx::query("DELETE FROM items WHERE id NOT IN ($1, $2)")
             .bind(ROOT_ID)
             .bind(USERS_ID)
             .execute(&mut *tx)
             .await?;
+
+        // Clean extension tables for seed rows so they are rebuilt from events.
+        // (The CASCADE above only fires for deleted items; seed rows are kept.)
+        sqlx::query("DELETE FROM container_properties WHERE item_id IN ($1, $2)")
+            .bind(ROOT_ID)
+            .bind(USERS_ID)
+            .execute(&mut *tx)
+            .await?;
+        sqlx::query("DELETE FROM fungible_properties WHERE item_id IN ($1, $2)")
+            .bind(ROOT_ID)
+            .bind(USERS_ID)
+            .execute(&mut *tx)
+            .await?;
+
+        // Clear normalized reference tables so they are rebuilt from events
+        // (categories/tags have no seed data).
+        sqlx::query("DELETE FROM item_tags").execute(&mut *tx).await?;
+        sqlx::query("DELETE FROM tags").execute(&mut *tx).await?;
+        sqlx::query("DELETE FROM categories").execute(&mut *tx).await?;
 
         const BATCH: i64 = 1_000;
         let mut last_id: i64 = 0;

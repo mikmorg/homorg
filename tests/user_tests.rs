@@ -13,7 +13,7 @@ async fn create_and_find_user() {
     let user_id = Uuid::new_v4();
     let user = state
         .user_queries
-        .create(user_id, "alice", "fakehash", Some("Alice"), "user")
+        .create(user_id, "alice", "fakehash", Some("Alice"), "member")
         .await
         .unwrap();
 
@@ -66,7 +66,7 @@ async fn deactivate_user_hides_from_active() {
     let user_id = Uuid::new_v4();
     state
         .user_queries
-        .create(user_id, "deactivatable", "hash", None, "user")
+        .create(user_id, "deactivatable", "hash", None, "member")
         .await
         .unwrap();
 
