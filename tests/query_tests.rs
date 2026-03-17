@@ -101,6 +101,68 @@ async fn get_children_sorted_by_name() {
 
 #[tokio::test]
 #[ignore]
+async fn get_children_cursor_pagination() {
+    // Regression test for cursor comparison bug: the keyset cursor sub-query used
+    // the outer row alias (`i.name`, `i.id`) instead of the inner cursor-row alias
+    // (`i2.name`, `i2.id`), making every page-2+ query return zero results.
+    let ctx = common::setup().await;
+    let state = &ctx.state;
+    let metadata = EventMetadata::default();
+
+    let parent_id = Uuid::new_v4();
+    let bc_parent = state.barcode_commands.generate_barcode().await.unwrap();
+    state
+        .item_commands
+        .create_item(
+            parent_id,
+            &common::make_item_request(&bc_parent.barcode, ROOT_ID, "Cursor Box", true),
+            ctx.admin_id,
+            &metadata,
+        )
+        .await
+        .unwrap();
+
+    // Create 5 children: Alpha, Beta, Gamma, Delta, Epsilon
+    for name in &["Alpha", "Beta", "Gamma", "Delta", "Epsilon"] {
+        let id = Uuid::new_v4();
+        let bc = state.barcode_commands.generate_barcode().await.unwrap();
+        state
+            .item_commands
+            .create_item(
+                id,
+                &common::make_item_request(&bc.barcode, parent_id, name, false),
+                ctx.admin_id,
+                &metadata,
+            )
+            .await
+            .unwrap();
+    }
+
+    // Page 1: first 3 sorted by name asc
+    let page1 = state
+        .container_queries
+        .get_children(parent_id, None, 3, Some("name"), Some("asc"))
+        .await
+        .unwrap();
+    assert_eq!(page1.len(), 3);
+    let names1: Vec<_> = page1.iter().map(|c| c.name.as_deref().unwrap_or("")).collect();
+    assert_eq!(names1, vec!["Alpha", "Beta", "Delta"]);
+
+    // Page 2: use last item's id as cursor
+    let cursor = page1.last().unwrap().id;
+    let page2 = state
+        .container_queries
+        .get_children(parent_id, Some(cursor), 3, Some("name"), Some("asc"))
+        .await
+        .unwrap();
+    // Should return the remaining 2 items: Epsilon, Gamma
+    assert_eq!(page2.len(), 2, "page 2 must not be empty (cursor pagination regression)");
+    let names2: Vec<_> = page2.iter().map(|c| c.name.as_deref().unwrap_or("")).collect();
+    assert_eq!(names2, vec!["Epsilon", "Gamma"]);
+}
+
+#[tokio::test]
+#[ignore]
 async fn get_descendants_via_ltree() {
     let ctx = common::setup().await;
     let state = &ctx.state;

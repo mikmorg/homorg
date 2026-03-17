@@ -80,12 +80,20 @@ impl ContainerQueries {
                     "OR (i.{col}, i.id) {cursor_op} (SELECT {col}, id FROM items WHERE id = $2)"
                 )
             }
-            _ => format!(
-                "OR (COALESCE({order_col}, ''), i.id::text) {cursor_op} \
-                 (SELECT COALESCE({order_col}, ''), i.id::text FROM items i2 \
-                  LEFT JOIN categories cat ON cat.id = i2.category_id \
-                  WHERE i2.id = $2)"
-            ),
+            _ => {
+                // The inner subquery must use the `i2` alias (the cursor row), not the
+                // outer `i` alias (the current row).  Without this replacement, e.g.
+                // `i.name` in the subquery would be a correlated reference to the outer
+                // row, making the comparison always evaluate to FALSE and producing an
+                // empty page 2+  for any name/barcode/category sort order.
+                let inner_col = order_col.replace("i.", "i2.");
+                format!(
+                    "OR (COALESCE({order_col}, ''), i.id::text) {cursor_op} \
+                     (SELECT COALESCE({inner_col}, ''), i2.id::text FROM items i2 \
+                      LEFT JOIN categories cat ON cat.id = i2.category_id \
+                      WHERE i2.id = $2)"
+                )
+            }
         };
 
         let query = format!(
