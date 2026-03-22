@@ -30,7 +30,7 @@
 		}
 
 		if (get(isAuthenticated)) {
-			goto('/stocker');
+			goto('/browse');
 		} else {
 			goto('/login');
 		}

@@ -22,7 +22,7 @@
 		// Auth guard
 		const unsubAuth = isAuthenticated.subscribe((auth) => {
 			const path = $page.url.pathname;
-			if (!auth && !PUBLIC_PATHS.some((p) => path.startsWith(p))) {
+			if (!auth && !PUBLIC_PATHS.some((p) => path === p || (p !== '/' && path.startsWith(p)))) {
 				goto('/login');
 			}
 		});
@@ -46,7 +46,7 @@
 	</main>
 
 	<!-- Bottom navigation — only show when authenticated -->
-	{#if $isAuthenticated && !PUBLIC_PATHS.some((p) => navPath.startsWith(p))}
+	{#if $isAuthenticated && !PUBLIC_PATHS.includes(navPath)}
 		<nav
 			class="flex shrink-0 border-t border-slate-800 bg-slate-900"
 			style="padding-bottom: env(safe-area-inset-bottom)"
