@@ -59,8 +59,8 @@
 <div class="flex h-full flex-col">
 	<!-- Header -->
 	<header class="flex items-center gap-2 border-b border-slate-800 px-3 py-2">
-		{#if containerId}
-			<button class="btn btn-icon text-slate-400" on:click={() => goto('/browse')} aria-label="Back">
+		{#if containerId !== ROOT_ID}
+			<button class="btn btn-icon text-slate-400" on:click={() => { const parent = breadcrumb.length > 1 ? breadcrumb[breadcrumb.length - 2].id : ROOT_ID; goto(`/browse?id=${parent}`); }} aria-label="Back">
 				<svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
 					<path d="M15 18l-6-6 6-6" />
 				</svg>
@@ -74,12 +74,12 @@
 	<!-- Breadcrumb -->
 	{#if breadcrumb.length > 1}
 		<div class="flex items-center gap-1 overflow-x-auto border-b border-slate-800 px-4 py-2 text-xs text-slate-400">
-			<a href="/browse" class="flex-shrink-0 hover:text-slate-200">Root</a>
-			{#each breadcrumb as crumb, i}
+			<a href="/browse?id={ROOT_ID}" class="flex-shrink-0 hover:text-slate-200">Root</a>
+			{#each breadcrumb.slice(1) as crumb, i}
 				<svg class="h-3 w-3 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
 					<path d="M9 18l6-6-6-6" />
 				</svg>
-				{#if i < breadcrumb.length - 1}
+				{#if i < breadcrumb.length - 2}
 					<a href="/browse?id={crumb.id}" class="flex-shrink-0 hover:text-slate-200 truncate max-w-24">{crumb.name}</a>
 				{:else}
 					<span class="flex-shrink-0 text-slate-200 truncate max-w-32">{crumb.name}</span>
