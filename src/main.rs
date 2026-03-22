@@ -146,7 +146,7 @@ async fn main() {
 
     tracing::info!("Homorg daemon listening on {}", config.listen_addr);
 
-    axum::serve(listener, app)
+    axum::serve(listener, app.into_make_service_with_connect_info::<std::net::SocketAddr>())
         .with_graceful_shutdown(shutdown_signal())
         .await
         .expect("Server error");

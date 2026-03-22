@@ -102,8 +102,9 @@ async fn setup(
         .execute(&mut *tx)
         .await?;
 
-    // Check no users exist (now safe under advisory lock)
-    let count = state.user_queries.count_in_tx(&mut tx).await?;
+    // Check no active users exist (now safe under advisory lock).
+    // Excludes the seeded system actor (is_active=FALSE).
+    let count = state.user_queries.count_active_in_tx(&mut tx).await?;
     if count > 0 {
         return Err(AppError::Conflict("Setup already completed".into()));
     }

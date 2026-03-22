@@ -29,6 +29,8 @@ struct HealthResponse {
     database: String,
     /// OP-3: Include version and build metadata so operators can confirm which build is running.
     version: &'static str,
+    /// True when no users exist yet — the client should redirect to /setup.
+    setup_required: bool,
 }
 
 /// Liveness check with DB connectivity status.
@@ -50,10 +52,20 @@ async fn health(State(state): State<Arc<AppState>>) -> (StatusCode, Json<HealthR
         }
     };
 
+    // Exclude inactive system actors when determining setup state.
+    let setup_required = sqlx::query_scalar::<_, i64>(
+        "SELECT COUNT(*) FROM users WHERE is_active = TRUE",
+    )
+    .fetch_one(&state.pool)
+    .await
+    .unwrap_or(1)
+        == 0;
+
     (status_code, Json(HealthResponse {
         status,
         database,
         version: env!("CARGO_PKG_VERSION"),
+        setup_required,
     }))
 }
 

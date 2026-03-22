@@ -42,6 +42,20 @@ impl UserQueries {
         Ok(count)
     }
 
+    /// Count active (non-system) users within a transaction.
+    /// Excludes is_active=FALSE rows (e.g. the seeded system actor).
+    pub async fn count_active_in_tx(
+        &self,
+        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+    ) -> AppResult<i64> {
+        let count: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM users WHERE is_active = TRUE",
+        )
+        .fetch_one(&mut **tx)
+        .await?;
+        Ok(count)
+    }
+
     /// Find a user by ID.
     pub async fn find_by_id(&self, id: Uuid) -> AppResult<User> {
         sqlx::query_as::<_, User>("SELECT * FROM users WHERE id = $1")

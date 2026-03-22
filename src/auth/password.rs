@@ -27,8 +27,13 @@ pub async fn verify_password(password: &str, hash: &str) -> AppResult<bool> {
     let password = password.to_string();
     let hash = hash.to_string();
     tokio::task::spawn_blocking(move || {
-        let parsed_hash = PasswordHash::new(&hash)
-            .map_err(|e| AppError::Internal(format!("Invalid password hash: {e}")))?;
+        let parsed_hash = match PasswordHash::new(&hash) {
+            Ok(h) => h,
+            // Treat an unparseable hash as a non-match rather than a 500.
+            // This protects the timing-safe dummy path in the login handler
+            // when no matching user exists in the database.
+            Err(_) => return Ok(false),
+        };
         Ok(Argon2::default()
             .verify_password(password.as_bytes(), &parsed_hash)
             .is_ok())

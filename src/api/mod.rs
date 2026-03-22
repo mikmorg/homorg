@@ -64,9 +64,14 @@ impl KeyExtractor for ClientIpKeyExtractor {
                 return Ok(xri.trim().to_string());
             }
         }
-        // Last resort: peer address injected by axum's ConnectInfo (not always available)
-        // tower_governor's default PeerIpKeyExtractor handles this; we return an error
-        // here to fall through to the governor's built-in behaviour.
+        // Last resort: peer address from axum's ConnectInfo (available when server uses
+        // into_make_service_with_connect_info).
+        if let Some(conn_info) = req
+            .extensions()
+            .get::<axum::extract::ConnectInfo<std::net::SocketAddr>>()
+        {
+            return Ok(conn_info.0.ip().to_string());
+        }
         Err(GovernorError::UnableToExtractKey)
     }
 }
