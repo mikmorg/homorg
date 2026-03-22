@@ -60,7 +60,7 @@
 	<!-- Header -->
 	<header class="flex items-center gap-2 border-b border-slate-800 px-3 py-2">
 		{#if containerId}
-			<button class="btn btn-icon text-slate-400" on:click={() => goto('/browse')}>
+			<button class="btn btn-icon text-slate-400" on:click={() => goto('/browse')} aria-label="Back">
 				<svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
 					<path d="M15 18l-6-6 6-6" />
 				</svg>

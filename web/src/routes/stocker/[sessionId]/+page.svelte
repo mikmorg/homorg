@@ -343,7 +343,7 @@
 
 	<!-- ── Header ────────────────────────────────────────────────────────── -->
 	<header class="flex items-center gap-2 border-b border-slate-800 px-3 py-2">
-		<a href="/stocker" class="btn btn-icon text-slate-400">
+		<a href="/stocker" class="btn btn-icon text-slate-400" aria-label="Back">
 			<svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
 				<path d="M15 18l-6-6 6-6" />
 			</svg>
@@ -356,7 +356,7 @@
 			</span>
 		{/if}
 
-		<button class="btn btn-icon text-slate-400" on:click={() => (showScannerSettings = !showScannerSettings)}>
+		<button class="btn btn-icon text-slate-400" on:click={() => (showScannerSettings = !showScannerSettings)} aria-label="Scanner settings">
 			<svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
 				<circle cx="12" cy="12" r="3" />
 				<path d="M19.07 4.93A10 10 0 0 0 4.93 19.07M4.93 4.93a10 10 0 0 0 14.14 14.14" />
@@ -419,11 +419,12 @@
 
 <!-- ── Quick create panel ─────────────────────────────────────────────── -->
 {#if showQuickCreate}
-<div class="fixed inset-0 z-50 flex flex-col justify-end bg-black/60" on:click|self={() => (showQuickCreate = false)}>
+<!-- svelte-ignore a11y_no_static_element_interactions -->
+<div class="fixed inset-0 z-50 flex flex-col justify-end bg-black/60" on:click|self={() => (showQuickCreate = false)} on:keydown={(e) => e.key === 'Escape' && (showQuickCreate = false)}>
 	<div class="rounded-t-2xl bg-slate-900 p-4 pb-8">
 		<div class="mb-4 flex items-center justify-between">
 			<h2 class="text-base font-semibold text-slate-100">Quick create item</h2>
-			<button class="btn btn-icon text-slate-400" on:click={() => (showQuickCreate = false)}>
+			<button class="btn btn-icon text-slate-400" on:click={() => (showQuickCreate = false)} aria-label="Close">
 				<svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
 					<path d="M18 6L6 18M6 6l12 12" />
 				</svg>
@@ -479,7 +480,7 @@
 {#if showContainerPicker}
 <div class="fixed inset-0 z-50 flex flex-col bg-slate-950">
 	<div class="flex items-center gap-2 border-b border-slate-800 px-3 py-2">
-		<button class="btn btn-icon text-slate-400" on:click={() => (showContainerPicker = false)}>
+		<button class="btn btn-icon text-slate-400" on:click={() => (showContainerPicker = false)} aria-label="Close">
 			<svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
 				<path d="M18 6L6 18M6 6l12 12" />
 			</svg>
@@ -489,7 +490,6 @@
 			placeholder="Search containers…"
 			bind:value={pickerQuery}
 			on:input={onPickerInput}
-			autofocus
 		/>
 	</div>
 
@@ -526,7 +526,8 @@
 
 <!-- ── Scanner settings ───────────────────────────────────────────────── -->
 {#if showScannerSettings}
-<div class="fixed inset-0 z-50 flex flex-col justify-end bg-black/60" on:click|self={() => (showScannerSettings = false)}>
+<!-- svelte-ignore a11y_no_static_element_interactions -->
+<div class="fixed inset-0 z-50 flex flex-col justify-end bg-black/60" on:click|self={() => (showScannerSettings = false)} on:keydown={(e) => e.key === 'Escape' && (showScannerSettings = false)}>
 	<div class="rounded-t-2xl bg-slate-900 p-4 pb-8">
 		<h2 class="mb-4 text-base font-semibold text-slate-100">Scanner source</h2>
 		<div class="space-y-2">

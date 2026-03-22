@@ -51,7 +51,6 @@
 				placeholder="Search items and containers…"
 				bind:value={query}
 				on:input={onInput}
-				autofocus
 			/>
 		</div>
 	</div>

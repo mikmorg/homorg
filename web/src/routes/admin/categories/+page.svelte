@@ -96,7 +96,7 @@
 
 <div class="flex h-full flex-col">
 	<header class="flex items-center gap-2 border-b border-slate-800 px-3 py-2">
-		<a href="/admin" class="btn btn-icon text-slate-400">
+		<a href="/admin" class="btn btn-icon text-slate-400" aria-label="Back">
 			<svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
 				<path d="M15 18l-6-6 6-6" />
 			</svg>
@@ -153,11 +153,12 @@
 
 <!-- Create/Edit form modal -->
 {#if showForm}
-<div class="fixed inset-0 z-50 flex flex-col justify-end bg-black/60" on:click|self={() => (showForm = false)}>
+<!-- svelte-ignore a11y_no_static_element_interactions -->
+<div class="fixed inset-0 z-50 flex flex-col justify-end bg-black/60" on:click|self={() => (showForm = false)} on:keydown={(e) => e.key === 'Escape' && (showForm = false)}>
 	<div class="rounded-t-2xl bg-slate-900 p-4 pb-8">
 		<div class="mb-4 flex items-center justify-between">
 			<h2 class="text-base font-semibold text-slate-100">{editingId ? 'Edit' : 'New'} category</h2>
-			<button class="btn btn-icon text-slate-400" on:click={() => (showForm = false)}>
+			<button class="btn btn-icon text-slate-400" on:click={() => (showForm = false)} aria-label="Close">
 				<svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
 					<path d="M18 6L6 18M6 6l12 12" />
 				</svg>
