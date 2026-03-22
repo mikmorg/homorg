@@ -3,7 +3,8 @@
 	import { page } from '$app/stores';
 	import { goto } from '$app/navigation';
 	import { api } from '$api/client.js';
-	import type { ItemSummary } from '$api/types.js';
+	import type { ItemSummary, CreateItemRequest, Condition } from '$api/types.js';
+	import { CONDITIONS } from '$api/types.js';
 
 	const ROOT_ID = '00000000-0000-0000-0000-000000000001';
 
@@ -13,6 +14,15 @@
 	let children: ItemSummary[] = [];
 	let loading = true;
 	let error = '';
+
+	// Create form state
+	let showCreate = false;
+	let createType: 'item' | 'container' = 'item';
+	let createName = '';
+	let createDescription = '';
+	let createCondition: Condition | '' = '';
+	let creating = false;
+	let createError = '';
 
 	$: containerId = $page.url.searchParams.get('id') ?? ROOT_ID;
 
@@ -46,10 +56,46 @@
 		goto(`/browse?id=${id}`);
 	}
 
+	function openCreate(type: 'item' | 'container') {
+		createType = type;
+		createName = '';
+		createDescription = '';
+		createCondition = '';
+		createError = '';
+		showCreate = true;
+	}
+
+	async function submitCreate() {
+		if (!createName.trim()) { createError = 'Name is required'; return; }
+		creating = true;
+		createError = '';
+		try {
+			const body: CreateItemRequest = {
+				parent_id: containerId,
+				name: createName.trim(),
+				is_container: createType === 'container'
+			};
+			if (createDescription.trim()) body.description = createDescription.trim();
+			if (createCondition && createType === 'item') body.condition = createCondition;
+			await api.items.create(body);
+			showCreate = false;
+			await load();
+		} catch (err) {
+			createError = err instanceof Error ? err.message : 'Failed to create';
+		} finally {
+			creating = false;
+		}
+	}
+
 	function conditionClass(condition: string | null) {
 		if (!condition) return 'badge';
 		return `badge badge-${condition}`;
 	}
+
+	const CONDITION_LABELS: Record<string, string> = {
+		new: 'New', like_new: 'Like new', good: 'Good',
+		fair: 'Fair', poor: 'Poor', broken: 'Broken'
+	};
 </script>
 
 <svelte:head>
@@ -69,6 +115,18 @@
 		<h1 class="flex-1 text-base font-semibold text-slate-100 truncate">
 			{breadcrumb.length > 0 ? breadcrumb[breadcrumb.length - 1].name : 'Browse'}
 		</h1>
+		<button class="btn btn-icon text-indigo-400" on:click={() => openCreate('container')} aria-label="New container">
+			<svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+				<rect x="2" y="7" width="20" height="14" rx="2" />
+				<path d="M12 11v6M9 14h6" />
+			</svg>
+		</button>
+		<button class="btn btn-icon text-indigo-400" on:click={() => openCreate('item')} aria-label="New item">
+			<svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+				<line x1="12" y1="5" x2="12" y2="19" />
+				<line x1="5" y1="12" x2="19" y2="12" />
+			</svg>
+		</button>
 	</header>
 
 	<!-- Breadcrumb -->
@@ -99,8 +157,16 @@
 				<div class="h-6 w-6 animate-spin rounded-full border-2 border-slate-600 border-t-indigo-500"></div>
 			</div>
 		{:else if children.length === 0}
-			<div class="flex h-32 flex-col items-center justify-center gap-1 text-slate-500">
-				<p class="text-sm">Empty container</p>
+			<div class="flex h-48 flex-col items-center justify-center gap-3 text-slate-500 px-4">
+				<svg class="h-12 w-12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+					<rect x="2" y="7" width="20" height="14" rx="2" />
+					<path d="M16 7V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v2" />
+				</svg>
+				<p class="text-sm">This container is empty</p>
+				<div class="flex gap-2">
+					<button class="btn btn-secondary text-xs" on:click={() => openCreate('container')}>Add container</button>
+					<button class="btn btn-primary text-xs" on:click={() => openCreate('item')}>Add item</button>
+				</div>
 			</div>
 		{:else}
 			<div class="divide-y divide-slate-800">
@@ -147,3 +213,60 @@
 		{/if}
 	</div>
 </div>
+
+<!-- Create form bottom sheet -->
+{#if showCreate}
+<!-- svelte-ignore a11y_no_static_element_interactions -->
+<div class="fixed inset-0 z-50 flex flex-col justify-end bg-black/60" on:click|self={() => (showCreate = false)} on:keydown={(e) => e.key === 'Escape' && (showCreate = false)}>
+	<div class="rounded-t-2xl bg-slate-900 p-4 pb-8">
+		<div class="mb-4 flex items-center justify-between">
+			<h2 class="text-base font-semibold text-slate-100">
+				New {createType === 'container' ? 'container' : 'item'}
+			</h2>
+			<button class="btn btn-icon text-slate-400" on:click={() => (showCreate = false)} aria-label="Close">
+				<svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+					<path d="M18 6L6 18M6 6l12 12" />
+				</svg>
+			</button>
+		</div>
+
+		{#if createError}
+			<div class="mb-3 rounded-lg bg-red-950 px-3 py-2 text-sm text-red-300 border border-red-800">{createError}</div>
+		{/if}
+
+		<div class="space-y-3">
+			<div>
+				<label class="mb-1 block text-sm font-medium text-slate-300" for="create-name">Name</label>
+				<input
+					id="create-name"
+					class="input"
+					bind:value={createName}
+					placeholder={createType === 'container' ? 'e.g. Garage shelf' : 'e.g. Cordless drill'}
+					on:keydown={(e) => e.key === 'Enter' && submitCreate()}
+				/>
+			</div>
+
+			<div>
+				<label class="mb-1 block text-sm font-medium text-slate-300" for="create-desc">Description</label>
+				<textarea id="create-desc" class="input min-h-16 resize-y" bind:value={createDescription} placeholder="Optional" rows="2"></textarea>
+			</div>
+
+			{#if createType === 'item'}
+				<div>
+					<label class="mb-1 block text-sm font-medium text-slate-300" for="create-condition">Condition</label>
+					<select id="create-condition" class="input" bind:value={createCondition}>
+						<option value="">Not set</option>
+						{#each CONDITIONS as c}
+							<option value={c}>{CONDITION_LABELS[c] ?? c}</option>
+						{/each}
+					</select>
+				</div>
+			{/if}
+
+			<button class="btn btn-primary w-full" on:click={submitCreate} disabled={creating}>
+				{creating ? 'Creating…' : `Create ${createType}`}
+			</button>
+		</div>
+	</div>
+</div>
+{/if}

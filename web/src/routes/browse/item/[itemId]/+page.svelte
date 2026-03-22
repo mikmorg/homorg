@@ -3,14 +3,27 @@
 	import { goto } from '$app/navigation';
 	import { page } from '$app/stores';
 	import { api } from '$api/client.js';
-	import type { Item, AncestorEntry } from '$api/types.js';
+	import type { Item, AncestorEntry, ItemSummary } from '$api/types.js';
+	import ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
 
 	const itemId = $page.params.itemId!;
 	let item: Item | null = null;
 	let ancestors: AncestorEntry[] = [];
 	let loading = true;
 	let error = '';
+
+	// Delete state
+	let showDeleteConfirm = false;
 	let deleting = false;
+	let deleteError = '';
+
+	// Move state
+	let showMovePicker = false;
+	let moveQuery = '';
+	let moveResults: ItemSummary[] = [];
+	let moveSearching = false;
+	let moving = false;
+	let moveDebounce: ReturnType<typeof setTimeout> | null = null;
 
 	onMount(async () => {
 		try {
@@ -28,15 +41,44 @@
 	});
 
 	async function deleteItem() {
-		if (!item) return;
-		if (!confirm(`Delete "${item.name}"? This action can be undone.`)) return;
 		deleting = true;
 		try {
 			await api.items.delete(itemId);
+			showDeleteConfirm = false;
 			history.back();
 		} catch (err) {
-			alert(err instanceof Error ? err.message : 'Delete failed');
+			deleteError = err instanceof Error ? err.message : 'Delete failed';
 			deleting = false;
+		}
+	}
+
+	function onMoveSearch() {
+		if (moveDebounce) clearTimeout(moveDebounce);
+		if (!moveQuery.trim()) { moveResults = []; return; }
+		moveDebounce = setTimeout(async () => {
+			moveSearching = true;
+			try {
+				const res = await api.search.query({ q: moveQuery, limit: 20, is_container: true });
+				moveResults = res;
+			} catch {
+				moveResults = [];
+			} finally {
+				moveSearching = false;
+			}
+		}, 300);
+	}
+
+	async function moveToContainer(targetId: string) {
+		moving = true;
+		try {
+			await api.items.move(itemId, { container_id: targetId });
+			showMovePicker = false;
+			// Refresh ancestors
+			ancestors = await api.containers.ancestors(itemId);
+		} catch (err) {
+			deleteError = err instanceof Error ? err.message : 'Move failed';
+		} finally {
+			moving = false;
 		}
 	}
 
@@ -164,13 +206,86 @@
 					</div>
 				{/if}
 
-				<!-- Danger zone -->
-				<div class="pt-2">
-					<button class="btn btn-danger w-full" on:click={deleteItem} disabled={deleting}>
-						{deleting ? 'Deleting…' : 'Delete item'}
+				<!-- Actions -->
+				<div class="space-y-2 pt-2">
+					<button class="btn btn-secondary w-full" on:click={() => { showMovePicker = true; moveQuery = ''; moveResults = []; }}>
+						Move to another container
+					</button>
+					<button class="btn btn-danger w-full" on:click={() => (showDeleteConfirm = true)} disabled={deleting}>
+						Delete item
 					</button>
 				</div>
+
+				{#if deleteError}
+					<p class="text-sm text-red-400">{deleteError}</p>
+				{/if}
 			</div>
 		{/if}
 	</div>
 </div>
+
+<!-- Delete confirmation -->
+<ConfirmDialog
+	bind:open={showDeleteConfirm}
+	title="Delete {item?.name ?? 'item'}?"
+	message="This action can be undone from the event log."
+	confirmLabel={deleting ? 'Deleting…' : 'Delete'}
+	destructive={true}
+	loading={deleting}
+	onConfirm={deleteItem}
+/>
+
+<!-- Move picker -->
+{#if showMovePicker}
+<div class="fixed inset-0 z-50 flex flex-col bg-slate-950">
+	<div class="flex items-center gap-2 border-b border-slate-800 px-3 py-2">
+		<button class="btn btn-icon text-slate-400" on:click={() => (showMovePicker = false)} aria-label="Close">
+			<svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+				<path d="M18 6L6 18M6 6l12 12" />
+			</svg>
+		</button>
+		<input
+			class="input flex-1"
+			placeholder="Search containers…"
+			bind:value={moveQuery}
+			on:input={onMoveSearch}
+		/>
+	</div>
+
+	<div class="flex-1 overflow-y-auto">
+		{#if moveSearching}
+			<div class="flex h-20 items-center justify-center">
+				<div class="h-5 w-5 animate-spin rounded-full border-2 border-slate-600 border-t-indigo-500"></div>
+			</div>
+		{:else if moveQuery && moveResults.length === 0}
+			<div class="flex h-20 items-center justify-center text-sm text-slate-500">
+				No containers found
+			</div>
+		{:else if !moveQuery}
+			<div class="flex h-20 items-center justify-center text-sm text-slate-500">
+				Search for a destination container
+			</div>
+		{:else}
+			<div class="divide-y divide-slate-800">
+				{#each moveResults as container (container.id)}
+					<button
+						class="flex w-full items-center gap-3 px-4 py-3 text-left hover:bg-slate-800/50"
+						on:click={() => moveToContainer(container.id)}
+						disabled={moving}
+					>
+						<div class="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg bg-indigo-500/20 text-indigo-400">
+							📦
+						</div>
+						<div class="min-w-0 flex-1">
+							<p class="truncate font-medium text-slate-100">{container.name}</p>
+							{#if container.system_barcode}
+								<p class="text-xs text-slate-400 font-mono">{container.system_barcode}</p>
+							{/if}
+						</div>
+					</button>
+				{/each}
+			</div>
+		{/if}
+	</div>
+</div>
+{/if}

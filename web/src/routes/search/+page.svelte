@@ -62,12 +62,17 @@
 				<div class="h-5 w-5 animate-spin rounded-full border-2 border-slate-600 border-t-indigo-500"></div>
 			</div>
 		{:else if searched && results.length === 0}
-			<div class="flex h-32 items-center justify-center text-sm text-slate-500">
-				No results for "{query}"
+			<div class="flex h-32 flex-col items-center justify-center gap-1 text-slate-500">
+				<p class="text-sm">No results for "{query}"</p>
+				<p class="text-xs">Try a different search term</p>
 			</div>
 		{:else if !searched}
-			<div class="flex h-32 items-center justify-center text-sm text-slate-500">
-				Start typing to search
+			<div class="flex h-40 flex-col items-center justify-center gap-2 text-slate-500 px-4">
+				<svg class="h-10 w-10" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5">
+					<circle cx="11" cy="11" r="8" />
+					<path d="m21 21-4.35-4.35" />
+				</svg>
+				<p class="text-sm">Search items and containers by name</p>
 			</div>
 		{:else}
 			<div class="divide-y divide-slate-800">
