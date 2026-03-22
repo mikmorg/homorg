@@ -1,6 +1,41 @@
+# Rust
 /target
+**/*.rs.bk
+Cargo.lock.bk
+
+# Environment
 .env
+.env.local
+.env.*.local
+
+# Data / runtime
 data/
+nohup.out
+*.log
+
+# Svelte / Node frontend
+web/node_modules/
+web/build/
+web/.svelte-kit/
+web/.env
+web/.env.local
+web/.env.*.local
+
+# Editor
 *.swp
 *.swo
-nohup.out
+*.swn
+.idea/
+*.iml
+.vscode/settings.json
+.vscode/launch.json
+.vscode/extensions.json
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Docker volumes / local DB data
+pgdata/
+postgres-data/
