@@ -2,7 +2,7 @@
 	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { api } from '$api/client.js';
-	import { isAdmin } from '$stores/auth.js';
+	import { isAdmin, currentUser } from '$stores/auth.js';
 	import type { UserPublic, InviteResponse } from '$api/types.js';
 
 	let users: UserPublic[] = [];
@@ -145,7 +145,7 @@
 							</span>
 						</div>
 
-						{#if user.is_active}
+						{#if user.is_active && user.id !== $currentUser?.id}
 							<div class="flex items-center gap-2">
 								<select
 									class="input text-xs py-1"

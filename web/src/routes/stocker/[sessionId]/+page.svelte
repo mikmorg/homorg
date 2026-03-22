@@ -178,6 +178,8 @@
 						barcode: item.system_barcode,
 						scanned_at: new Date().toISOString()
 					});
+					setPendingCount(pendingBatch.length);
+					addLog(barcode, 'success', `Queued: ${item.name} → ${context.containerName}`);
 				} else {
 					// Item has no system barcode — move directly via items API
 					try {
@@ -187,9 +189,8 @@
 						scanError();
 						return;
 					}
+					addLog(barcode, 'success', `Moved: ${item.name} → ${context.containerName}`);
 				}
-				setPendingCount(pendingBatch.length);
-				addLog(barcode, 'success', `Queued: ${item.name} → ${context.containerName}`);
 				addRecentItem(item);
 				scanSuccess();
 				break;
@@ -219,7 +220,7 @@
 		setPendingCount(0);
 
 		try {
-		await api.stocker.submitBatch(sessionId, { events: batch }, false);
+			await api.stocker.submitBatch(sessionId, { events: batch }, false);
 			markSynced();
 		} catch (err) {
 			// Re-queue failed batch
