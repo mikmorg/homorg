@@ -5,7 +5,7 @@
 	import { api } from '$api/client.js';
 	import type { Item, AncestorEntry } from '$api/types.js';
 
-	const itemId = $page.params.itemId;
+	const itemId = $page.params.itemId!;
 	let item: Item | null = null;
 	let ancestors: AncestorEntry[] = [];
 	let loading = true;
@@ -90,8 +90,8 @@
 				</div>
 
 				<!-- Image -->
-				{#if item.image_url}
-					<img src={item.image_url} alt={item.name} class="w-full rounded-lg object-cover max-h-48" />
+				{#if item.images && item.images.length > 0}
+					<img src="/files/{item.images[0].path}" alt={item.images[0].caption ?? item.name} class="w-full rounded-lg object-cover max-h-48" />
 				{/if}
 
 				<!-- Location breadcrumb -->
@@ -111,34 +111,16 @@
 
 				<!-- Properties grid -->
 				<div class="card divide-y divide-slate-700">
-					{#if item.quantity !== null}
+					{#if item.fungible_quantity !== null}
 						<div class="flex items-center justify-between px-3 py-2.5">
 							<span class="text-sm text-slate-400">Quantity</span>
-							<span class="text-sm font-medium text-slate-100">{item.quantity}</span>
+							<span class="text-sm font-medium text-slate-100">{item.fungible_quantity}{#if item.fungible_unit} {item.fungible_unit}{/if}</span>
 						</div>
 					{/if}
 					{#if item.system_barcode}
 						<div class="flex items-center justify-between px-3 py-2.5">
 							<span class="text-sm text-slate-400">System barcode</span>
 							<span class="text-xs font-mono text-slate-100">{item.system_barcode}</span>
-						</div>
-					{/if}
-					{#if item.make}
-						<div class="flex items-center justify-between px-3 py-2.5">
-							<span class="text-sm text-slate-400">Make</span>
-							<span class="text-sm text-slate-100">{item.make}</span>
-						</div>
-					{/if}
-					{#if item.model}
-						<div class="flex items-center justify-between px-3 py-2.5">
-							<span class="text-sm text-slate-400">Model</span>
-							<span class="text-sm text-slate-100">{item.model}</span>
-						</div>
-					{/if}
-					{#if item.serial_number}
-						<div class="flex items-center justify-between px-3 py-2.5">
-							<span class="text-sm text-slate-400">Serial</span>
-							<span class="text-xs font-mono text-slate-100">{item.serial_number}</span>
 						</div>
 					{/if}
 					<div class="flex items-center justify-between px-3 py-2.5">
@@ -151,10 +133,10 @@
 					</div>
 				</div>
 
-				{#if item.notes}
+				{#if item.description}
 					<div>
-						<p class="mb-1 text-xs text-slate-400 uppercase tracking-wide">Notes</p>
-						<p class="text-sm text-slate-300 whitespace-pre-wrap">{item.notes}</p>
+						<p class="mb-1 text-xs text-slate-400 uppercase tracking-wide">Description</p>
+						<p class="text-sm text-slate-300 whitespace-pre-wrap">{item.description}</p>
 					</div>
 				{/if}
 

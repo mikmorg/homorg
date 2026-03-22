@@ -20,7 +20,8 @@
 	});
 
 	async function logout() {
-		try { await api.auth.logout(); } catch { /* ignore */ }
+		const auth = $authStore;
+		try { if (auth?.refresh_token) await api.auth.logout(auth.refresh_token); } catch { /* ignore */ }
 		authStore.clear();
 		goto('/login');
 	}

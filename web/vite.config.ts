@@ -1,5 +1,5 @@
 import { sveltekit } from '@sveltejs/kit/vite';
-import { defineConfig } from 'vite';
+import { defineConfig } from 'vitest/config';
 import { VitePWA } from 'vite-plugin-pwa';
 import tailwindcss from '@tailwindcss/vite';
 
@@ -56,5 +56,10 @@ export default defineConfig({
 	},
 	build: {
 		target: 'es2022'
+	},
+	test: {
+		include: ['src/**/*.test.ts'],
+		environment: 'jsdom',
+		globals: true
 	}
 });

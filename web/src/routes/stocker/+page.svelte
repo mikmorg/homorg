@@ -29,7 +29,7 @@
 		creating = true;
 		error = '';
 		try {
-			const session = await api.stocker.startSession({ notes: null });
+			const session = await api.stocker.startSession({ notes: undefined });
 			goto(`/stocker/${session.id}`);
 		} catch (err) {
 			error = err instanceof Error ? err.message : 'Failed to start session';

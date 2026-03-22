@@ -1,0 +1,322 @@
+<script lang="ts">
+	import { onMount } from 'svelte';
+	import { page } from '$app/stores';
+	import { goto } from '$app/navigation';
+	import { api } from '$api/client.js';
+	import type { Item, Category, Tag, Condition, UpdateItemRequest } from '$api/types.js';
+	import { CONDITIONS } from '$api/types.js';
+
+	const itemId = $page.params.itemId!;
+	let item: Item | null = null;
+	let loading = true;
+	let saving = false;
+	let error = '';
+	let saveError = '';
+
+	// Form state
+	let name = '';
+	let description = '';
+	let categoryId: string | null = null;
+	let condition: Condition | '' = '';
+	let selectedTagIds: Set<string> = new Set();
+	let acquisitionDate = '';
+	let acquisitionCost = '';
+	let currentValue = '';
+	let currency = '';
+	let warrantyExpiry = '';
+
+	// Taxonomy data
+	let categories: Category[] = [];
+	let allTags: Tag[] = [];
+
+	// Image upload
+	let uploading = false;
+	let uploadError = '';
+
+	onMount(async () => {
+		try {
+			const [fetchedItem, cats, tags] = await Promise.all([
+				api.items.get(itemId),
+				api.categories.list(),
+				api.tags.list()
+			]);
+			item = fetchedItem;
+			categories = cats;
+			allTags = tags;
+
+			// Populate form
+			name = item.name ?? '';
+			description = item.description ?? '';
+			categoryId = item.category_id ?? null;
+			condition = (item.condition as Condition) ?? '';
+			selectedTagIds = new Set(
+				allTags.filter((t) => item!.tags.includes(t.name)).map((t) => t.id)
+			);
+			acquisitionDate = item.acquisition_date ?? '';
+			acquisitionCost = item.acquisition_cost ?? '';
+			currentValue = item.current_value ?? '';
+			currency = item.currency ?? '';
+			warrantyExpiry = item.warranty_expiry ?? '';
+		} catch (err) {
+			error = err instanceof Error ? err.message : 'Failed to load item';
+		} finally {
+			loading = false;
+		}
+	});
+
+	async function save() {
+		if (!item) return;
+		saving = true;
+		saveError = '';
+
+		const updates: UpdateItemRequest = {};
+
+		if (name !== (item.name ?? '')) updates.name = name;
+		if (description !== (item.description ?? '')) updates.description = description;
+
+		const newCategoryId = categoryId || undefined;
+		if (newCategoryId !== (item.category_id ?? undefined)) {
+			// Find category name to send
+			const cat = categories.find((c) => c.id === newCategoryId);
+			if (cat) updates.category = cat.name;
+			else if (!newCategoryId) updates.category = '';
+		}
+
+		const newCondition = condition || undefined;
+		if (newCondition !== (item.condition ?? undefined)) {
+			updates.condition = newCondition;
+		}
+
+		const newTagNames = allTags
+			.filter((t) => selectedTagIds.has(t.id))
+			.map((t) => t.name);
+		const oldTagNames = item.tags ?? [];
+		if (JSON.stringify(newTagNames.sort()) !== JSON.stringify([...oldTagNames].sort())) {
+			updates.tags = newTagNames;
+		}
+
+		const newAcqDate = acquisitionDate || undefined;
+		if (newAcqDate !== (item.acquisition_date ?? undefined)) {
+			updates.acquisition_date = newAcqDate;
+		}
+
+		const newAcqCost = acquisitionCost ? parseFloat(acquisitionCost) : undefined;
+		const oldAcqCost = item.acquisition_cost ? parseFloat(item.acquisition_cost) : undefined;
+		if (newAcqCost !== oldAcqCost) {
+			updates.acquisition_cost = newAcqCost;
+		}
+
+		const newCurrVal = currentValue ? parseFloat(currentValue) : undefined;
+		const oldCurrVal = item.current_value ? parseFloat(item.current_value) : undefined;
+		if (newCurrVal !== oldCurrVal) {
+			updates.current_value = newCurrVal;
+		}
+
+		const newWarranty = warrantyExpiry || undefined;
+		if (newWarranty !== (item.warranty_expiry ?? undefined)) {
+			updates.warranty_expiry = newWarranty;
+		}
+
+		if (Object.keys(updates).length === 0) {
+			saveError = 'No changes to save.';
+			saving = false;
+			return;
+		}
+
+		try {
+			await api.items.update(itemId, updates);
+			goto(`/browse/item/${itemId}`);
+		} catch (err) {
+			saveError = err instanceof Error ? err.message : 'Save failed';
+		} finally {
+			saving = false;
+		}
+	}
+
+	function toggleTag(tagId: string) {
+		if (selectedTagIds.has(tagId)) {
+			selectedTagIds.delete(tagId);
+		} else {
+			selectedTagIds.add(tagId);
+		}
+		selectedTagIds = new Set(selectedTagIds);
+	}
+
+	async function handleImageUpload(e: Event) {
+		const input = e.target as HTMLInputElement;
+		const file = input.files?.[0];
+		if (!file) return;
+
+		uploading = true;
+		uploadError = '';
+		try {
+			await api.items.uploadImage(itemId, file);
+			// Refresh item to get updated images
+			item = await api.items.get(itemId);
+		} catch (err) {
+			uploadError = err instanceof Error ? err.message : 'Upload failed';
+		} finally {
+			uploading = false;
+			input.value = '';
+		}
+	}
+
+	async function removeImage(idx: number) {
+		if (!confirm('Remove this image?')) return;
+		try {
+			await api.items.removeImage(itemId, idx);
+			item = await api.items.get(itemId);
+		} catch (err) {
+			uploadError = err instanceof Error ? err.message : 'Remove failed';
+		}
+	}
+
+	const CONDITION_LABELS: Record<string, string> = {
+		new: 'New', like_new: 'Like new', good: 'Good',
+		fair: 'Fair', poor: 'Poor', broken: 'Broken'
+	};
+</script>
+
+<svelte:head>
+	<title>Edit {item?.name ?? 'Item'} — Homorg</title>
+</svelte:head>
+
+<div class="flex h-full flex-col">
+	<header class="flex items-center gap-2 border-b border-slate-800 px-3 py-2">
+		<button class="btn btn-icon text-slate-400" on:click={() => history.back()}>
+			<svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+				<path d="M15 18l-6-6 6-6" />
+			</svg>
+		</button>
+		<h1 class="flex-1 text-base font-semibold text-slate-100 truncate">
+			Edit {item?.name ?? 'Item'}
+		</h1>
+		<button class="btn btn-primary text-xs" on:click={save} disabled={saving || loading}>
+			{saving ? 'Saving…' : 'Save'}
+		</button>
+	</header>
+
+	<div class="flex-1 overflow-y-auto p-4">
+		{#if loading}
+			<div class="flex h-32 items-center justify-center">
+				<div class="h-6 w-6 animate-spin rounded-full border-2 border-slate-600 border-t-indigo-500"></div>
+			</div>
+		{:else if error}
+			<div class="rounded-lg bg-red-950 px-4 py-3 text-sm text-red-300 border border-red-800">{error}</div>
+		{:else if item}
+			<div class="space-y-4">
+				{#if saveError}
+					<div class="rounded-lg bg-red-950 px-4 py-3 text-sm text-red-300 border border-red-800">{saveError}</div>
+				{/if}
+
+				<!-- Name -->
+				<div>
+					<label class="mb-1 block text-sm font-medium text-slate-300" for="edit-name">Name</label>
+					<input id="edit-name" class="input" bind:value={name} placeholder="Item name" />
+				</div>
+
+				<!-- Description -->
+				<div>
+					<label class="mb-1 block text-sm font-medium text-slate-300" for="edit-desc">Description</label>
+					<textarea id="edit-desc" class="input min-h-20 resize-y" bind:value={description} placeholder="Optional description" rows="3"></textarea>
+				</div>
+
+				<!-- Category -->
+				<div>
+					<label class="mb-1 block text-sm font-medium text-slate-300" for="edit-category">Category</label>
+					<select id="edit-category" class="input" bind:value={categoryId}>
+						<option value={null}>None</option>
+						{#each categories as cat (cat.id)}
+							<option value={cat.id}>{cat.name}</option>
+						{/each}
+					</select>
+				</div>
+
+				<!-- Condition -->
+				<div>
+					<label class="mb-1 block text-sm font-medium text-slate-300" for="edit-condition">Condition</label>
+					<select id="edit-condition" class="input" bind:value={condition}>
+						<option value="">Not set</option>
+						{#each CONDITIONS as c}
+							<option value={c}>{CONDITION_LABELS[c] ?? c}</option>
+						{/each}
+					</select>
+				</div>
+
+				<!-- Tags -->
+				{#if allTags.length > 0}
+					<div>
+						<p class="mb-2 text-sm font-medium text-slate-300">Tags</p>
+						<div class="flex flex-wrap gap-1.5">
+							{#each allTags as tag (tag.id)}
+								<button
+									type="button"
+									class="rounded-full px-3 py-1 text-xs font-medium transition-colors
+										{selectedTagIds.has(tag.id) ? 'bg-indigo-600 text-white' : 'bg-slate-700 text-slate-300 hover:bg-slate-600'}"
+									on:click={() => toggleTag(tag.id)}
+								>
+									{tag.name}
+								</button>
+							{/each}
+						</div>
+					</div>
+				{/if}
+
+				<!-- Images -->
+				<div>
+					<p class="mb-2 text-sm font-medium text-slate-300">Images</p>
+					{#if item.images && item.images.length > 0}
+						<div class="mb-3 grid grid-cols-3 gap-2">
+							{#each item.images as img, idx}
+								<div class="relative group">
+									<img src="/files/{img.path}" alt={img.caption ?? 'Image'} class="w-full h-24 rounded-lg object-cover" />
+									<button
+										class="absolute top-1 right-1 hidden group-hover:flex h-6 w-6 items-center justify-center rounded-full bg-red-600 text-white text-xs"
+										on:click={() => removeImage(idx)}
+									>
+										&times;
+									</button>
+								</div>
+							{/each}
+						</div>
+					{/if}
+					<label class="btn btn-secondary w-full cursor-pointer text-sm">
+						{uploading ? 'Uploading…' : 'Add image'}
+						<input type="file" accept="image/*" class="hidden" on:change={handleImageUpload} disabled={uploading} />
+					</label>
+					{#if uploadError}
+						<p class="mt-1 text-xs text-red-400">{uploadError}</p>
+					{/if}
+				</div>
+
+				<!-- Valuation -->
+				<div class="card p-3 space-y-3">
+					<p class="text-xs text-slate-400 uppercase tracking-wide">Valuation</p>
+					<div class="grid grid-cols-2 gap-3">
+						<div>
+							<label class="mb-1 block text-xs text-slate-400" for="edit-acq-date">Acquisition date</label>
+							<input id="edit-acq-date" class="input text-sm" type="date" bind:value={acquisitionDate} />
+						</div>
+						<div>
+							<label class="mb-1 block text-xs text-slate-400" for="edit-acq-cost">Acquisition cost</label>
+							<input id="edit-acq-cost" class="input text-sm" type="number" step="0.01" min="0" bind:value={acquisitionCost} placeholder="0.00" />
+						</div>
+						<div>
+							<label class="mb-1 block text-xs text-slate-400" for="edit-curr-val">Current value</label>
+							<input id="edit-curr-val" class="input text-sm" type="number" step="0.01" min="0" bind:value={currentValue} placeholder="0.00" />
+						</div>
+						<div>
+							<label class="mb-1 block text-xs text-slate-400" for="edit-warranty">Warranty expiry</label>
+							<input id="edit-warranty" class="input text-sm" type="date" bind:value={warrantyExpiry} />
+						</div>
+					</div>
+				</div>
+
+				<!-- Save button (bottom) -->
+				<button class="btn btn-primary w-full" on:click={save} disabled={saving}>
+					{saving ? 'Saving…' : 'Save changes'}
+				</button>
+			</div>
+		{/if}
+	</div>
+</div>

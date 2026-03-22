@@ -3,7 +3,7 @@
 	import { page } from '$app/stores';
 	import { goto } from '$app/navigation';
 	import { api } from '$api/client.js';
-	import type { BarcodeResolution, Item, StockerBatchEvent } from '$api/types.js';
+	import type { BarcodeResolution, Item, ItemSummary, StockerBatchEvent } from '$api/types.js';
 	import { onScan, scannerState, startSerialScanner, startCameraScanner, stopScanner, startHidScanner } from '$scanner/index.js';
 	import { scanSuccess, scanError, contextSet, newItem as newItemSound } from '$audio/feedback.js';
 	import { init as initAudio } from '$audio/feedback.js';
@@ -17,7 +17,7 @@
 		setPendingCount
 	} from '$stores/stocker.js';
 
-	const sessionId = $page.params.sessionId;
+	const sessionId = $page.params.sessionId!;
 
 	// ── State ────────────────────────────────────────────────────────────────
 	interface ScanLogEntry {
@@ -50,7 +50,7 @@
 	// Container picker
 	let showContainerPicker = false;
 	let pickerQuery = '';
-	let pickerResults: Item[] = [];
+	let pickerResults: ItemSummary[] = [];
 	let pickerLoading = false;
 
 	// Scanner modal
@@ -104,7 +104,14 @@
 
 		switch (resolution.type) {
 			case 'system': {
-				const item = resolution.item;
+				let item: Item;
+				try {
+					item = await api.items.get(resolution.item_id);
+				} catch {
+					addLog(barcode, 'error', 'Failed to fetch item details');
+					scanError();
+					return;
+				}
 				if (item.is_container) {
 					// Set as context container
 					setContext({
@@ -123,8 +130,8 @@
 					}
 					pendingBatch.push({
 						type: 'move_item',
-						item_id: item.id,
-						target_container_id: context.containerId
+						barcode,
+						scanned_at: new Date().toISOString()
 					});
 					setPendingCount(pendingBatch.length);
 					addLog(barcode, 'success', `Queued: ${item.name} → ${context.containerName}`);
@@ -145,18 +152,42 @@
 			}
 
 			case 'external': {
-				// External barcode assigned to an item
-				const item = resolution.item;
+				if (resolution.item_ids.length === 0) {
+					qcBarcode = barcode;
+					showQuickCreate = true;
+					newItemSound();
+					addLog(barcode, 'create', `External code not assigned — create item?`);
+					break;
+				}
+				let item: Item;
+				try {
+					item = await api.items.get(resolution.item_ids[0]);
+				} catch {
+					addLog(barcode, 'error', 'Failed to fetch item details');
+					scanError();
+					return;
+				}
 				if (!context.containerId) {
 					addLog(barcode, 'error', 'No container context set — scan a container first');
 					scanError();
 					return;
 				}
-				pendingBatch.push({
-					type: 'move_item',
-					item_id: item.id,
-					target_container_id: context.containerId
-				});
+				if (item.system_barcode) {
+					pendingBatch.push({
+						type: 'move_item',
+						barcode: item.system_barcode,
+						scanned_at: new Date().toISOString()
+					});
+				} else {
+					// Item has no system barcode — move directly via items API
+					try {
+						await api.items.move(item.id, { container_id: context.containerId });
+					} catch (err) {
+						addLog(barcode, 'error', `Move failed: ${err instanceof Error ? err.message : 'Unknown error'}`);
+						scanError();
+						return;
+					}
+				}
 				setPendingCount(pendingBatch.length);
 				addLog(barcode, 'success', `Queued: ${item.name} → ${context.containerName}`);
 				addRecentItem(item);
@@ -210,7 +241,14 @@
 		try {
 			const batchRes = await api.stocker.submitBatch(
 			sessionId,
-			{ events: [{ type: 'create_and_place', name: qcName, target_container_id: context.containerId!, barcode: qcBarcode || null, quantity: qcQuantity, notes: null }] },
+			{ events: [{
+				type: 'create_and_place',
+				barcode: qcBarcode || '',
+				name: qcName,
+				scanned_at: new Date().toISOString(),
+				is_fungible: qcQuantity > 1 ? true : undefined,
+				fungible_quantity: qcQuantity > 1 ? qcQuantity : undefined
+			}] },
 			true
 		);
 			const created = batchRes.results.find(r => r.type === 'created') as ({ type: 'created'; item_id: string } | undefined);
@@ -255,13 +293,13 @@
 		}
 	}
 
-	function pickContainer(item: Item) {
+	function pickContainer(item: ItemSummary) {
 		setContext({
 			containerId: item.id,
 			containerName: item.name,
 			containerBarcode: item.system_barcode ?? null
 		});
-		addLog(item.name, 'context', `Context → ${item.name}`);
+		addLog(item.name ?? item.id, 'context', `Context → ${item.name}`);
 		contextSet();
 		showContainerPicker = false;
 		pickerQuery = '';

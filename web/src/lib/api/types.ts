@@ -370,6 +370,7 @@ export interface HealthResponse {
 	status: string;
 	db: string;
 	version: string;
+	setup_required?: boolean;
 }
 
 export interface StatsResponse {
@@ -377,6 +378,7 @@ export interface StatsResponse {
 	total_containers: number;
 	total_fungible: number;
 	total_events: number;
+	total_users: number;
 	items_needing_review: number;
 }
 

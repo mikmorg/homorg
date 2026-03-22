@@ -134,12 +134,6 @@
 								{#if item.system_barcode}
 									<span class="font-mono">{item.system_barcode}</span>
 								{/if}
-								{#if item.quantity !== null && item.quantity !== 1}
-									<span>×{item.quantity}</span>
-								{/if}
-								{#if !item.is_container && item.child_count !== undefined && item.child_count > 0}
-									<span>{item.child_count} items</span>
-								{/if}
 							</div>
 						</div>
 
