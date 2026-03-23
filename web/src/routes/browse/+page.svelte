@@ -32,6 +32,12 @@
 	let createLocationSchema: unknown | null = null;
 	let createImages: File[] = [];
 	let createImagePreviews: string[] = [];
+	let createIsFungible = false;
+	let createFungibleUnit = '';
+	let createFungibleQty = '';
+	let createAcqCost = '';
+	let createCurrency = '';
+	let showCreateAdvanced = false;
 	let creating = false;
 	let createError = '';
 
@@ -112,6 +118,12 @@
 		createImages = [];
 		createImagePreviews.forEach((url) => URL.revokeObjectURL(url));
 		createImagePreviews = [];
+			createIsFungible = false;
+			createFungibleUnit = '';
+			createFungibleQty = '';
+			createAcqCost = '';
+			createCurrency = '';
+			showCreateAdvanced = false;
 		createError = '';
 		showCreate = true;
 		loadTaxonomy();
@@ -168,6 +180,13 @@
 			if (createCondition && createType === 'item') body.condition = createCondition;
 			if (createCoordinate) body.coordinate = createCoordinate;
 			if (createContainerTypeId) body.container_type_id = createContainerTypeId;
+			if (createIsFungible && createType === 'item') {
+				body.is_fungible = true;
+				if (createFungibleUnit.trim()) body.fungible_unit = createFungibleUnit.trim();
+				if (createFungibleQty) body.fungible_quantity = parseInt(createFungibleQty);
+			}
+			if (createAcqCost) body.acquisition_cost = parseFloat(createAcqCost);
+			if (createCurrency.trim()) body.currency = createCurrency.trim();
 
 			// Category
 			if (createCategoryId) {
@@ -205,6 +224,12 @@
 			showCreate = false;
 			createImagePreviews.forEach((url) => URL.revokeObjectURL(url));
 			createImagePreviews = [];
+			createIsFungible = false;
+			createFungibleUnit = '';
+			createFungibleQty = '';
+			createAcqCost = '';
+			createCurrency = '';
+			showCreateAdvanced = false;
 			createImages = [];
 			toast(createType === 'container' ? 'Container created' : 'Item created', 'success');
 			await load();
@@ -454,7 +479,48 @@
 				</div>
 			{/if}
 
-			<!-- Tags -->
+			
+					<!-- Fungible (items only) -->
+					{#if createType === 'item'}
+						<label class="flex items-center justify-between card p-3 cursor-pointer">
+							<div>
+								<p class="text-sm font-medium text-slate-300">Fungible</p>
+								<p class="text-xs text-slate-500">Track quantity (e.g. consumables)</p>
+							</div>
+							<input type="checkbox" class="h-5 w-5 rounded border-slate-600 bg-slate-800 text-indigo-500" bind:checked={createIsFungible} />
+						</label>
+						{#if createIsFungible}
+							<div class="grid grid-cols-2 gap-3">
+								<div>
+									<label class="mb-1 block text-xs text-slate-400" for="c-qty">Initial quantity</label>
+									<input id="c-qty" class="input text-sm" type="number" min="0" bind:value={createFungibleQty} placeholder="0" />
+								</div>
+								<div>
+									<label class="mb-1 block text-xs text-slate-400" for="c-unit">Unit</label>
+									<input id="c-unit" class="input text-sm" bind:value={createFungibleUnit} placeholder="e.g. pieces" />
+								</div>
+							</div>
+						{/if}
+					{/if}
+
+					<!-- Valuation -->
+					<button type="button" class="text-xs text-slate-500 hover:text-slate-300" on:click={() => { showCreateAdvanced = !showCreateAdvanced; }}>
+						{showCreateAdvanced ? 'Hide' : 'Show'} valuation fields
+					</button>
+					{#if showCreateAdvanced}
+						<div class="grid grid-cols-2 gap-3">
+							<div>
+								<label class="mb-1 block text-xs text-slate-400" for="c-cost">Cost</label>
+								<input id="c-cost" class="input text-sm" type="number" step="0.01" min="0" bind:value={createAcqCost} placeholder="0.00" />
+							</div>
+							<div>
+								<label class="mb-1 block text-xs text-slate-400" for="c-currency">Currency</label>
+								<input id="c-currency" class="input text-sm" bind:value={createCurrency} placeholder="USD" />
+							</div>
+						</div>
+					{/if}
+
+<!-- Tags -->
 			{#if allTags.length > 0}
 				<div>
 					<p class="mb-2 text-sm font-medium text-slate-300">Tags</p>

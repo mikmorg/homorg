@@ -2,6 +2,7 @@
 	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { api } from '$api/client.js';
+	import { toast } from '$stores/toast.js';
 	import type { ItemSummary, Category, Condition } from '$api/types.js';
 	import { CONDITIONS } from '$api/types.js';
 
@@ -17,6 +18,7 @@
 	let filterCategory = '';
 	let filterCondition: Condition | '' = '';
 	let filterContainersOnly = false;
+	let filterDeleted = false;
 	let sortBy = 'name';
 	let sortDir: 'asc' | 'desc' = 'asc';
 
@@ -49,6 +51,7 @@
 				category: filterCategory || undefined,
 				condition: (filterCondition as Condition) || undefined,
 				is_container: filterContainersOnly || undefined,
+				is_deleted: filterDeleted || undefined,
 				sort_by: sortBy || undefined,
 				sort_dir: sortDir,
 				limit: 50
@@ -65,6 +68,16 @@
 	function applyFilter() {
 		if (debounceTimer) clearTimeout(debounceTimer);
 		doSearch();
+	}
+
+	async function restoreItem(id: string) {
+		try {
+			await api.items.restore(id);
+			toast('Item restored', 'success');
+			doSearch();
+		} catch (err) {
+			toast(err instanceof Error ? err.message : 'Restore failed', 'error');
+		}
 	}
 
 	const CONDITION_LABELS: Record<string, string> = {
@@ -102,8 +115,8 @@
 				Filters {showFilters ? '▲' : '▼'}
 			</button>
 
-			{#if filterCategory || filterCondition || filterContainersOnly}
-				<button class="text-xs text-red-400 hover:text-red-300" on:click={() => { filterCategory = ''; filterCondition = ''; filterContainersOnly = false; applyFilter(); }}>
+			{#if filterCategory || filterCondition || filterContainersOnly || filterDeleted}
+				<button class="text-xs text-red-400 hover:text-red-300" on:click={() => { filterCategory = ''; filterCondition = ''; filterContainersOnly = false; filterDeleted = false; applyFilter(); }}>
 					Clear
 				</button>
 			{/if}
@@ -136,6 +149,10 @@
 					<label class="flex items-center gap-2 text-sm text-slate-300 cursor-pointer" for="s-containers">
 						<input id="s-containers" type="checkbox" class="h-4 w-4 rounded border-slate-600 bg-slate-800" bind:checked={filterContainersOnly} on:change={applyFilter} />
 						Containers only
+					</label>
+					<label class="flex items-center gap-2 text-sm text-slate-300 cursor-pointer" for="s-deleted">
+						<input id="s-deleted" type="checkbox" class="h-4 w-4 rounded border-slate-600 bg-slate-800" bind:checked={filterDeleted} on:change={applyFilter} />
+						Deleted
 					</label>
 				</div>
 				<div class="grid grid-cols-2 gap-2">
@@ -183,12 +200,15 @@
 		{:else}
 			<div class="divide-y divide-slate-800">
 				{#each results as item (item.id)}
-					<button
-						class="flex w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-slate-800/50"
+					<div
+						class="flex w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-slate-800/50 cursor-pointer"
+						role="button"
+						tabindex="0"
 						on:click={() => {
 							if (item.is_container) goto(`/browse?id=${item.id}`);
 							else goto(`/browse/item/${item.id}`);
 						}}
+						on:keydown={(e) => { if (e.key === "Enter") { if (item.is_container) goto(`/browse?id=${item.id}`); else goto(`/browse/item/${item.id}`); } }}
 					>
 					<div class="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg text-base {item.is_container ? 'bg-indigo-500/20 text-indigo-400' : 'bg-slate-800'}">
 							{item.is_container ? '📦' : '🔧'}
@@ -206,10 +226,16 @@
 								{/if}
 							</div>
 						</div>
-						<svg class="h-4 w-4 flex-shrink-0 text-slate-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-							<path d="M9 18l6-6-6-6" />
-						</svg>
-					</button>
+						{#if item.is_deleted}
+							<span class="text-xs text-emerald-400 hover:text-emerald-300 flex-shrink-0 px-2 cursor-pointer" role="button" tabindex="0" on:click|stopPropagation={() => restoreItem(item.id)} on:keydown|stopPropagation={(e) => { if (e.key === "Enter") restoreItem(item.id); }}>
+								Restore
+							</span>
+						{:else}
+							<svg class="h-4 w-4 flex-shrink-0 text-slate-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+								<path d="M9 18l6-6-6-6" />
+							</svg>
+						{/if}
+					</div>
 				{/each}
 			</div>
 			<p class="px-4 py-2 text-xs text-slate-500">{results.length} result{results.length !== 1 ? 's' : ''}</p>

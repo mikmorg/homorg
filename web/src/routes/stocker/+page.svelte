@@ -8,6 +8,8 @@
 	let loading = true;
 	let error = '';
 	let creating = false;
+	let showNewSession = false;
+	let sessionNotes = '';
 
 	onMount(async () => {
 		await loadSessions();
@@ -29,7 +31,7 @@
 		creating = true;
 		error = '';
 		try {
-			const session = await api.stocker.startSession({ notes: undefined });
+			const session = await api.stocker.startSession({ notes: sessionNotes.trim() || undefined });
 			goto(`/stocker/${session.id}`);
 		} catch (err) {
 			error = err instanceof Error ? err.message : 'Failed to start session';
@@ -55,7 +57,7 @@
 	<!-- Header -->
 	<header class="flex items-center justify-between border-b border-slate-800 px-4 py-3">
 		<h1 class="text-lg font-semibold text-slate-100">Stocker</h1>
-		<button class="btn btn-primary" on:click={startSession} disabled={creating}>
+		<button class="btn btn-primary" on:click={() => { showNewSession ? startSession() : (showNewSession = true); }} disabled={creating}>
 			{#if creating}
 				<span class="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white"></span>
 			{:else}
@@ -63,6 +65,18 @@
 			{/if}
 		</button>
 	</header>
+
+	{#if showNewSession}
+		<div class="border-b border-slate-800 px-4 py-3 space-y-2">
+			<input class="input text-sm" bind:value={sessionNotes} placeholder="Session notes (optional)" />
+			<div class="flex gap-2">
+				<button class="btn btn-primary flex-1 text-sm" on:click={startSession} disabled={creating}>
+					{creating ? 'Starting…' : 'Start session'}
+				</button>
+				<button class="btn btn-secondary text-sm" on:click={() => { showNewSession = false; sessionNotes = ''; }}>Cancel</button>
+			</div>
+		</div>
+	{/if}
 
 	<div class="flex-1 overflow-y-auto p-4">
 		{#if error}
