@@ -344,6 +344,54 @@ export interface ContainerType {
 
 // ─── Events ──────────────────────────────────────────────────────────────────
 
+// ─── Location Schema & Coordinates ──────────────────────────────────────────
+
+export interface AbstractLocationSchema {
+	type: 'abstract';
+	labels?: string[];
+}
+
+export interface GridLocationSchema {
+	type: 'grid';
+	rows: number;
+	columns: number;
+	row_labels?: string[];
+	column_labels?: string[];
+}
+
+export interface GeoLocationSchema {
+	type: 'geo';
+}
+
+export type KnownLocationSchema =
+	| AbstractLocationSchema
+	| GridLocationSchema
+	| GeoLocationSchema;
+
+export interface AbstractCoordinate {
+	type: 'abstract';
+	value: string;
+}
+
+export interface GridCoordinate {
+	type: 'grid';
+	row: number;
+	column: number;
+}
+
+export interface GeoCoordinate {
+	type: 'geo';
+	latitude: number;
+	longitude: number;
+}
+
+export type KnownCoordinate =
+	| AbstractCoordinate
+	| GridCoordinate
+	| GeoCoordinate;
+
+// ─── Events ──────────────────────────────────────────────────────────────────
+
 export interface StoredEvent {
 	id: number;
 	event_id: string;

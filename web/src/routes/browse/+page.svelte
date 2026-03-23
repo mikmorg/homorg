@@ -3,8 +3,9 @@
 	import { page } from '$app/stores';
 	import { goto } from '$app/navigation';
 	import { api } from '$api/client.js';
-	import type { ItemSummary, CreateItemRequest, Condition } from '$api/types.js';
+	import type { Item, ItemSummary, CreateItemRequest, Condition } from '$api/types.js';
 	import { CONDITIONS } from '$api/types.js';
+	import CoordinateInput from '$lib/components/CoordinateInput.svelte';
 
 	const ROOT_ID = '00000000-0000-0000-0000-000000000001';
 
@@ -12,6 +13,7 @@
 	let containerId: string = ROOT_ID;
 	let breadcrumb: { id: string; name: string }[] = [];
 	let children: ItemSummary[] = [];
+	let containerItem: Item | null = null;
 	let loading = true;
 	let error = '';
 
@@ -21,6 +23,7 @@
 	let createName = '';
 	let createDescription = '';
 	let createCondition: Condition | '' = '';
+	let createCoordinate: unknown | null = null;
 	let creating = false;
 	let createError = '';
 
@@ -40,10 +43,15 @@
 			children = res;
 
 			if (containerId !== ROOT_ID) {
-				const ancs = await api.containers.ancestors(containerId);
+				const [ancs, item] = await Promise.all([
+					api.containers.ancestors(containerId),
+					api.items.get(containerId)
+				]);
 				breadcrumb = ancs.map((a) => ({ id: a.id, name: a.name ?? 'Container' }));
+				containerItem = item;
 			} else {
 				breadcrumb = [];
+				containerItem = null;
 			}
 		} catch (err) {
 			error = err instanceof Error ? err.message : 'Failed to load';
@@ -61,6 +69,7 @@
 		createName = '';
 		createDescription = '';
 		createCondition = '';
+		createCoordinate = null;
 		createError = '';
 		showCreate = true;
 	}
@@ -77,6 +86,7 @@
 			};
 			if (createDescription.trim()) body.description = createDescription.trim();
 			if (createCondition && createType === 'item') body.condition = createCondition;
+			if (createCoordinate) body.coordinate = createCoordinate;
 			await api.items.create(body);
 			showCreate = false;
 			await load();
@@ -261,6 +271,10 @@
 						{/each}
 					</select>
 				</div>
+			{/if}
+
+			{#if containerItem?.location_schema}
+				<CoordinateInput schema={containerItem.location_schema} bind:value={createCoordinate} />
 			{/if}
 
 			<button class="btn btn-primary w-full" on:click={submitCreate} disabled={creating}>

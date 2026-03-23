@@ -4,6 +4,8 @@
 	import { api } from '$api/client.js';
 	import { isAdmin } from '$stores/auth.js';
 	import type { ContainerType } from '$api/types.js';
+	import { schemaTypeLabel } from '$lib/coordinate-helpers.js';
+	import LocationSchemaEditor from '$lib/components/LocationSchemaEditor.svelte';
 
 	let types: ContainerType[] = [];
 	let loading = true;
@@ -18,6 +20,7 @@
 	let formPurpose = '';
 	let formCapacity = '';
 	let formWeight = '';
+	let formLocationSchema: unknown | null = null;
 	let formLoading = false;
 	let formError = '';
 
@@ -45,6 +48,7 @@
 		formPurpose = '';
 		formCapacity = '';
 		formWeight = '';
+		formLocationSchema = null;
 		formError = '';
 		showForm = true;
 	}
@@ -57,6 +61,7 @@
 		formPurpose = ct.purpose ?? '';
 		formCapacity = ct.default_max_capacity_cc ?? '';
 		formWeight = ct.default_max_weight_grams ?? '';
+		formLocationSchema = ct.default_location_schema;
 		formError = '';
 		showForm = true;
 	}
@@ -72,7 +77,8 @@
 			icon: formIcon.trim() || null,
 			purpose: formPurpose.trim() || null,
 			default_max_capacity_cc: formCapacity || null,
-			default_max_weight_grams: formWeight || null
+			default_max_weight_grams: formWeight || null,
+			default_location_schema: formLocationSchema
 		};
 
 		try {
@@ -157,6 +163,9 @@
 									{#if ct.purpose}
 										<span>{ct.purpose}</span>
 									{/if}
+									{#if ct.default_location_schema}
+										<span>{schemaTypeLabel(ct.default_location_schema)}</span>
+									{/if}
 								</div>
 							</div>
 							<button class="btn btn-ghost text-xs text-slate-400 px-2 py-1" on:click={() => openEdit(ct)}>
@@ -220,6 +229,7 @@
 					<input id="ct-weight" class="input" type="number" step="0.01" bind:value={formWeight} disabled={formLoading} />
 				</div>
 			</div>
+			<LocationSchemaEditor bind:value={formLocationSchema} />
 			<button class="btn btn-primary w-full" on:click={saveType} disabled={formLoading}>
 				{formLoading ? 'Saving…' : editingId ? 'Update' : 'Create'}
 			</button>

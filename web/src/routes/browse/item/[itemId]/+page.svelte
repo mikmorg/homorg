@@ -5,9 +5,13 @@
 	import { api } from '$api/client.js';
 	import type { Item, AncestorEntry, ItemSummary } from '$api/types.js';
 	import ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
+	import CoordinateDisplay from '$lib/components/CoordinateDisplay.svelte';
+	import CoordinateInput from '$lib/components/CoordinateInput.svelte';
+	import LocationSchemaDisplay from '$lib/components/LocationSchemaDisplay.svelte';
 
 	const itemId = $page.params.itemId!;
 	let item: Item | null = null;
+	let parentItem: Item | null = null;
 	let ancestors: AncestorEntry[] = [];
 	let loading = true;
 	let error = '';
@@ -24,6 +28,8 @@
 	let moveSearching = false;
 	let moving = false;
 	let moveDebounce: ReturnType<typeof setTimeout> | null = null;
+	let moveTargetItem: Item | null = null;
+	let moveCoordinate: unknown | null = null;
 
 	onMount(async () => {
 		try {
@@ -33,6 +39,9 @@
 			]);
 			item = fetchedItem;
 			ancestors = ancs;
+			if (fetchedItem.parent_id) {
+				parentItem = await api.items.get(fetchedItem.parent_id);
+			}
 		} catch (err) {
 			error = err instanceof Error ? err.message : 'Item not found';
 		} finally {
@@ -68,13 +77,37 @@
 		}, 300);
 	}
 
+	async function selectMoveTarget(targetId: string) {
+		try {
+			const target = await api.items.get(targetId);
+			if (target.location_schema) {
+				moveTargetItem = target;
+				moveCoordinate = null;
+			} else {
+				await moveToContainer(targetId);
+			}
+		} catch {
+			await moveToContainer(targetId);
+		}
+	}
+
 	async function moveToContainer(targetId: string) {
 		moving = true;
 		try {
-			await api.items.move(itemId, { container_id: targetId });
+			const body: { container_id: string; coordinate?: unknown } = { container_id: targetId };
+			if (moveCoordinate) body.coordinate = moveCoordinate;
+			await api.items.move(itemId, body);
 			showMovePicker = false;
-			// Refresh ancestors
-			ancestors = await api.containers.ancestors(itemId);
+			moveTargetItem = null;
+			const [newItem, newAncs] = await Promise.all([
+				api.items.get(itemId),
+				api.containers.ancestors(itemId)
+			]);
+			item = newItem;
+			ancestors = newAncs;
+			if (newItem.parent_id) {
+				parentItem = await api.items.get(newItem.parent_id);
+			}
 		} catch (err) {
 			deleteError = err instanceof Error ? err.message : 'Move failed';
 		} finally {
@@ -151,6 +184,22 @@
 					</div>
 				{/if}
 
+				<!-- Position coordinate -->
+				{#if item.coordinate}
+					<div class="card p-3">
+						<p class="mb-1 text-xs text-slate-400 uppercase tracking-wide">Position</p>
+						<CoordinateDisplay coordinate={item.coordinate} schema={parentItem?.location_schema} />
+					</div>
+				{/if}
+
+				<!-- Location schema (containers only) -->
+				{#if item.is_container && item.location_schema}
+					<div class="card p-3">
+						<p class="mb-1 text-xs text-slate-400 uppercase tracking-wide">Location Schema</p>
+						<LocationSchemaDisplay schema={item.location_schema} />
+					</div>
+				{/if}
+
 				<!-- Properties grid -->
 				<div class="card divide-y divide-slate-700">
 					{#if item.fungible_quantity !== null}
@@ -208,7 +257,7 @@
 
 				<!-- Actions -->
 				<div class="space-y-2 pt-2">
-					<button class="btn btn-secondary w-full" on:click={() => { showMovePicker = true; moveQuery = ''; moveResults = []; }}>
+					<button class="btn btn-secondary w-full" on:click={() => { showMovePicker = true; moveQuery = ''; moveResults = []; moveTargetItem = null; moveCoordinate = null; }}>
 						Move to another container
 					</button>
 					<button class="btn btn-danger w-full" on:click={() => (showDeleteConfirm = true)} disabled={deleting}>
@@ -239,7 +288,7 @@
 {#if showMovePicker}
 <div class="fixed inset-0 z-50 flex flex-col bg-slate-950">
 	<div class="flex items-center gap-2 border-b border-slate-800 px-3 py-2">
-		<button class="btn btn-icon text-slate-400" on:click={() => (showMovePicker = false)} aria-label="Close">
+		<button class="btn btn-icon text-slate-400" on:click={() => { showMovePicker = false; moveTargetItem = null; }} aria-label="Close">
 			<svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
 				<path d="M18 6L6 18M6 6l12 12" />
 			</svg>
@@ -253,7 +302,22 @@
 	</div>
 
 	<div class="flex-1 overflow-y-auto">
-		{#if moveSearching}
+		{#if moveTargetItem}
+			<!-- Coordinate step -->
+			<div class="p-4 space-y-4">
+				<div class="card p-3">
+					<p class="text-xs text-slate-400 mb-1">Moving to</p>
+					<p class="font-medium text-slate-100">{moveTargetItem.name}</p>
+				</div>
+				<CoordinateInput schema={moveTargetItem.location_schema} bind:value={moveCoordinate} />
+				<div class="flex gap-2">
+					<button class="btn btn-secondary flex-1" on:click={() => (moveTargetItem = null)}>Back</button>
+					<button class="btn btn-primary flex-1" on:click={() => moveToContainer(moveTargetItem?.id ?? '')} disabled={moving}>
+						{moving ? 'Moving…' : 'Move here'}
+					</button>
+				</div>
+			</div>
+		{:else if moveSearching}
 			<div class="flex h-20 items-center justify-center">
 				<div class="h-5 w-5 animate-spin rounded-full border-2 border-slate-600 border-t-indigo-500"></div>
 			</div>
@@ -270,7 +334,7 @@
 				{#each moveResults as container (container.id)}
 					<button
 						class="flex w-full items-center gap-3 px-4 py-3 text-left hover:bg-slate-800/50"
-						on:click={() => moveToContainer(container.id)}
+						on:click={() => selectMoveTarget(container.id)}
 						disabled={moving}
 					>
 						<div class="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg bg-indigo-500/20 text-indigo-400">

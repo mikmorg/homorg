@@ -5,6 +5,8 @@
 	import { api } from '$api/client.js';
 	import type { Item, Category, Tag, Condition, UpdateItemRequest } from '$api/types.js';
 	import { CONDITIONS } from '$api/types.js';
+	import CoordinateInput from '$lib/components/CoordinateInput.svelte';
+	import LocationSchemaEditor from '$lib/components/LocationSchemaEditor.svelte';
 
 	const itemId = $page.params.itemId!;
 	let item: Item | null = null;
@@ -24,10 +26,13 @@
 	let currentValue = '';
 	let currency = '';
 	let warrantyExpiry = '';
+	let coordinateValue: unknown | null = null;
+	let locationSchemaValue: unknown | null = null;
 
 	// Taxonomy data
 	let categories: Category[] = [];
 	let allTags: Tag[] = [];
+	let parentItem: Item | null = null;
 
 	// Image upload
 	let uploading = false;
@@ -57,6 +62,11 @@
 			currentValue = item.current_value ?? '';
 			currency = item.currency ?? '';
 			warrantyExpiry = item.warranty_expiry ?? '';
+			coordinateValue = item.coordinate;
+			locationSchemaValue = item.location_schema;
+			if (item.parent_id) {
+				parentItem = await api.items.get(item.parent_id);
+			}
 		} catch (err) {
 			error = err instanceof Error ? err.message : 'Failed to load item';
 		} finally {
@@ -117,14 +127,26 @@
 			updates.warranty_expiry = newWarranty;
 		}
 
-		if (Object.keys(updates).length === 0) {
+		if (JSON.stringify(coordinateValue) !== JSON.stringify(item.coordinate)) {
+			updates.coordinate = coordinateValue;
+		}
+
+		const schemaChanged = item.is_container &&
+			JSON.stringify(locationSchemaValue) !== JSON.stringify(item.location_schema);
+
+		if (Object.keys(updates).length === 0 && !schemaChanged) {
 			saveError = 'No changes to save.';
 			saving = false;
 			return;
 		}
 
 		try {
-			await api.items.update(itemId, updates);
+			if (Object.keys(updates).length > 0) {
+				await api.items.update(itemId, updates);
+			}
+			if (schemaChanged) {
+				await api.containers.updateSchema(itemId, locationSchemaValue);
+			}
 			goto(`/browse/item/${itemId}`);
 		} catch (err) {
 			saveError = err instanceof Error ? err.message : 'Save failed';
@@ -259,6 +281,20 @@
 								</button>
 							{/each}
 						</div>
+					</div>
+				{/if}
+
+				<!-- Coordinate -->
+				{#if parentItem?.location_schema || item.coordinate}
+					<div class="card p-3">
+						<CoordinateInput schema={parentItem?.location_schema} bind:value={coordinateValue} />
+					</div>
+				{/if}
+
+				<!-- Location Schema (containers only) -->
+				{#if item.is_container}
+					<div class="card p-3">
+						<LocationSchemaEditor bind:value={locationSchemaValue} />
 					</div>
 				{/if}
 

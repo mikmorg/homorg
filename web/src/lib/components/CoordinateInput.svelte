@@ -1,0 +1,128 @@
+<script lang="ts">
+	import { parseLocationSchema, parseCoordinate } from '$lib/coordinate-helpers.js';
+
+	export let schema: unknown | null = null;
+	export let value: unknown | null = null;
+
+	$: parsed = parseLocationSchema(schema);
+
+	// Internal form state, synced from value
+	let abstractText = '';
+	let gridRow = 0;
+	let gridCol = 0;
+	let geoLat = '';
+	let geoLng = '';
+	let geoLoading = false;
+	let geoError = '';
+
+	// Initialize from existing value
+	$: {
+		const coord = parseCoordinate(value);
+		if (coord?.type === 'abstract') abstractText = coord.value;
+		else if (coord?.type === 'grid') { gridRow = coord.row; gridCol = coord.column; }
+		else if (coord?.type === 'geo') { geoLat = String(coord.latitude); geoLng = String(coord.longitude); }
+	}
+
+	function setAbstract(text: string) {
+		abstractText = text;
+		value = text.trim() ? { type: 'abstract', value: text.trim() } : null;
+	}
+
+	function setGrid(row: number, col: number) {
+		gridRow = row;
+		gridCol = col;
+		value = { type: 'grid', row, column: col };
+	}
+
+	function setGeo() {
+		const lat = parseFloat(geoLat);
+		const lng = parseFloat(geoLng);
+		if (!isNaN(lat) && !isNaN(lng)) {
+			value = { type: 'geo', latitude: lat, longitude: lng };
+		} else {
+			value = null;
+		}
+	}
+
+	function useCurrentLocation() {
+		if (!navigator.geolocation) { geoError = 'Geolocation not supported'; return; }
+		geoLoading = true;
+		geoError = '';
+		navigator.geolocation.getCurrentPosition(
+			(pos) => {
+				geoLat = String(pos.coords.latitude);
+				geoLng = String(pos.coords.longitude);
+				setGeo();
+				geoLoading = false;
+			},
+			(err) => {
+				geoError = err.message;
+				geoLoading = false;
+			},
+			{ enableHighAccuracy: true, timeout: 10000 }
+		);
+	}
+</script>
+
+<div class="space-y-2">
+	<p class="text-xs text-slate-400 uppercase tracking-wide">Position</p>
+
+	{#if parsed?.type === 'abstract' && parsed.labels && parsed.labels.length > 0}
+		<!-- Abstract with predefined labels -->
+		<select class="input" value={abstractText} on:change={(e) => setAbstract(e.currentTarget.value)}>
+			<option value="">None</option>
+			{#each parsed.labels as lbl}
+				<option value={lbl}>{lbl}</option>
+			{/each}
+		</select>
+
+	{:else if parsed?.type === 'grid'}
+		<!-- Grid row/column selectors -->
+		<div class="grid grid-cols-2 gap-2">
+			<div>
+				<label class="mb-1 block text-xs text-slate-400" for="coord-row">Row</label>
+				<select id="coord-row" class="input" value={gridRow} on:change={(e) => setGrid(parseInt(e.currentTarget.value), gridCol)}>
+					{#each Array(parsed.rows) as _, i}
+						<option value={i}>{parsed.row_labels?.[i] ?? i + 1}</option>
+					{/each}
+				</select>
+			</div>
+			<div>
+				<label class="mb-1 block text-xs text-slate-400" for="coord-col">Column</label>
+				<select id="coord-col" class="input" value={gridCol} on:change={(e) => setGrid(gridRow, parseInt(e.currentTarget.value))}>
+					{#each Array(parsed.columns) as _, i}
+						<option value={i}>{parsed.column_labels?.[i] ?? i + 1}</option>
+					{/each}
+				</select>
+			</div>
+		</div>
+
+	{:else if parsed?.type === 'geo'}
+		<!-- Geographic lat/lng -->
+		<div class="grid grid-cols-2 gap-2">
+			<div>
+				<label class="mb-1 block text-xs text-slate-400" for="coord-lat">Latitude</label>
+				<input id="coord-lat" class="input text-sm" type="number" step="any" min="-90" max="90" bind:value={geoLat} on:input={setGeo} placeholder="0.000000" />
+			</div>
+			<div>
+				<label class="mb-1 block text-xs text-slate-400" for="coord-lng">Longitude</label>
+				<input id="coord-lng" class="input text-sm" type="number" step="any" min="-180" max="180" bind:value={geoLng} on:input={setGeo} placeholder="0.000000" />
+			</div>
+		</div>
+		<button class="btn btn-secondary text-xs w-full" type="button" on:click={useCurrentLocation} disabled={geoLoading}>
+			{geoLoading ? 'Getting location…' : 'Use current location'}
+		</button>
+		{#if geoError}
+			<p class="text-xs text-red-400">{geoError}</p>
+		{/if}
+
+	{:else}
+		<!-- Fallback: simple text input for abstract label -->
+		<input
+			class="input"
+			placeholder="e.g. top shelf, drawer 3"
+			value={abstractText}
+			on:input={(e) => setAbstract(e.currentTarget.value)}
+		/>
+	{/if}
+</div>
