@@ -368,6 +368,30 @@
 		</button>
 	</header>
 
+	<!-- ── Session stats ────────────────────────────────────────────────── -->
+	{#if session}
+		<div class="flex items-center justify-around border-b border-slate-800 px-4 py-1.5 text-center">
+			<div>
+				<p class="text-xs text-slate-500">Scanned</p>
+				<p class="text-sm font-semibold text-slate-200">{session.items_scanned}</p>
+			</div>
+			<div>
+				<p class="text-xs text-slate-500">Created</p>
+				<p class="text-sm font-semibold text-emerald-400">{session.items_created}</p>
+			</div>
+			<div>
+				<p class="text-xs text-slate-500">Moved</p>
+				<p class="text-sm font-semibold text-indigo-400">{session.items_moved}</p>
+			</div>
+			{#if session.items_errored > 0}
+				<div>
+					<p class="text-xs text-slate-500">Errors</p>
+					<p class="text-sm font-semibold text-red-400">{session.items_errored}</p>
+				</div>
+			{/if}
+		</div>
+	{/if}
+
 	<!-- ── Context banner ───────────────────────────────────────────────── -->
 	<button
 		class="flex items-center gap-3 border-b border-slate-800 px-4 py-3 text-left transition-colors hover:bg-slate-800"

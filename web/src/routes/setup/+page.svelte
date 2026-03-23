@@ -20,7 +20,7 @@
 		try {
 			const res = await api.auth.setup({ username, password });
 			authStore.set(res);
-			goto('/stocker');
+			goto('/browse');
 		} catch (err) {
 			error = err instanceof Error ? err.message : 'Setup failed';
 		} finally {

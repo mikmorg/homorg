@@ -226,6 +226,8 @@
 	};
 </script>
 
+<svelte:window on:keydown={(e) => { if (e.key === "Escape") { if (showCreate) showCreate = false; } }} />
+
 <svelte:head>
 	<title>Browse — Homorg</title>
 </svelte:head>
