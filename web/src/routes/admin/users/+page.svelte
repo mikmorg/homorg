@@ -3,6 +3,7 @@
 	import { goto } from '$app/navigation';
 	import { api } from '$api/client.js';
 	import { isAdmin, currentUser } from '$stores/auth.js';
+	import { toast } from '$stores/toast.js';
 	import type { UserPublic, InviteResponse } from '$api/types.js';
 
 	let users: UserPublic[] = [];
@@ -51,7 +52,7 @@
 			await api.users.updateRole(userId, { role: newRole });
 			await loadUsers();
 		} catch (err) {
-			alert(err instanceof Error ? err.message : 'Failed to change role');
+			toast(err instanceof Error ? err.message : 'Failed to change role', 'error');
 		} finally {
 			changingRole = null;
 		}
@@ -63,7 +64,7 @@
 			await api.users.deactivate(user.id);
 			await loadUsers();
 		} catch (err) {
-			alert(err instanceof Error ? err.message : 'Failed to deactivate');
+			toast(err instanceof Error ? err.message : 'Failed to deactivate', 'error');
 		}
 	}
 
@@ -73,7 +74,7 @@
 			const resp: InviteResponse = await api.auth.invite();
 			inviteCode = resp.code;
 		} catch (err) {
-			alert(err instanceof Error ? err.message : 'Failed to create invite');
+			toast(err instanceof Error ? err.message : 'Failed to create invite', 'error');
 		} finally {
 			inviteLoading = false;
 		}

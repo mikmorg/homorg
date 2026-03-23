@@ -7,6 +7,7 @@
 	import { CONDITIONS } from '$api/types.js';
 	import CoordinateInput from '$lib/components/CoordinateInput.svelte';
 	import LocationSchemaEditor from '$lib/components/LocationSchemaEditor.svelte';
+	import { toast } from '$stores/toast.js';
 
 	const ROOT_ID = '00000000-0000-0000-0000-000000000001';
 
@@ -40,6 +41,10 @@
 	let containerTypes: ContainerType[] = [];
 	let taxonomyLoaded = false;
 
+	// Sort state
+	let sortBy: 'name' | 'created_at' | 'category' = 'name';
+	let sortDir: 'asc' | 'desc' = 'asc';
+
 	$: containerId = $page.url.searchParams.get('id') ?? ROOT_ID;
 
 	$: if (containerId) {
@@ -52,7 +57,7 @@
 		loading = true;
 		error = '';
 		try {
-			const res = await api.containers.children(containerId, { limit: 200 });
+			const res = await api.containers.children(containerId, { limit: 200, sort_by: sortBy, sort_dir: sortDir });
 			children = res;
 
 			if (containerId !== ROOT_ID) {
@@ -201,6 +206,7 @@
 			createImagePreviews.forEach((url) => URL.revokeObjectURL(url));
 			createImagePreviews = [];
 			createImages = [];
+			toast(createType === 'container' ? 'Container created' : 'Item created', 'success');
 			await load();
 		} catch (err) {
 			createError = err instanceof Error ? err.message : 'Failed to create';
@@ -268,6 +274,21 @@
 		</div>
 	{/if}
 
+	<!-- Sort bar -->
+	{#if children.length > 1}
+		<div class="flex items-center gap-2 border-b border-slate-800 px-3 py-1.5">
+			<span class="text-xs text-slate-500">Sort:</span>
+			<select class="bg-transparent text-xs text-slate-300 border-0 py-0 pr-6 pl-0 focus:ring-0" bind:value={sortBy} on:change={load}>
+				<option value="name">Name</option>
+				<option value="created_at">Created</option>
+				<option value="category">Category</option>
+			</select>
+			<button class="text-xs text-slate-400 hover:text-slate-200" on:click={() => { sortDir = sortDir === 'asc' ? 'desc' : 'asc'; load(); }}>
+				{sortDir === 'asc' ? '↑' : '↓'}
+			</button>
+		</div>
+	{/if}
+
 	<!-- Content -->
 	<div class="flex-1 overflow-y-auto">
 		{#if error}
@@ -332,6 +353,7 @@
 					</button>
 				{/each}
 			</div>
+			<p class="px-4 py-2 text-xs text-slate-500">{children.length} item{children.length !== 1 ? 's' : ''}</p>
 		{/if}
 	</div>
 </div>

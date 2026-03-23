@@ -4,9 +4,11 @@
 	import { api } from '$api/client.js';
 	import { authStore, isAdmin } from '$stores/auth.js';
 	import type { StatsResponse } from '$api/types.js';
+	import { toast } from '$stores/toast.js';
 
 	let stats: StatsResponse | null = null;
 	let loading = true;
+	let rebuilding = false;
 
 	onMount(async () => {
 		if (!$isAdmin) { goto('/'); return; }
@@ -24,6 +26,17 @@
 		try { if (auth?.refresh_token) await api.auth.logout(auth.refresh_token); } catch { /* ignore */ }
 		authStore.clear();
 		goto('/login');
+	}
+	async function rebuildProjections() {
+		rebuilding = true;
+		try {
+			await api.system.rebuildProjections();
+			toast('Projections rebuild started', 'success');
+		} catch (err) {
+			toast(err instanceof Error ? err.message : 'Rebuild failed', 'error');
+		} finally {
+			rebuilding = false;
+		}
 	}
 </script>
 
@@ -81,6 +94,21 @@
 				<span class="text-sm font-medium text-slate-100">Container Types</span>
 				<svg class="h-4 w-4 text-slate-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18l6-6-6-6"/></svg>
 			</a>
+		</div>
+
+		<!-- System -->
+		<div class="card divide-y divide-slate-700">
+			<button
+				class="flex w-full items-center justify-between px-4 py-3 hover:bg-slate-700 transition-colors"
+				on:click={rebuildProjections}
+				disabled={rebuilding}
+			>
+				<span class="text-sm font-medium text-slate-100">{rebuilding ? 'Rebuilding…' : 'Rebuild projections'}</span>
+				<svg class="h-4 w-4 text-slate-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+					<path d="M1 4v6h6M23 20v-6h-6" />
+					<path d="M20.49 9A9 9 0 0 0 5.64 5.64L1 10m22 4l-4.64 4.36A9 9 0 0 1 3.51 15" />
+				</svg>
+			</button>
 		</div>
 
 		<!-- Session -->

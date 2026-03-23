@@ -7,6 +7,7 @@
 	import { CONDITIONS } from '$api/types.js';
 	import CoordinateInput from '$lib/components/CoordinateInput.svelte';
 	import LocationSchemaEditor from '$lib/components/LocationSchemaEditor.svelte';
+	import { toast } from '$stores/toast.js';
 
 	const itemId = $page.params.itemId!;
 	let item: Item | null = null;
@@ -336,7 +337,7 @@
 								<div class="relative group">
 									<img src="/files/{img.path}" alt={img.caption ?? 'Image'} class="w-full h-24 rounded-lg object-cover" />
 									<button
-										class="absolute top-1 right-1 hidden group-hover:flex h-6 w-6 items-center justify-center rounded-full bg-red-600 text-white text-xs"
+										class="absolute top-1 right-1 flex h-6 w-6 items-center justify-center rounded-full bg-red-600 text-white text-xs shadow"
 										on:click={() => removeImage(idx)}
 									>
 										&times;

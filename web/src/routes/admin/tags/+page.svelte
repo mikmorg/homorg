@@ -3,6 +3,7 @@
 	import { goto } from '$app/navigation';
 	import { api } from '$api/client.js';
 	import { isAdmin } from '$stores/auth.js';
+	import { toast } from '$stores/toast.js';
 	import type { Tag } from '$api/types.js';
 
 	let tags: Tag[] = [];
@@ -42,7 +43,7 @@
 			newTagName = '';
 			await loadTags();
 		} catch (err) {
-			alert(err instanceof Error ? err.message : 'Create failed');
+			toast(err instanceof Error ? err.message : 'Create failed', 'error');
 		} finally {
 			creating = false;
 		}
@@ -61,7 +62,7 @@
 			renamingId = null;
 			await loadTags();
 		} catch (err) {
-			alert(err instanceof Error ? err.message : 'Rename failed');
+			toast(err instanceof Error ? err.message : 'Rename failed', 'error');
 		} finally {
 			renaming = false;
 		}
@@ -73,7 +74,7 @@
 			await api.tags.delete(tag.id);
 			await loadTags();
 		} catch (err) {
-			alert(err instanceof Error ? err.message : 'Delete failed');
+			toast(err instanceof Error ? err.message : 'Delete failed', 'error');
 		}
 	}
 </script>

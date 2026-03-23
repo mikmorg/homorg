@@ -9,8 +9,9 @@
 	import { init as initAudio } from '$audio/feedback.js';
 	import { registerSyncListeners } from '$offline/queue.js';
 	import { getAccessToken } from '$stores/auth.js';
+	import Toast from '$lib/components/Toast.svelte';
 
-	const PUBLIC_PATHS = ['/', '/login', '/setup'];
+	const PUBLIC_PATHS = ['/', '/login', '/setup', '/register'];
 
 	onMount(() => {
 		// Start HID scanner immediately — no permissions needed
@@ -108,6 +109,19 @@
 					<span class="text-xs">Admin</span>
 				</a>
 			{/if}
+
+			<a
+				href="/account"
+				class="nav-tab"
+				class:nav-tab-active={isActive('/account')}
+				aria-label="Account"
+			>
+				<svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+					<path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
+					<circle cx="12" cy="7" r="4" />
+				</svg>
+				<span class="text-xs">Account</span>
+			</a>
 		</nav>
 	{/if}
 
@@ -119,6 +133,7 @@
 			</div>
 		</div>
 	{/if}
+<Toast />
 </div>
 
 <style>

@@ -1,33 +1,34 @@
 <script lang="ts">
-	import { writable } from 'svelte/store';
+	import { toasts, dismissToast } from '$stores/toast.js';
+	import { api } from '$api/client.js';
 
-	interface ToastMessage {
-		id: number;
-		text: string;
-		type: 'success' | 'error' | 'info';
-	}
-
-	let idCounter = 0;
-	export const toasts = writable<ToastMessage[]>([]);
-
-	export function toast(text: string, type: ToastMessage['type'] = 'success', duration = 3000) {
-		const id = ++idCounter;
-		toasts.update((t) => [...t, { id, text, type }]);
-		setTimeout(() => {
-			toasts.update((t) => t.filter((m) => m.id !== id));
-		}, duration);
+	async function handleUndo(toastId: number, eventId: string) {
+		dismissToast(toastId);
+		try {
+			await api.undo.single(eventId);
+		} catch {
+			// Undo failed — silently ignore
+		}
 	}
 </script>
 
-<div class="fixed top-4 left-1/2 -translate-x-1/2 z-[100] flex flex-col gap-2 pointer-events-none">
+<div class="fixed top-4 left-1/2 -translate-x-1/2 z-[100] flex flex-col gap-2 pointer-events-none w-[90vw] max-w-sm">
 	{#each $toasts as msg (msg.id)}
 		<div
-			class="pointer-events-auto rounded-lg px-4 py-2.5 text-sm font-medium shadow-lg animate-in
+			class="pointer-events-auto rounded-lg px-4 py-2.5 text-sm font-medium shadow-lg animate-in flex items-center gap-2
 				{msg.type === 'success' ? 'bg-emerald-600 text-white' : ''}
 				{msg.type === 'error' ? 'bg-red-600 text-white' : ''}
 				{msg.type === 'info' ? 'bg-slate-700 text-slate-100' : ''}"
 		>
-			{msg.text}
+			<span class="flex-1">{msg.text}</span>
+			{#if msg.undoEventId}
+				<button
+					class="flex-shrink-0 rounded px-2 py-0.5 text-xs font-bold bg-white/20 hover:bg-white/30 transition-colors"
+					on:click={() => handleUndo(msg.id, msg.undoEventId ?? '')}
+				>
+					Undo
+				</button>
+			{/if}
 		</div>
 	{/each}
 </div>

@@ -82,5 +82,10 @@
 				{/if}
 			</button>
 		</form>
+
+		<p class="mt-6 text-center text-sm text-slate-400">
+			Have an invite code?
+			<a href="/register" class="text-indigo-400 hover:text-indigo-300">Register</a>
+		</p>
 	</div>
 </div>

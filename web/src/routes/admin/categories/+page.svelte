@@ -3,6 +3,7 @@
 	import { goto } from '$app/navigation';
 	import { api } from '$api/client.js';
 	import { isAdmin } from '$stores/auth.js';
+	import { toast } from '$stores/toast.js';
 	import type { Category } from '$api/types.js';
 
 	let categories: Category[] = [];
@@ -85,7 +86,7 @@
 			await api.categories.delete(cat.id);
 			await loadCategories();
 		} catch (err) {
-			alert(err instanceof Error ? err.message : 'Delete failed');
+			toast(err instanceof Error ? err.message : 'Delete failed', 'error');
 		}
 	}
 </script>

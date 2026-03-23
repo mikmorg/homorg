@@ -3,6 +3,7 @@
 	import { goto } from '$app/navigation';
 	import { api } from '$api/client.js';
 	import { isAdmin } from '$stores/auth.js';
+	import { toast } from '$stores/toast.js';
 	import type { ContainerType } from '$api/types.js';
 	import { schemaTypeLabel } from '$lib/coordinate-helpers.js';
 	import LocationSchemaEditor from '$lib/components/LocationSchemaEditor.svelte';
@@ -102,7 +103,7 @@
 			await api.containerTypes.delete(ct.id);
 			await loadTypes();
 		} catch (err) {
-			alert(err instanceof Error ? err.message : 'Delete failed');
+			toast(err instanceof Error ? err.message : 'Delete failed', 'error');
 		}
 	}
 </script>
