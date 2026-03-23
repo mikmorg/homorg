@@ -21,6 +21,10 @@
 	let deleting = false;
 	let deleteError = '';
 
+	// Convert state
+	let showDownconvertConfirm = false;
+	let converting = false;
+
 	// Move state
 	let showMovePicker = false;
 	let moveQuery = '';
@@ -58,6 +62,30 @@
 		} catch (err) {
 			deleteError = err instanceof Error ? err.message : 'Delete failed';
 			deleting = false;
+		}
+	}
+
+	async function convertItem() {
+		if (!item) return;
+		converting = true;
+		deleteError = '';
+		try {
+			await api.items.update(itemId, { is_container: !item.is_container });
+			showDownconvertConfirm = false;
+			item = await api.items.get(itemId);
+		} catch (err) {
+			deleteError = err instanceof Error ? err.message : 'Conversion failed';
+		} finally {
+			converting = false;
+		}
+	}
+
+	function onConvertClick() {
+		if (!item) return;
+		if (item.is_container) {
+			showDownconvertConfirm = true;
+		} else {
+			convertItem();
 		}
 	}
 
@@ -202,6 +230,10 @@
 
 				<!-- Properties grid -->
 				<div class="card divide-y divide-slate-700">
+					<div class="flex items-center justify-between px-3 py-2.5">
+						<span class="text-sm text-slate-400">Type</span>
+						<span class="text-sm font-medium text-slate-100">{item.is_container ? 'Container' : 'Item'}</span>
+					</div>
 					{#if item.fungible_quantity !== null}
 						<div class="flex items-center justify-between px-3 py-2.5">
 							<span class="text-sm text-slate-400">Quantity</span>
@@ -257,6 +289,17 @@
 
 				<!-- Actions -->
 				<div class="space-y-2 pt-2">
+					{#if !item.is_fungible}
+						<button class="btn btn-secondary w-full" on:click={onConvertClick} disabled={converting}>
+							{#if converting}
+								Converting…
+							{:else if item.is_container}
+								Convert to item
+							{:else}
+								Convert to container
+							{/if}
+						</button>
+					{/if}
 					<button class="btn btn-secondary w-full" on:click={() => { showMovePicker = true; moveQuery = ''; moveResults = []; moveTargetItem = null; moveCoordinate = null; }}>
 						Move to another container
 					</button>
@@ -282,6 +325,17 @@
 	destructive={true}
 	loading={deleting}
 	onConfirm={deleteItem}
+/>
+
+<!-- Downconvert confirmation -->
+<ConfirmDialog
+	bind:open={showDownconvertConfirm}
+	title="Convert to item?"
+	message="This will remove the container status from {item?.name ?? 'this item'}. The container must be empty."
+	confirmLabel={converting ? 'Converting…' : 'Convert'}
+	destructive={false}
+	loading={converting}
+	onConfirm={convertItem}
 />
 
 <!-- Move picker -->

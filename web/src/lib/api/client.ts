@@ -128,7 +128,7 @@ export const auth = {
 
 export const items = {
 	get: (id: string) => get$<Item>(`/items/${id}`),
-	create: (body: CreateItemRequest) => post$<StoredEvent>('/items/', body),
+	create: (body: CreateItemRequest) => post$<StoredEvent>('/items', body),
 	update: (id: string, body: UpdateItemRequest) => put$<StoredEvent>(`/items/${id}`, body),
 	delete: (id: string, reason?: string) =>
 		request<void>('DELETE', `/items/${id}`, {

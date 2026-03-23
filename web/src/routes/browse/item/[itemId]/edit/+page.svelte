@@ -28,6 +28,7 @@
 	let warrantyExpiry = '';
 	let coordinateValue: unknown | null = null;
 	let locationSchemaValue: unknown | null = null;
+	let isContainer = false;
 
 	// Taxonomy data
 	let categories: Category[] = [];
@@ -64,6 +65,7 @@
 			warrantyExpiry = item.warranty_expiry ?? '';
 			coordinateValue = item.coordinate;
 			locationSchemaValue = item.location_schema;
+			isContainer = item.is_container;
 			if (item.parent_id) {
 				parentItem = await api.items.get(item.parent_id);
 			}
@@ -131,7 +133,11 @@
 			updates.coordinate = coordinateValue;
 		}
 
-		const schemaChanged = item.is_container &&
+		if (isContainer !== item.is_container) {
+			updates.is_container = isContainer;
+		}
+
+		const schemaChanged = isContainer &&
 			JSON.stringify(locationSchemaValue) !== JSON.stringify(item.location_schema);
 
 		if (Object.keys(updates).length === 0 && !schemaChanged) {
@@ -144,7 +150,7 @@
 			if (Object.keys(updates).length > 0) {
 				await api.items.update(itemId, updates);
 			}
-			if (schemaChanged) {
+			if (schemaChanged && isContainer) {
 				await api.containers.updateSchema(itemId, locationSchemaValue);
 			}
 			goto(`/browse/item/${itemId}`);
@@ -284,6 +290,29 @@
 					</div>
 				{/if}
 
+				<!-- Container toggle -->
+				<div class="card p-3">
+					<label class="flex items-center justify-between cursor-pointer" for="edit-is-container">
+						<div>
+							<p class="text-sm font-medium text-slate-300">Container</p>
+							<p class="text-xs text-slate-500">Allow this item to hold other items</p>
+						</div>
+						<input
+							id="edit-is-container"
+							type="checkbox"
+							class="h-5 w-5 rounded border-slate-600 bg-slate-800 text-indigo-500 focus:ring-indigo-500 focus:ring-offset-0"
+							bind:checked={isContainer}
+							disabled={item.is_fungible}
+						/>
+					</label>
+					{#if item.is_fungible}
+						<p class="mt-1 text-xs text-amber-400">Fungible items cannot be containers</p>
+					{/if}
+					{#if !isContainer && item.is_container}
+						<p class="mt-1 text-xs text-amber-400">Container must be empty to convert</p>
+					{/if}
+				</div>
+
 				<!-- Coordinate -->
 				{#if parentItem?.location_schema || item.coordinate}
 					<div class="card p-3">
@@ -292,7 +321,7 @@
 				{/if}
 
 				<!-- Location Schema (containers only) -->
-				{#if item.is_container}
+				{#if isContainer}
 					<div class="card p-3">
 						<LocationSchemaEditor bind:value={locationSchemaValue} />
 					</div>

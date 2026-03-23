@@ -3,9 +3,10 @@
 	import { page } from '$app/stores';
 	import { goto } from '$app/navigation';
 	import { api } from '$api/client.js';
-	import type { Item, ItemSummary, CreateItemRequest, Condition } from '$api/types.js';
+	import type { Item, ItemSummary, CreateItemRequest, Condition, Category, Tag, ContainerType } from '$api/types.js';
 	import { CONDITIONS } from '$api/types.js';
 	import CoordinateInput from '$lib/components/CoordinateInput.svelte';
+	import LocationSchemaEditor from '$lib/components/LocationSchemaEditor.svelte';
 
 	const ROOT_ID = '00000000-0000-0000-0000-000000000001';
 
@@ -24,8 +25,20 @@
 	let createDescription = '';
 	let createCondition: Condition | '' = '';
 	let createCoordinate: unknown | null = null;
+	let createCategoryId: string | null = null;
+	let createSelectedTagIds: Set<string> = new Set();
+	let createContainerTypeId: string | null = null;
+	let createLocationSchema: unknown | null = null;
+	let createImages: File[] = [];
+	let createImagePreviews: string[] = [];
 	let creating = false;
 	let createError = '';
+
+	// Taxonomy data (loaded once for the create form)
+	let categories: Category[] = [];
+	let allTags: Tag[] = [];
+	let containerTypes: ContainerType[] = [];
+	let taxonomyLoaded = false;
 
 	$: containerId = $page.url.searchParams.get('id') ?? ROOT_ID;
 
@@ -64,14 +77,76 @@
 		goto(`/browse?id=${id}`);
 	}
 
+	async function loadTaxonomy() {
+		if (taxonomyLoaded) return;
+		try {
+			const [cats, tags, ctypes] = await Promise.all([
+				api.categories.list(),
+				api.tags.list(),
+				api.containerTypes.list()
+			]);
+			categories = cats;
+			allTags = tags;
+			containerTypes = ctypes;
+			taxonomyLoaded = true;
+		} catch {
+			// Non-critical — form works without taxonomy
+		}
+	}
+
 	function openCreate(type: 'item' | 'container') {
 		createType = type;
 		createName = '';
 		createDescription = '';
 		createCondition = '';
 		createCoordinate = null;
+		createCategoryId = null;
+		createSelectedTagIds = new Set();
+		createContainerTypeId = null;
+		createLocationSchema = null;
+		createImages = [];
+		createImagePreviews.forEach((url) => URL.revokeObjectURL(url));
+		createImagePreviews = [];
 		createError = '';
 		showCreate = true;
+		loadTaxonomy();
+	}
+
+	function handleImageAdd(e: Event) {
+		const input = e.target as HTMLInputElement;
+		const files = input.files;
+		if (!files) return;
+		for (let i = 0; i < files.length; i++) {
+			createImages = [...createImages, files[i]];
+			createImagePreviews = [...createImagePreviews, URL.createObjectURL(files[i])];
+		}
+		input.value = '';
+	}
+
+	function removeCreateImage(idx: number) {
+		URL.revokeObjectURL(createImagePreviews[idx]);
+		createImages = createImages.filter((_, i) => i !== idx);
+		createImagePreviews = createImagePreviews.filter((_, i) => i !== idx);
+	}
+
+	function toggleCreateTag(tagId: string) {
+		if (createSelectedTagIds.has(tagId)) {
+			createSelectedTagIds.delete(tagId);
+		} else {
+			createSelectedTagIds.add(tagId);
+		}
+		createSelectedTagIds = new Set(createSelectedTagIds);
+	}
+
+	function applyContainerType() {
+		if (!createContainerTypeId) {
+			createLocationSchema = null;
+			return;
+		}
+		const ct = containerTypes.find((t) => t.id === createContainerTypeId);
+		if (ct) {
+			createLocationSchema = ct.default_location_schema ?? null;
+		}
 	}
 
 	async function submitCreate() {
@@ -87,8 +162,45 @@
 			if (createDescription.trim()) body.description = createDescription.trim();
 			if (createCondition && createType === 'item') body.condition = createCondition;
 			if (createCoordinate) body.coordinate = createCoordinate;
-			await api.items.create(body);
+			if (createContainerTypeId) body.container_type_id = createContainerTypeId;
+
+			// Category
+			if (createCategoryId) {
+				const cat = categories.find((c) => c.id === createCategoryId);
+				if (cat) body.category = cat.name;
+			}
+
+			// Tags
+			const tagNames = allTags
+				.filter((t) => createSelectedTagIds.has(t.id))
+				.map((t) => t.name);
+			if (tagNames.length > 0) body.tags = tagNames;
+
+			const event = await api.items.create(body);
+
+			// Upload images after creation
+			const newItemId = event.aggregate_id;
+			for (const file of createImages) {
+				try {
+					await api.items.uploadImage(newItemId, file);
+				} catch {
+					// Image upload failure is non-fatal
+				}
+			}
+
+			// Update container schema if set
+			if (createType === 'container' && createLocationSchema) {
+				try {
+					await api.containers.updateSchema(newItemId, createLocationSchema);
+				} catch {
+					// Schema update failure is non-fatal
+				}
+			}
+
 			showCreate = false;
+			createImagePreviews.forEach((url) => URL.revokeObjectURL(url));
+			createImagePreviews = [];
+			createImages = [];
 			await load();
 		} catch (err) {
 			createError = err instanceof Error ? err.message : 'Failed to create';
@@ -224,43 +336,88 @@
 	</div>
 </div>
 
-<!-- Create form bottom sheet -->
+<!-- Create form — full-screen overlay -->
 {#if showCreate}
-<!-- svelte-ignore a11y_no_static_element_interactions -->
-<div class="fixed inset-0 z-50 flex flex-col justify-end bg-black/60" on:click|self={() => (showCreate = false)} on:keydown={(e) => e.key === 'Escape' && (showCreate = false)}>
-	<div class="rounded-t-2xl bg-slate-900 p-4 pb-8">
-		<div class="mb-4 flex items-center justify-between">
-			<h2 class="text-base font-semibold text-slate-100">
-				New {createType === 'container' ? 'container' : 'item'}
-			</h2>
-			<button class="btn btn-icon text-slate-400" on:click={() => (showCreate = false)} aria-label="Close">
-				<svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-					<path d="M18 6L6 18M6 6l12 12" />
-				</svg>
-			</button>
-		</div>
+<div class="fixed inset-0 z-50 flex flex-col bg-slate-950">
+	<header class="flex items-center gap-2 border-b border-slate-800 px-3 py-2">
+		<button class="btn btn-icon text-slate-400" on:click={() => { showCreate = false; createImagePreviews.forEach((u) => URL.revokeObjectURL(u)); }} aria-label="Cancel">
+			<svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+				<path d="M18 6L6 18M6 6l12 12" />
+			</svg>
+		</button>
+		<h2 class="flex-1 text-base font-semibold text-slate-100">
+			New {createType === 'container' ? 'container' : 'item'}
+		</h2>
+		<button class="btn btn-primary text-xs" on:click={submitCreate} disabled={creating}>
+			{creating ? 'Creating…' : 'Create'}
+		</button>
+	</header>
 
+	<div class="flex-1 overflow-y-auto p-4">
 		{#if createError}
 			<div class="mb-3 rounded-lg bg-red-950 px-3 py-2 text-sm text-red-300 border border-red-800">{createError}</div>
 		{/if}
 
-		<div class="space-y-3">
+		<div class="space-y-4">
+			<!-- Images -->
 			<div>
-				<label class="mb-1 block text-sm font-medium text-slate-300" for="create-name">Name</label>
+				<p class="mb-2 text-sm font-medium text-slate-300">Photos</p>
+				{#if createImagePreviews.length > 0}
+					<div class="mb-3 flex gap-2 overflow-x-auto pb-1">
+						{#each createImagePreviews as preview, idx}
+							<div class="relative flex-shrink-0">
+								<img src={preview} alt="Preview {idx + 1}" class="h-20 w-20 rounded-lg object-cover" />
+								<button
+									class="absolute -top-1.5 -right-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-red-600 text-white text-xs"
+									on:click={() => removeCreateImage(idx)}
+								>
+									&times;
+								</button>
+							</div>
+						{/each}
+					</div>
+				{/if}
+				<label class="btn btn-secondary w-full cursor-pointer text-sm">
+					<svg class="mr-1.5 h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+						<path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z" />
+						<circle cx="12" cy="13" r="4" />
+					</svg>
+					Add photos
+					<input type="file" accept="image/*" multiple class="hidden" on:change={handleImageAdd} />
+				</label>
+			</div>
+
+			<!-- Name -->
+			<div>
+				<label class="mb-1 block text-sm font-medium text-slate-300" for="create-name">Name *</label>
 				<input
 					id="create-name"
 					class="input"
 					bind:value={createName}
 					placeholder={createType === 'container' ? 'e.g. Garage shelf' : 'e.g. Cordless drill'}
-					on:keydown={(e) => e.key === 'Enter' && submitCreate()}
 				/>
 			</div>
 
+			<!-- Description -->
 			<div>
 				<label class="mb-1 block text-sm font-medium text-slate-300" for="create-desc">Description</label>
 				<textarea id="create-desc" class="input min-h-16 resize-y" bind:value={createDescription} placeholder="Optional" rows="2"></textarea>
 			</div>
 
+			<!-- Category -->
+			{#if categories.length > 0}
+				<div>
+					<label class="mb-1 block text-sm font-medium text-slate-300" for="create-category">Category</label>
+					<select id="create-category" class="input" bind:value={createCategoryId}>
+						<option value={null}>None</option>
+						{#each categories as cat (cat.id)}
+							<option value={cat.id}>{cat.name}</option>
+						{/each}
+					</select>
+				</div>
+			{/if}
+
+			<!-- Condition (items only) -->
 			{#if createType === 'item'}
 				<div>
 					<label class="mb-1 block text-sm font-medium text-slate-300" for="create-condition">Condition</label>
@@ -273,10 +430,49 @@
 				</div>
 			{/if}
 
+			<!-- Tags -->
+			{#if allTags.length > 0}
+				<div>
+					<p class="mb-2 text-sm font-medium text-slate-300">Tags</p>
+					<div class="flex flex-wrap gap-1.5">
+						{#each allTags as tag (tag.id)}
+							<button
+								type="button"
+								class="rounded-full px-3 py-1 text-xs font-medium transition-colors
+									{createSelectedTagIds.has(tag.id) ? 'bg-indigo-600 text-white' : 'bg-slate-700 text-slate-300 hover:bg-slate-600'}"
+								on:click={() => toggleCreateTag(tag.id)}
+							>
+								{tag.name}
+							</button>
+						{/each}
+					</div>
+				</div>
+			{/if}
+
+			<!-- Container type (containers only) -->
+			{#if createType === 'container' && containerTypes.length > 0}
+				<div>
+					<label class="mb-1 block text-sm font-medium text-slate-300" for="create-ctype">Container type</label>
+					<select id="create-ctype" class="input" bind:value={createContainerTypeId} on:change={applyContainerType}>
+						<option value={null}>None</option>
+						{#each containerTypes as ct (ct.id)}
+							<option value={ct.id}>{ct.icon ?? ''} {ct.name}</option>
+						{/each}
+					</select>
+				</div>
+			{/if}
+
+			<!-- Location schema (containers only) -->
+			{#if createType === 'container'}
+				<LocationSchemaEditor bind:value={createLocationSchema} />
+			{/if}
+
+			<!-- Coordinate (when parent has a schema) -->
 			{#if containerItem?.location_schema}
 				<CoordinateInput schema={containerItem.location_schema} bind:value={createCoordinate} />
 			{/if}
 
+			<!-- Create button (bottom) -->
 			<button class="btn btn-primary w-full" on:click={submitCreate} disabled={creating}>
 				{creating ? 'Creating…' : `Create ${createType}`}
 			</button>
