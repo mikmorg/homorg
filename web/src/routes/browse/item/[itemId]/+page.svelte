@@ -8,7 +8,7 @@
 	import CoordinateDisplay from '$lib/components/CoordinateDisplay.svelte';
 	import CoordinateInput from '$lib/components/CoordinateInput.svelte';
 	import LocationSchemaDisplay from '$lib/components/LocationSchemaDisplay.svelte';
-	import { toast, toastWithUndo } from '$stores/toast.js';
+	import { toast } from '$stores/toast.js';
 
 	const itemId = $page.params.itemId!;
 	let item: Item | null = null;
@@ -20,7 +20,7 @@
 	// Delete state
 	let showDeleteConfirm = false;
 	let deleting = false;
-	let deleteError = '';
+	let actionError = '';
 
 	// Convert state
 	let showDownconvertConfirm = false;
@@ -84,13 +84,14 @@
 
 	async function deleteItem() {
 		deleting = true;
+		actionError = '';
 		try {
 			await api.items.delete(itemId);
 			showDeleteConfirm = false;
 			toast('Item deleted', 'success');
-			history.back();
+			goto(item?.parent_id ? `/browse?id=${item.parent_id}` : '/browse');
 		} catch (err) {
-			deleteError = err instanceof Error ? err.message : 'Delete failed';
+			actionError = err instanceof Error ? err.message : 'Delete failed';
 			deleting = false;
 		}
 	}
@@ -98,7 +99,7 @@
 	async function convertItem() {
 		if (!item) return;
 		converting = true;
-		deleteError = '';
+		actionError = '';
 		try {
 			const wasContainer = item.is_container;
 			await api.items.update(itemId, { is_container: !wasContainer });
@@ -106,7 +107,7 @@
 			item = await api.items.get(itemId);
 			toast(wasContainer ? 'Converted to item' : 'Converted to container', 'success');
 		} catch (err) {
-			deleteError = err instanceof Error ? err.message : 'Conversion failed';
+			actionError = err instanceof Error ? err.message : 'Conversion failed';
 		} finally {
 			converting = false;
 		}
@@ -170,7 +171,7 @@
 			}
 			toast('Item moved', 'success');
 		} catch (err) {
-			deleteError = err instanceof Error ? err.message : 'Move failed';
+			actionError = err instanceof Error ? err.message : 'Move failed';
 		} finally {
 			moving = false;
 		}
@@ -218,7 +219,7 @@
 
 	async function adjustQuantity() {
 		adjustingQuantity = true;
-		deleteError = '';
+		actionError = '';
 		try {
 			await api.items.adjustQuantity(itemId, {
 				new_quantity: newQuantity,
@@ -229,7 +230,7 @@
 			quantityReason = '';
 			toast('Quantity updated', 'success');
 		} catch (err) {
-			deleteError = err instanceof Error ? err.message : 'Adjustment failed';
+			actionError = err instanceof Error ? err.message : 'Adjustment failed';
 		} finally {
 			adjustingQuantity = false;
 		}
@@ -237,7 +238,7 @@
 
 	async function assignBarcode() {
 		assigningBarcode = true;
-		deleteError = '';
+		actionError = '';
 		try {
 			await api.items.assignBarcode(itemId, { barcode: barcodeValue.trim() });
 			item = await api.items.get(itemId);
@@ -245,7 +246,7 @@
 			barcodeValue = '';
 			toast('Barcode assigned', 'success');
 		} catch (err) {
-			deleteError = err instanceof Error ? err.message : 'Assignment failed';
+			actionError = err instanceof Error ? err.message : 'Assignment failed';
 		} finally {
 			assigningBarcode = false;
 		}
@@ -253,7 +254,7 @@
 
 	async function addExternalCode() {
 		addingCode = true;
-		deleteError = '';
+		actionError = '';
 		try {
 			await api.items.addExternalCode(itemId, newCodeType.trim(), newCodeValue.trim());
 			item = await api.items.get(itemId);
@@ -262,20 +263,20 @@
 			newCodeValue = '';
 			toast('Code added', 'success');
 		} catch (err) {
-			deleteError = err instanceof Error ? err.message : 'Failed to add code';
+			actionError = err instanceof Error ? err.message : 'Failed to add code';
 		} finally {
 			addingCode = false;
 		}
 	}
 
 	async function removeExternalCode(type: string, value: string) {
-		deleteError = '';
+		actionError = '';
 		try {
 			await api.items.removeExternalCode(itemId, type, value);
 			item = await api.items.get(itemId);
 			toast('Code removed', 'success');
 		} catch (err) {
-			deleteError = err instanceof Error ? err.message : 'Failed to remove code';
+			actionError = err instanceof Error ? err.message : 'Failed to remove code';
 		}
 	}
 
@@ -315,7 +316,7 @@
 			<div class="space-y-4">
 				<!-- Name + condition -->
 				<div>
-					<h2 class="text-xl font-semibold text-slate-100">{item.name}</h2>
+					<h2 class="text-xl font-semibold text-slate-100">{item.name ?? 'Unnamed item'}</h2>
 					{#if item.condition}
 						<span class="badge badge-{item.condition} mt-1">{CONDITION_LABELS[item.condition] ?? item.condition}</span>
 					{/if}
@@ -552,8 +553,8 @@
 					</button>
 				</div>
 
-				{#if deleteError}
-					<p class="text-sm text-red-400">{deleteError}</p>
+				{#if actionError}
+					<p class="text-sm text-red-400">{actionError}</p>
 				{/if}
 			</div>
 		{/if}

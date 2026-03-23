@@ -15,7 +15,7 @@
 		try {
 			const res = await api.auth.login({ username, password });
 			authStore.set(res);
-			goto('/stocker');
+			goto('/browse');
 		} catch (err) {
 			error = err instanceof Error ? err.message : 'Login failed';
 		} finally {

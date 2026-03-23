@@ -332,7 +332,7 @@
 						<!-- Info -->
 						<div class="min-w-0 flex-1">
 							<div class="flex items-center gap-2">
-								<span class="truncate font-medium text-slate-100">{item.name}</span>
+								<span class="truncate font-medium text-slate-100">{item.name ?? 'Unnamed'}</span>
 								{#if item.condition && !item.is_container}
 									<span class={conditionClass(item.condition)} style="font-size: 0.65rem">
 										{item.condition.replace('_', ' ')}

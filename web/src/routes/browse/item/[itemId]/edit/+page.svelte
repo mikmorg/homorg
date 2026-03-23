@@ -28,6 +28,9 @@
 	let currency = '';
 	let warrantyExpiry = '';
 	let coordinateValue: unknown | null = null;
+	let weightGrams = '';
+	let isFungible = false;
+	let fungibleUnit = '';
 	let locationSchemaValue: unknown | null = null;
 	let isContainer = false;
 
@@ -65,6 +68,9 @@
 			currency = item.currency ?? '';
 			warrantyExpiry = item.warranty_expiry ?? '';
 			coordinateValue = item.coordinate;
+			weightGrams = item.weight_grams ?? '';
+			isFungible = item.is_fungible;
+			fungibleUnit = item.fungible_unit ?? '';
 			locationSchemaValue = item.location_schema;
 			isContainer = item.is_container;
 			if (item.parent_id) {
@@ -128,6 +134,26 @@
 		const newWarranty = warrantyExpiry || undefined;
 		if (newWarranty !== (item.warranty_expiry ?? undefined)) {
 			updates.warranty_expiry = newWarranty;
+		}
+
+		const newCurrency = currency || undefined;
+		if (newCurrency !== (item.currency ?? undefined)) {
+			updates.currency = newCurrency;
+		}
+
+		const newWeight = weightGrams ? parseFloat(weightGrams) : undefined;
+		const oldWeight = item.weight_grams ? parseFloat(item.weight_grams) : undefined;
+		if (newWeight !== oldWeight) {
+			updates.weight_grams = newWeight;
+		}
+
+		if (isFungible !== item.is_fungible) {
+			updates.is_fungible = isFungible;
+		}
+
+		const newFungibleUnit = fungibleUnit || undefined;
+		if (newFungibleUnit !== (item.fungible_unit ?? undefined)) {
+			updates.fungible_unit = newFungibleUnit;
 		}
 
 		if (JSON.stringify(coordinateValue) !== JSON.stringify(item.coordinate)) {
@@ -311,6 +337,32 @@
 					{/if}
 					{#if !isContainer && item.is_container}
 						<p class="mt-1 text-xs text-amber-400">Container must be empty to convert</p>
+					{/if}
+				</div>
+
+				<!-- Fungible toggle -->
+				<div class="card p-3">
+					<label class="flex items-center justify-between cursor-pointer" for="edit-is-fungible">
+						<div>
+							<p class="text-sm font-medium text-slate-300">Fungible</p>
+							<p class="text-xs text-slate-500">Track quantity instead of uniqueness</p>
+						</div>
+						<input
+							id="edit-is-fungible"
+							type="checkbox"
+							class="h-5 w-5 rounded border-slate-600 bg-slate-800 text-indigo-500 focus:ring-indigo-500 focus:ring-offset-0"
+							bind:checked={isFungible}
+							disabled={isContainer}
+						/>
+					</label>
+					{#if isContainer}
+						<p class="mt-1 text-xs text-amber-400">Containers cannot be fungible</p>
+					{/if}
+					{#if isFungible}
+						<div class="mt-2">
+							<label class="mb-1 block text-xs text-slate-400" for="edit-fungible-unit">Unit</label>
+							<input id="edit-fungible-unit" class="input text-sm" bind:value={fungibleUnit} placeholder="e.g. pieces, ml, kg" />
+						</div>
 					{/if}
 				</div>
 

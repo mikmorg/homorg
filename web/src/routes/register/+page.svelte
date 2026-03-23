@@ -8,6 +8,7 @@
 	let password = '';
 	let displayName = '';
 	let inviteCode = '';
+	let confirmPassword = '';
 	let loading = false;
 	let error = '';
 
@@ -20,6 +21,7 @@
 	async function register(e: SubmitEvent) {
 		e.preventDefault();
 		error = '';
+		if (password !== confirmPassword) { error = 'Passwords do not match'; return; }
 		loading = true;
 		try {
 			const res = await api.auth.register({
@@ -111,6 +113,21 @@
 					type="password"
 					autocomplete="new-password"
 					bind:value={password}
+					required
+					disabled={loading}
+				/>
+			</div>
+
+			<div>
+				<label class="mb-1.5 block text-sm font-medium text-slate-300" for="reg-confirm">
+					Confirm password
+				</label>
+				<input
+					id="reg-confirm"
+					class="input"
+					type="password"
+					autocomplete="new-password"
+					bind:value={confirmPassword}
 					required
 					disabled={loading}
 				/>

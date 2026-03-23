@@ -9,6 +9,7 @@
 	let results: ItemSummary[] = [];
 	let loading = false;
 	let searched = false;
+	let searchError = '';
 	let debounceTimer: ReturnType<typeof setTimeout> | null = null;
 
 	// Filters
@@ -41,6 +42,7 @@
 	async function doSearch() {
 		loading = true;
 		searched = true;
+		searchError = '';
 		try {
 			const res = await api.search.query({
 				q: query || undefined,
@@ -52,8 +54,9 @@
 				limit: 50
 			});
 			results = res;
-		} catch {
+		} catch (err) {
 			results = [];
+			searchError = err instanceof Error ? err.message : 'Search failed';
 		} finally {
 			loading = false;
 		}
@@ -162,6 +165,8 @@
 			<div class="flex h-20 items-center justify-center">
 				<div class="h-5 w-5 animate-spin rounded-full border-2 border-slate-600 border-t-indigo-500"></div>
 			</div>
+		{:else if searchError}
+			<div class="m-4 rounded-lg bg-red-950 px-4 py-3 text-sm text-red-300 border border-red-800">{searchError}</div>
 		{:else if searched && results.length === 0}
 			<div class="flex h-32 flex-col items-center justify-center gap-1 text-slate-500">
 				<p class="text-sm">No results</p>
@@ -189,7 +194,7 @@
 							{item.is_container ? '📦' : '🔧'}
 						</div>
 						<div class="min-w-0 flex-1">
-							<p class="truncate font-medium text-slate-100">{item.name}</p>
+							<p class="truncate font-medium text-slate-100">{item.name ?? 'Unnamed'}</p>
 							<div class="flex items-center gap-2 mt-0.5 text-xs text-slate-400">
 								{#if item.category}
 									<span>{item.category}</span>
