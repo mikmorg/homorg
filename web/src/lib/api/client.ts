@@ -165,8 +165,8 @@ export const containers = {
 		get$<ItemSummary[]>(`/containers/${id}/descendants`, params as Record<string, unknown>),
 	ancestors: (id: string) => get$<AncestorEntry[]>(`/containers/${id}/ancestors`),
 	stats: (id: string) => get$<ContainerStats>(`/containers/${id}/stats`),
-	updateSchema: (id: string, schema: unknown) =>
-		put$<StoredEvent>(`/containers/${id}/schema`, { schema })
+	updateSchema: (id: string, schema: unknown, label_renames?: Record<string, string>) =>
+		put$<StoredEvent>(`/containers/${id}/schema`, { schema, ...(label_renames && Object.keys(label_renames).length > 0 ? { label_renames } : {}) })
 };
 
 // ─── Barcodes ────────────────────────────────────────────────────────────────

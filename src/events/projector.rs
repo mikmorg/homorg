@@ -721,6 +721,19 @@ impl Projector {
         .execute(&mut **tx)
         .await?;
 
+        // Rename children's coordinates when labels are renamed.
+        for (old_label, new_label) in &data.label_renames {
+            sqlx::query(
+                "UPDATE items SET coordinate = jsonb_set(coordinate, '{value}', to_jsonb($1::text)) \
+                 WHERE parent_id = $2 AND coordinate->>'type' = 'abstract' AND coordinate->>'value' = $3",
+            )
+            .bind(new_label)
+            .bind(id)
+            .bind(old_label)
+            .execute(&mut **tx)
+            .await?;
+        }
+
         sqlx::query("UPDATE items SET updated_by = $1 WHERE id = $2")
             .bind(actor_id)
             .bind(id)

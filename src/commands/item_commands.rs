@@ -590,13 +590,14 @@ impl ItemCommands {
         self.verify_item_exists(&mut tx, item_id).await?;
 
         // CB-5: Enforce max external code count inside the transaction to prevent TOCTOU.
-        let current_count: i64 = sqlx::query_scalar(
+        // jsonb_array_length returns INT4, so decode as i32.
+        let current_count: i32 = sqlx::query_scalar(
             "SELECT COALESCE(jsonb_array_length(external_codes), 0) FROM items WHERE id = $1 AND is_deleted = FALSE",
         )
         .bind(item_id)
         .fetch_one(&mut *tx)
         .await?;
-        if current_count >= MAX_EXTERNAL_CODES as i64 {
+        if current_count >= MAX_EXTERNAL_CODES as i32 {
             return Err(AppError::BadRequest(format!(
                 "Cannot add external code: item already has {current_count} external codes (max {MAX_EXTERNAL_CODES})"
             )));
@@ -704,6 +705,7 @@ impl ItemCommands {
         &self,
         container_id: Uuid,
         new_schema: serde_json::Value,
+        label_renames: std::collections::HashMap<String, String>,
         actor_id: Uuid,
         metadata: &EventMetadata,
     ) -> AppResult<StoredEvent> {
@@ -720,6 +722,7 @@ impl ItemCommands {
         let event = DomainEvent::ContainerSchemaUpdated(ContainerSchemaUpdatedData {
             old_schema: current_schema,
             new_schema,
+            label_renames,
         });
 
         let stored = self.event_store.append_in_tx(&mut tx, container_id, &event, actor_id, metadata).await?;

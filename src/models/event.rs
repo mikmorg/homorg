@@ -182,6 +182,9 @@ pub struct QuantityAdjustedData {
 pub struct ContainerSchemaUpdatedData {
     pub old_schema: Option<serde_json::Value>,
     pub new_schema: serde_json::Value,
+    /// Maps old label → new label for coordinate renames on children.
+    #[serde(default, skip_serializing_if = "std::collections::HashMap::is_empty")]
+    pub label_renames: std::collections::HashMap<String, String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

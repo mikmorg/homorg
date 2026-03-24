@@ -292,9 +292,14 @@ impl UndoCommands {
             }
             DomainEvent::ContainerSchemaUpdated(data) => {
                 // ES-1: Swap old↔new schema to restore the previous schema
+                // Reverse label renames so children's coordinates are restored too
+                let reverse_renames = data.label_renames.iter()
+                    .map(|(old, new)| (new.clone(), old.clone()))
+                    .collect();
                 let compensating = DomainEvent::ContainerSchemaUpdated(ContainerSchemaUpdatedData {
                     old_schema: Some(data.new_schema.clone()),
                     new_schema: data.old_schema.clone().unwrap_or(serde_json::Value::Null),
+                    label_renames: reverse_renames,
                 });
                 Ok((compensating, aggregate_id))
             }

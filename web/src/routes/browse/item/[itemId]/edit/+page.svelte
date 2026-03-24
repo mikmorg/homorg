@@ -31,7 +31,9 @@
 	let weightGrams = '';
 	let isFungible = false;
 	let fungibleUnit = '';
+	let fungibleQuantity = '';
 	let locationSchemaValue: unknown | null = null;
+	let schemaLabelRenames: Record<string, string> = {};
 	let isContainer = false;
 
 	// Taxonomy data
@@ -71,6 +73,7 @@
 			weightGrams = item.weight_grams ?? '';
 			isFungible = item.is_fungible;
 			fungibleUnit = item.fungible_unit ?? '';
+			fungibleQuantity = item.fungible_quantity != null ? String(item.fungible_quantity) : '';
 			locationSchemaValue = item.location_schema;
 			isContainer = item.is_container;
 			if (item.parent_id) {
@@ -167,7 +170,11 @@
 		const schemaChanged = isContainer &&
 			JSON.stringify(locationSchemaValue) !== JSON.stringify(item.location_schema);
 
-		if (Object.keys(updates).length === 0 && !schemaChanged) {
+		const newQty = fungibleQuantity !== '' ? parseInt(fungibleQuantity) : null;
+		const oldQty = item.fungible_quantity ?? null;
+		const quantityChanged = isFungible && newQty !== null && newQty !== oldQty;
+
+		if (Object.keys(updates).length === 0 && !schemaChanged && !quantityChanged) {
 			saveError = 'No changes to save.';
 			saving = false;
 			return;
@@ -178,7 +185,10 @@
 				await api.items.update(itemId, updates);
 			}
 			if (schemaChanged && isContainer) {
-				await api.containers.updateSchema(itemId, locationSchemaValue);
+				await api.containers.updateSchema(itemId, locationSchemaValue, schemaLabelRenames);
+			}
+			if (quantityChanged && newQty !== null) {
+				await api.items.adjustQuantity(itemId, { new_quantity: newQty });
 			}
 			goto(`/browse/item/${itemId}`);
 		} catch (err) {
@@ -359,9 +369,15 @@
 						<p class="mt-1 text-xs text-amber-400">Containers cannot be fungible</p>
 					{/if}
 					{#if isFungible}
-						<div class="mt-2">
-							<label class="mb-1 block text-xs text-slate-400" for="edit-fungible-unit">Unit</label>
-							<input id="edit-fungible-unit" class="input text-sm" bind:value={fungibleUnit} placeholder="e.g. pieces, ml, kg" />
+						<div class="mt-2 grid grid-cols-2 gap-3">
+							<div>
+								<label class="mb-1 block text-xs text-slate-400" for="edit-fungible-qty">Quantity</label>
+								<input id="edit-fungible-qty" class="input text-sm" type="number" step="1" min="0" bind:value={fungibleQuantity} placeholder="0" />
+							</div>
+							<div>
+								<label class="mb-1 block text-xs text-slate-400" for="edit-fungible-unit">Unit</label>
+								<input id="edit-fungible-unit" class="input text-sm" bind:value={fungibleUnit} placeholder="e.g. pieces, ml, kg" />
+							</div>
 						</div>
 					{/if}
 				</div>
@@ -376,7 +392,7 @@
 				<!-- Location Schema (containers only) -->
 				{#if isContainer}
 					<div class="card p-3">
-						<LocationSchemaEditor bind:value={locationSchemaValue} />
+						<LocationSchemaEditor bind:value={locationSchemaValue} bind:labelRenames={schemaLabelRenames} />
 					</div>
 				{/if}
 

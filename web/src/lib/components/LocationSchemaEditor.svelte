@@ -1,7 +1,9 @@
 <script lang="ts">
 	import { parseLocationSchema } from '$lib/coordinate-helpers.js';
+	import { onMount } from 'svelte';
 
 	export let value: unknown | null = null;
+	export let labelRenames: Record<string, string> = {};
 
 	let schemaType: '' | 'abstract' | 'grid' | 'geo' = '';
 	let labels = '';
@@ -9,23 +11,38 @@
 	let columns = 3;
 	let rowLabels = '';
 	let columnLabels = '';
+	let originalLabels: string[] = [];
 
-	// Initialize from existing value
-	$: {
+	// Initialize form state from prop once on mount
+	onMount(() => {
 		const parsed = parseLocationSchema(value);
 		if (parsed) {
 			schemaType = parsed.type;
 			if (parsed.type === 'abstract') {
-				labels = parsed.labels?.join(', ') ?? '';
+				originalLabels = parsed.labels ?? [];
+				labels = originalLabels.join(', ');
 			} else if (parsed.type === 'grid') {
 				rows = parsed.rows;
 				columns = parsed.columns;
 				rowLabels = parsed.row_labels?.join(', ') ?? '';
 				columnLabels = parsed.column_labels?.join(', ') ?? '';
 			}
-		} else {
-			schemaType = value ? '' : '';
 		}
+	});
+
+	function computeRenames(newLabels: string[]) {
+		const renames: Record<string, string> = {};
+		for (let i = 0; i < originalLabels.length; i++) {
+			const oldLabel = originalLabels[i];
+			if (i < newLabels.length && newLabels[i] !== oldLabel) {
+				// Only rename if the new label isn't also an original label
+				// (to avoid conflicts when reordering)
+				if (!newLabels.includes(oldLabel)) {
+					renames[oldLabel] = newLabels[i];
+				}
+			}
+		}
+		labelRenames = renames;
 	}
 
 	function emit() {
@@ -33,6 +50,7 @@
 			case 'abstract': {
 				const labelList = labels.split(',').map((l) => l.trim()).filter(Boolean);
 				value = { type: 'abstract', ...(labelList.length > 0 ? { labels: labelList } : {}) };
+				computeRenames(labelList);
 				break;
 			}
 			case 'grid': {

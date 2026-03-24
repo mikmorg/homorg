@@ -98,6 +98,8 @@ async fn get_stats(
 #[derive(Debug, Deserialize)]
 struct SchemaBody {
     schema: serde_json::Value,
+    #[serde(default)]
+    label_renames: std::collections::HashMap<String, String>,
 }
 
 /// Update a container's location schema.
@@ -120,7 +122,7 @@ async fn update_schema(
     let metadata = EventMetadata::default();
     let event = state
         .item_commands
-        .update_container_schema(id, body.schema, auth.user_id, &metadata)
+        .update_container_schema(id, body.schema, body.label_renames, auth.user_id, &metadata)
         .await?;
     Ok(Json(event))
 }
