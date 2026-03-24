@@ -149,6 +149,7 @@ async fn update_item_computes_diffs() {
         is_fungible: None,
         fungible_unit: None,
         condition: None,
+        currency: None,
         acquisition_date: None,
         acquisition_cost: None,
         current_value: None,
@@ -203,6 +204,7 @@ async fn update_item_no_changes_returns_error() {
         is_fungible: None,
         fungible_unit: None,
         condition: None,
+        currency: None,
         acquisition_date: None,
         acquisition_cost: None,
         current_value: None,
@@ -262,6 +264,7 @@ async fn update_prevents_removing_container_with_children() {
         is_fungible: None,
         fungible_unit: None,
         condition: None,
+        currency: None,
         acquisition_date: None,
         acquisition_cost: None,
         current_value: None,
@@ -721,7 +724,7 @@ async fn update_container_schema() {
     });
     let stored = state
         .item_commands
-        .update_container_schema(container_id, schema.clone(), ctx.admin_id, &metadata)
+        .update_container_schema(container_id, schema.clone(), std::collections::HashMap::new(), ctx.admin_id, &metadata)
         .await
         .unwrap();
     assert_eq!(stored.event_type, "ContainerSchemaUpdated");

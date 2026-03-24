@@ -195,6 +195,7 @@ async fn undo_update_reverses_fields() {
         is_fungible: None,
         fungible_unit: None,
         condition: None,
+        currency: None,
         acquisition_date: None,
         acquisition_cost: None,
         current_value: None,
@@ -336,9 +337,7 @@ async fn undo_container_schema_restores_previous() {
     let schema_event = state
         .item_commands
         .update_container_schema(
-            container_id,
-            serde_json::json!({"type": "grid"}),
-            ctx.admin_id,
+            container_id, serde_json::json!({"type": "grid"}), std::collections::HashMap::new(), ctx.admin_id,
             &metadata,
         )
         .await

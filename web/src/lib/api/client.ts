@@ -136,7 +136,7 @@ export const items = {
 		}),
 	restore: (id: string) => post$<StoredEvent>(`/items/${id}/restore`),
 	move: (id: string, body: MoveItemRequest) => post$<StoredEvent>(`/items/${id}/move`, body),
-	history: (id: string, params?: { limit?: number; cursor?: string }) =>
+	history: (id: string, params?: { limit?: number; after_seq?: number }) =>
 		get$<StoredEvent[]>(`/items/${id}/history`, params),
 	uploadImage: (id: string, file: File, caption?: string, order?: number) => {
 		const form = new FormData();

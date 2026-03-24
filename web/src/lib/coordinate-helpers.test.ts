@@ -142,6 +142,20 @@ describe('formatCoordinate', () => {
 			'40.712800, -74.006000'
 		);
 	});
+	it('formats grid coordinate with schema labels out of bounds falls back to numeric', () => {
+		const schema = { type: 'grid', rows: 2, columns: 2, row_labels: ['A', 'B'], column_labels: ['I', 'II'] };
+		// Row 5 is beyond schema labels — should fall back to "6"
+		expect(formatCoordinate({ type: 'grid', row: 5, column: 0 }, schema)).toBe('Row 6, Col I');
+	});
+
+	it('formats grid coordinate without schema is unaffected by null schema', () => {
+		expect(formatCoordinate({ type: 'grid', row: 0, column: 0 }, null)).toBe('Row 1, Col 1');
+	});
+
+	it('formats grid coordinate with schema missing labels falls back to numeric', () => {
+		const schema = { type: 'grid', rows: 3, columns: 3 };
+		expect(formatCoordinate({ type: 'grid', row: 1, column: 2 }, schema)).toBe('Row 2, Col 3');
+	});
 });
 
 describe('schemaTypeLabel', () => {

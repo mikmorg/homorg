@@ -90,6 +90,9 @@ pub struct ItemCreatedData {
     pub fungible_unit: Option<String>,
     pub external_codes: Vec<serde_json::Value>,
     pub condition: Option<String>,
+    /// Absent in events written before this field was added.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub currency: Option<String>,
     pub acquisition_date: Option<String>,
     pub acquisition_cost: Option<f64>,
     pub current_value: Option<f64>,
@@ -252,6 +255,7 @@ mod tests {
             fungible_unit: None,
             external_codes: vec![],
             condition: None,
+            currency: None,
             acquisition_date: None,
             acquisition_cost: None,
             current_value: None,
@@ -372,8 +376,68 @@ mod tests {
         let evt = DomainEvent::ContainerSchemaUpdated(ContainerSchemaUpdatedData {
             old_schema: None,
             new_schema: serde_json::json!({"type": "grid"}),
+            label_renames: std::collections::HashMap::new(),
         });
         assert_eq!(roundtrip(&evt).event_type(), "ContainerSchemaUpdated");
+    }
+
+    #[test]
+    fn container_schema_updated_with_label_renames_roundtrip() {
+        let mut renames = std::collections::HashMap::new();
+        renames.insert("top shelf".to_string(), "upper shelf".to_string());
+        renames.insert("bottom shelf".to_string(), "lower shelf".to_string());
+        let evt = DomainEvent::ContainerSchemaUpdated(ContainerSchemaUpdatedData {
+            old_schema: Some(serde_json::json!({"type":"abstract","labels":["top shelf","bottom shelf"]})),
+            new_schema: serde_json::json!({"type":"abstract","labels":["upper shelf","lower shelf"]}),
+            label_renames: renames.clone(),
+        });
+        let rt = roundtrip(&evt);
+        if let DomainEvent::ContainerSchemaUpdated(d) = rt {
+            assert_eq!(d.label_renames.get("top shelf").map(|s| s.as_str()), Some("upper shelf"));
+            assert_eq!(d.label_renames.get("bottom shelf").map(|s| s.as_str()), Some("lower shelf"));
+        } else { panic!("wrong variant"); }
+    }
+
+    #[test]
+    fn empty_label_renames_not_serialised() {
+        // label_renames should be omitted from JSON when empty (skip_serializing_if)
+        let evt = DomainEvent::ContainerSchemaUpdated(ContainerSchemaUpdatedData {
+            old_schema: None,
+            new_schema: serde_json::json!({"type": "geo"}),
+            label_renames: std::collections::HashMap::new(),
+        });
+        let json = serde_json::to_value(&evt).unwrap();
+        // The inner data object must NOT contain label_renames key when empty
+        if let serde_json::Value::Object(map) = &json {
+            let inner = map.iter().find_map(|(_, v)| v.as_object());
+            if let Some(inner_map) = inner {
+                assert!(!inner_map.contains_key("label_renames"), "empty label_renames should be omitted");
+            }
+        }
+    }
+
+    #[test]
+    fn item_created_with_currency_roundtrip() {
+        let evt = DomainEvent::ItemCreated(Box::new(ItemCreatedData {
+            system_barcode: None,
+            node_id: "n_test".into(),
+            name: Some("Expensive Widget".into()),
+            description: None, category: None, tags: vec![],
+            is_container: false, container_path: "n_root".into(),
+            parent_id: Uuid::nil(), coordinate: None, location_schema: None,
+            max_capacity_cc: None, max_weight_grams: None, dimensions: None,
+            weight_grams: None, is_fungible: false, fungible_quantity: None,
+            fungible_unit: None, external_codes: vec![],
+            condition: None, currency: Some("EUR".into()),
+            acquisition_date: None, acquisition_cost: None, current_value: None,
+            depreciation_rate: None, warranty_expiry: None,
+            metadata: serde_json::json!({}), created_at: None,
+            container_type_id: None,
+        }));
+        let rt = roundtrip(&evt);
+        if let DomainEvent::ItemCreated(d) = rt {
+            assert_eq!(d.currency.as_deref(), Some("EUR"));
+        } else { panic!("wrong variant"); }
     }
 
     #[test]
@@ -406,6 +470,7 @@ mod tests {
             max_capacity_cc: None, max_weight_grams: None, dimensions: None,
             weight_grams: None, is_fungible: false, fungible_quantity: None,
             fungible_unit: None, external_codes: vec![], condition: None,
+            currency: None,
             acquisition_date: None, acquisition_cost: None, current_value: None,
             depreciation_rate: None, warranty_expiry: None,
             metadata: serde_json::json!({}), created_at: None,
@@ -427,7 +492,8 @@ mod tests {
                 location_schema: None, max_capacity_cc: None, max_weight_grams: None,
                 dimensions: None, weight_grams: None, is_fungible: false,
                 fungible_quantity: None, fungible_unit: None, external_codes: vec![],
-                condition: None, acquisition_date: None, acquisition_cost: None,
+                condition: None, currency: None,
+                acquisition_date: None, acquisition_cost: None,
                 current_value: None, depreciation_rate: None, warranty_expiry: None,
                 metadata: serde_json::json!({}), created_at: None,
                 container_type_id: None,
@@ -454,6 +520,7 @@ mod tests {
             }).event_type(),
             DomainEvent::ContainerSchemaUpdated(ContainerSchemaUpdatedData {
                 old_schema: None, new_schema: serde_json::json!(null),
+                label_renames: std::collections::HashMap::new(),
             }).event_type(),
             DomainEvent::BarcodeGenerated(BarcodeGeneratedData {
                 barcode: String::new(), assigned_to: None,

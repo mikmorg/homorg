@@ -397,18 +397,45 @@
 						<span class="text-sm text-slate-400">Type</span>
 						<span class="text-sm font-medium text-slate-100">{item.is_container ? 'Container' : 'Item'}</span>
 					</div>
-					{#if item.fungible_quantity !== null}
-						<div class="flex items-center justify-between px-3 py-2.5">
-							<span class="text-sm text-slate-400">Quantity</span>
-							<span class="text-sm font-medium text-slate-100">{item.fungible_quantity}{#if item.fungible_unit} {item.fungible_unit}{/if}</span>
+					{#if item.is_fungible}
+						<div class="px-3 py-2.5">
+							<div class="flex items-center justify-between">
+								<span class="text-sm text-slate-400">Quantity</span>
+								<div class="flex items-center gap-2">
+									<span class="text-sm font-medium text-slate-100">{item.fungible_quantity ?? 0}{#if item.fungible_unit} {item.fungible_unit}{/if}</span>
+									<button class="text-xs text-indigo-400 hover:text-indigo-300" on:click={() => { showQuantityAdjust = !showQuantityAdjust; if (showQuantityAdjust) newQuantity = item?.fungible_quantity ?? 0; }}>
+										{showQuantityAdjust ? 'Cancel' : 'Adjust'}
+									</button>
+								</div>
+							</div>
+							{#if showQuantityAdjust}
+								<div class="mt-2 flex gap-2">
+									<input type="number" class="input text-sm w-24" bind:value={newQuantity} min="0" step="1" />
+									<input type="text" class="input text-sm flex-1" bind:value={quantityReason} placeholder="Reason (optional)" />
+									<button class="btn btn-primary text-xs px-3" on:click={adjustQuantity} disabled={adjustingQuantity}>Save</button>
+								</div>
+							{/if}
 						</div>
 					{/if}
-					{#if item.system_barcode}
-						<div class="flex items-center justify-between px-3 py-2.5">
-							<span class="text-sm text-slate-400">System barcode</span>
-							<span class="text-xs font-mono text-slate-100">{item.system_barcode}</span>
+					<div class="px-3 py-2.5">
+						<div class="flex items-center justify-between">
+							<span class="text-sm text-slate-400">Barcode</span>
+							<div class="flex items-center gap-2">
+								{#if item.system_barcode}
+									<span class="text-xs font-mono text-slate-300">{item.system_barcode}</span>
+								{/if}
+								<button class="text-xs text-indigo-400 hover:text-indigo-300" on:click={() => { showBarcodeAssign = !showBarcodeAssign; if (showBarcodeAssign) barcodeValue = item?.system_barcode ?? ''; }}>
+									{showBarcodeAssign ? 'Cancel' : item.system_barcode ? 'Change' : 'Assign'}
+								</button>
+							</div>
 						</div>
-					{/if}
+						{#if showBarcodeAssign}
+							<div class="mt-2 flex gap-2">
+								<input type="text" class="input text-sm flex-1 font-mono" bind:value={barcodeValue} placeholder="Barcode value" />
+								<button class="btn btn-primary text-xs px-3" on:click={assignBarcode} disabled={assigningBarcode || !barcodeValue.trim()}>Save</button>
+							</div>
+						{/if}
+					</div>
 					{#if item.category}
 					<div class="flex items-center justify-between px-3 py-2.5">
 						<span class="text-sm text-slate-400">Category</span>

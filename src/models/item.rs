@@ -162,6 +162,7 @@ pub struct CreateItemRequest {
     pub fungible_unit: Option<String>,
     pub external_codes: Option<Vec<ExternalCode>>,
     pub condition: Option<String>,
+    pub currency: Option<String>,
     pub acquisition_date: Option<NaiveDate>,
     pub acquisition_cost: Option<f64>,
     pub current_value: Option<f64>,
@@ -196,6 +197,7 @@ pub struct UpdateItemRequest {
     pub fungible_unit: Option<String>,
     // Valuation
     pub condition: Option<String>,
+    pub currency: Option<String>,
     pub acquisition_date: Option<NaiveDate>,
     pub acquisition_cost: Option<f64>,
     pub current_value: Option<f64>,

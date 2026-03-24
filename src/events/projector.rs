@@ -56,7 +56,7 @@ impl Projector {
                 dimensions, weight_grams,
                 is_fungible,
                 external_codes,
-                condition, acquisition_date, acquisition_cost, current_value,
+                condition, currency, acquisition_date, acquisition_cost, current_value,
                 depreciation_rate, warranty_expiry,
                 metadata,
                 created_at,
@@ -68,11 +68,11 @@ impl Projector {
                 $10, $11,
                 $12,
                 $13,
-                $14, $15::date, $16, $17,
-                $18, $19::date,
-                $20,
-                COALESCE($21::timestamptz, NOW()),
-                $22, $22
+                $14, $15, $16::date, $17, $18,
+                $19, $20::date,
+                $21,
+                COALESCE($22::timestamptz, NOW()),
+                $23, $23
             )
             ON CONFLICT (id) DO NOTHING
             "#,
@@ -91,6 +91,7 @@ impl Projector {
         .bind(data.is_fungible)
         .bind(&ext_codes)
         .bind(&data.condition)
+        .bind(&data.currency)
         .bind(&data.acquisition_date)
         .bind(data.acquisition_cost)
         .bind(data.current_value)
@@ -192,7 +193,7 @@ impl Projector {
     ) -> AppResult<()> {
         // Apply each field change individually via dynamic SQL.
         // We use a safe allowlist of fields to prevent injection.
-        let allowed_text_fields = ["name", "description", "condition"];
+        let allowed_text_fields = ["name", "description", "condition", "currency"];
         let allowed_numeric_fields = [
             "weight_grams",
             "acquisition_cost", "current_value", "depreciation_rate",

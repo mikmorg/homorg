@@ -58,6 +58,7 @@ fn build_user_container_request(username: &str, display_name: Option<&str>) -> C
         fungible_unit: None,
         external_codes: None,
         condition: None,
+        currency: None,
         acquisition_date: None,
         acquisition_cost: None,
         current_value: None,

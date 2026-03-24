@@ -136,6 +136,7 @@ impl ItemCommands {
             fungible_unit: req.fungible_unit.clone(),
             external_codes,
             condition: req.condition.clone(),
+            currency: req.currency.clone(),
             acquisition_date: req.acquisition_date.map(|d| d.to_string()),
             acquisition_cost: req.acquisition_cost,
             current_value: req.current_value,
@@ -243,6 +244,7 @@ impl ItemCommands {
         diff_field!(dimensions, current.dimensions);
         diff_numeric!(weight_grams, current.weight_grams);
         diff_field!(condition, current.condition);
+        diff_field!(currency, current.currency);
         diff_field!(acquisition_date, current.acquisition_date);
         diff_numeric!(acquisition_cost, current.acquisition_cost);
         diff_numeric!(current_value, current.current_value);

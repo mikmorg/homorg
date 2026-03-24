@@ -204,11 +204,12 @@
 
 			// Upload images after creation
 			const newItemId = event.aggregate_id;
+			let postCreateWarnings: string[] = [];
 			for (const file of createImages) {
 				try {
 					await api.items.uploadImage(newItemId, file);
 				} catch {
-					// Image upload failure is non-fatal
+					postCreateWarnings.push(`Image "${file.name}" failed to upload`);
 				}
 			}
 
@@ -217,7 +218,7 @@
 				try {
 					await api.containers.updateSchema(newItemId, createLocationSchema);
 				} catch {
-					// Schema update failure is non-fatal
+					postCreateWarnings.push('Location schema failed to save');
 				}
 			}
 
@@ -226,6 +227,9 @@
 			createImagePreviews = [];
 			createIsFungible = false;
 			createFungibleUnit = '';
+			if (postCreateWarnings.length > 0) {
+				for (const w of postCreateWarnings) toast(w, 'error');
+			}
 			createFungibleQty = '';
 			createAcqCost = '';
 			createCurrency = '';

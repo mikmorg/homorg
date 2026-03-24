@@ -382,6 +382,7 @@ async fn process_batch_event_in_tx(
                 fungible_unit: fungible_unit.clone(),
                 external_codes: external_codes.clone(),
                 condition: condition.clone(),
+                currency: None,
                 acquisition_date: None,
                 acquisition_cost: None,
                 current_value: None,

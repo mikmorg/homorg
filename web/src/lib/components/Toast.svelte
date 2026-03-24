@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { toasts, dismissToast } from '$stores/toast.js';
+	import { toasts, dismissToast, toast } from '$stores/toast.js';
 	import { api } from '$api/client.js';
 
 	async function handleUndo(toastId: number, eventId: string) {
@@ -7,7 +7,7 @@
 		try {
 			await api.undo.single(eventId);
 		} catch {
-			// Undo failed — silently ignore
+			toast('Undo failed', 'error');
 		}
 	}
 </script>
