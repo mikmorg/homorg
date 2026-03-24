@@ -268,8 +268,20 @@
 			</button>
 		{/if}
 		<h1 class="flex-1 text-base font-semibold text-slate-100 truncate">
-			{breadcrumb.length > 0 ? breadcrumb[breadcrumb.length - 1].name : 'Browse'}
+			{#if containerId !== ROOT_ID}
+				<a href="/browse/item/{containerId}" class="hover:text-indigo-300 transition-colors">{breadcrumb.length > 0 ? breadcrumb[breadcrumb.length - 1].name : 'Container'}</a>
+			{:else}
+				Browse
+			{/if}
 		</h1>
+		{#if containerId !== ROOT_ID}
+			<a href="/browse/item/{containerId}/edit" class="btn btn-icon text-slate-400" aria-label="Edit container">
+				<svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+					<path d="M17 3a2.85 2.85 0 1 1 4 4L7.5 20.5 2 22l1.5-5.5Z" />
+					<path d="m15 5 4 4" />
+				</svg>
+			</a>
+		{/if}
 		<button class="btn btn-icon text-indigo-400" on:click={() => openCreate('container')} aria-label="New container">
 			<svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
 				<rect x="2" y="7" width="20" height="14" rx="2" />
