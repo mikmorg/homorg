@@ -12,6 +12,7 @@
 
 	// Invite
 	let inviteCode: string | null = null;
+	let inviteExpiresAt: string | null = null;
 	let inviteLoading = false;
 
 	// Role change
@@ -73,6 +74,7 @@
 		try {
 			const resp: InviteResponse = await api.auth.invite();
 			inviteCode = resp.code;
+			inviteExpiresAt = resp.expires_at;
 		} catch (err) {
 			toast(err instanceof Error ? err.message : 'Failed to create invite', 'error');
 		} finally {
@@ -80,8 +82,14 @@
 		}
 	}
 
-	function copyInvite() {
-		if (inviteCode) navigator.clipboard.writeText(inviteCode);
+	async function copyInvite() {
+		if (!inviteCode) return;
+		try {
+			await navigator.clipboard.writeText(inviteCode);
+			toast('Copied to clipboard', 'success');
+		} catch {
+			toast('Copy failed — please copy the code manually', 'error');
+		}
 	}
 
 	function formatDate(iso: string) {
@@ -109,7 +117,7 @@
 	<!-- Invite code banner -->
 	{#if inviteCode}
 		<div class="border-b border-slate-800 bg-indigo-950 px-4 py-3">
-			<p class="text-xs text-indigo-300 mb-1">Share this invite code:</p>
+			<p class="text-xs text-indigo-300 mb-1">Share this invite code{inviteExpiresAt ? ` (expires ${formatDate(inviteExpiresAt)})` : ''}:</p>
 			<div class="flex items-center gap-2">
 				<code class="flex-1 rounded bg-slate-800 px-3 py-1.5 font-mono text-sm text-slate-100">{inviteCode}</code>
 				<button class="btn btn-secondary text-xs px-2 py-1" on:click={copyInvite}>Copy</button>

@@ -336,7 +336,7 @@ async fn undo_container_schema_restores_previous() {
     let schema_event = state
         .item_commands
         .update_container_schema(
-            container_id, serde_json::json!({"type": "grid"}), std::collections::HashMap::new(), ctx.admin_id,
+            container_id, serde_json::json!({"type": "grid", "rows": 3, "columns": 4}), std::collections::HashMap::new(), ctx.admin_id,
             &metadata,
         )
         .await

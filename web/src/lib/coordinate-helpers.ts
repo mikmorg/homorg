@@ -31,11 +31,15 @@ export function parseCoordinate(raw: unknown): KnownCoordinate | null {
 		case 'abstract':
 			return typeof obj.value === 'string' ? { type: 'abstract', value: obj.value } : null;
 		case 'grid':
-			return typeof obj.row === 'number' && typeof obj.column === 'number'
+			return typeof obj.row === 'number' && typeof obj.column === 'number' &&
+				Number.isFinite(obj.row) && Number.isFinite(obj.column)
 				? { type: 'grid', row: obj.row, column: obj.column }
 				: null;
 		case 'geo':
-			return typeof obj.latitude === 'number' && typeof obj.longitude === 'number'
+			// CD-1: Guard against NaN/Infinity which pass typeof 'number' but produce
+			// malformed OSM URLs and break toFixed() rendering.
+			return typeof obj.latitude === 'number' && typeof obj.longitude === 'number' &&
+				Number.isFinite(obj.latitude) && Number.isFinite(obj.longitude)
 				? { type: 'geo', latitude: obj.latitude, longitude: obj.longitude }
 				: null;
 		default:

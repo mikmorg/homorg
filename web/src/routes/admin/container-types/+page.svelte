@@ -77,8 +77,9 @@
 			description: formDescription.trim() || null,
 			icon: formIcon.trim() || null,
 			purpose: formPurpose.trim() || null,
-			default_max_capacity_cc: formCapacity || null,
-			default_max_weight_grams: formWeight || null,
+			// CT-1: Use !== '' rather than || to avoid coercing numeric 0 to null.
+			default_max_capacity_cc: formCapacity !== '' ? formCapacity : null,
+			default_max_weight_grams: formWeight !== '' ? formWeight : null,
 			default_location_schema: formLocationSchema
 		};
 
@@ -223,11 +224,11 @@
 			<div class="flex gap-3">
 				<div class="flex-1">
 					<label class="mb-1 block text-sm font-medium text-slate-300" for="ct-cap">Capacity (cc)</label>
-					<input id="ct-cap" class="input" type="number" step="0.01" bind:value={formCapacity} disabled={formLoading} />
+					<input id="ct-cap" class="input" type="number" step="0.01" min="0" bind:value={formCapacity} disabled={formLoading} />
 				</div>
 				<div class="flex-1">
 					<label class="mb-1 block text-sm font-medium text-slate-300" for="ct-weight">Max weight (g)</label>
-					<input id="ct-weight" class="input" type="number" step="0.01" bind:value={formWeight} disabled={formLoading} />
+					<input id="ct-weight" class="input" type="number" step="0.01" min="0" bind:value={formWeight} disabled={formLoading} />
 				</div>
 			</div>
 			<LocationSchemaEditor bind:value={formLocationSchema} />

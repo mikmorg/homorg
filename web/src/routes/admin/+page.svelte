@@ -8,20 +8,22 @@
 
 	let stats: StatsResponse | null = null;
 	let loading = true;
+	let statsError = '';
 	let rebuilding = false;
 
 	onMount(async () => {
 		if (!$isAdmin) { goto('/'); return; }
 		try {
 			stats = await api.system.stats();
-		} catch {
-			stats = null;
+		} catch (err) {
+			statsError = err instanceof Error ? err.message : 'Failed to load stats';
 		} finally {
 			loading = false;
 		}
 	});
 
 	async function rebuildProjections() {
+		if (!confirm('Rebuild all projections? This replays the entire event log and may take a while.')) return;
 		rebuilding = true;
 		try {
 			await api.system.rebuildProjections();
@@ -48,6 +50,8 @@
 			<div class="flex h-16 items-center justify-center">
 				<div class="h-5 w-5 animate-spin rounded-full border-2 border-slate-600 border-t-indigo-500"></div>
 			</div>
+		{:else if statsError}
+			<div class="rounded-lg bg-red-950 px-4 py-3 text-sm text-red-300 border border-red-800">{statsError}</div>
 		{:else if stats}
 			<!-- Stats cards -->
 			<div class="grid grid-cols-2 gap-3">

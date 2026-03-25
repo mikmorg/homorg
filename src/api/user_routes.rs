@@ -67,6 +67,9 @@ async fn update_user(
         }
     }
     if let Some(ref dn) = req.display_name {
+        if dn.trim().is_empty() {
+            return Err(AppError::BadRequest("display_name cannot be blank".into()));
+        }
         if dn.chars().count() > MAX_DISPLAY_NAME_LEN {
             return Err(AppError::BadRequest(format!(
                 "display_name exceeds {MAX_DISPLAY_NAME_LEN} chars"

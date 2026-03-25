@@ -114,6 +114,18 @@ describe('parseCoordinate', () => {
 	it('returns null for geo with missing fields', () => {
 		expect(parseCoordinate({ type: 'geo', latitude: 40 })).toBeNull();
 	});
+
+	it('returns null for geo with non-finite latitude or longitude (CD-1)', () => {
+		expect(parseCoordinate({ type: 'geo', latitude: NaN, longitude: -74 })).toBeNull();
+		expect(parseCoordinate({ type: 'geo', latitude: Infinity, longitude: -74 })).toBeNull();
+		expect(parseCoordinate({ type: 'geo', latitude: 40, longitude: NaN })).toBeNull();
+		expect(parseCoordinate({ type: 'geo', latitude: 40, longitude: -Infinity })).toBeNull();
+	});
+
+	it('returns null for grid with non-finite row or column (CD-1)', () => {
+		expect(parseCoordinate({ type: 'grid', row: NaN, column: 2 })).toBeNull();
+		expect(parseCoordinate({ type: 'grid', row: 1, column: Infinity })).toBeNull();
+	});
 });
 
 describe('formatCoordinate', () => {
