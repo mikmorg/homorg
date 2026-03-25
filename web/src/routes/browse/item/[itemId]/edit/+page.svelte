@@ -183,6 +183,8 @@
 		try {
 			if (Object.keys(updates).length > 0) {
 				await api.items.update(itemId, updates);
+				// Refresh item so a retry only re-applies the schema, not already-saved fields.
+				item = await api.items.get(itemId);
 			}
 			if (schemaChanged && isContainer) {
 				await api.containers.updateSchema(itemId, locationSchemaValue, schemaLabelRenames);

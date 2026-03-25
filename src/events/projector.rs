@@ -720,7 +720,17 @@ impl Projector {
         .await?;
 
         // Rename children's coordinates when labels are renamed.
-        for (old_label, new_label) in &data.label_renames {
+        // Sort so that entries whose old_label is also a new_label of another rename are
+        // processed first.  This prevents chained renames (e.g. {A→B, B→C}) from
+        // contaminating items: B→C must run before A→B so items originally at B end up
+        // at C, not at B alongside items that were moved from A.
+        let mut rename_pairs: Vec<(&String, &String)> = data.label_renames.iter().collect();
+        rename_pairs.sort_by_key(|(old, _)| {
+            // Lower key = processed first.  A rename whose old_label is the *target* of
+            // another rename in this batch must run first to avoid double-movement.
+            if data.label_renames.values().any(|v| v == *old) { 0usize } else { 1usize }
+        });
+        for (old_label, new_label) in rename_pairs {
             sqlx::query(
                 "UPDATE items SET coordinate = jsonb_set(coordinate, '{value}', to_jsonb($1::text)) \
                  WHERE parent_id = $2 AND coordinate->>'type' = 'abstract' AND coordinate->>'value' = $3",

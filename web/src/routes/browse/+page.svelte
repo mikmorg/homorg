@@ -227,15 +227,16 @@
 			createImagePreviews = [];
 			createIsFungible = false;
 			createFungibleUnit = '';
-			if (postCreateWarnings.length > 0) {
-				for (const w of postCreateWarnings) toast(w, 'error');
-			}
 			createFungibleQty = '';
 			createAcqCost = '';
 			createCurrency = '';
 			showCreateAdvanced = false;
 			createImages = [];
+			// Show success first so the user knows the item exists, then any partial failures
 			toast(createType === 'container' ? 'Container created' : 'Item created', 'success');
+			if (postCreateWarnings.length > 0) {
+				for (const w of postCreateWarnings) toast(w, 'error');
+			}
 			await load();
 		} catch (err) {
 			createError = err instanceof Error ? err.message : 'Failed to create';
