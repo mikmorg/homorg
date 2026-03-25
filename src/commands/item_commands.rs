@@ -516,7 +516,8 @@ impl ItemCommands {
         .await?
         .ok_or_else(|| AppError::NotFound(format!("Item {item_id} not found")))?;
         let images: Vec<crate::models::item::ImageEntry> =
-            serde_json::from_value(images_json).unwrap_or_default();
+            serde_json::from_value(images_json)
+                .map_err(|e| AppError::Internal(format!("Failed to parse images JSON for item {item_id}: {e}")))?;
         let (caption, order) = images
             .iter()
             .find(|e| e.path == path)

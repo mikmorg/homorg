@@ -1,4 +1,5 @@
 use sqlx::PgPool;
+use tracing::warn;
 use uuid::Uuid;
 
 use crate::constants::{ROOT_ID, USERS_ID};
@@ -266,8 +267,13 @@ impl Projector {
 
             } else if field == "tags" {
                 // Normalize: replace all item_tags entries.
-                let tags: Vec<String> =
-                    serde_json::from_value(change.new.clone()).unwrap_or_default();
+                let tags: Vec<String> = match serde_json::from_value(change.new.clone()) {
+                    Ok(t) => t,
+                    Err(e) => {
+                        warn!(item_id = %id, field, error = %e, "projector: failed to deserialize tags, skipping tag update");
+                        continue;
+                    }
+                };
                 sqlx::query("DELETE FROM item_tags WHERE item_id = $1")
                     .bind(id)
                     .execute(&mut **tx)
@@ -316,11 +322,17 @@ impl Projector {
                 .await?;
 
             } else if field == "container_type_id" {
+                // Try to parse as UUID string first, then as JSON UUID value.
+                // A JSON null legitimately clears the type, so only warn on
+                // non-null values that fail to parse.
                 let value: Option<Uuid> = change.new.as_str()
                     .and_then(|s| Uuid::parse_str(s).ok())
                     .or_else(|| {
                         serde_json::from_value::<Option<Uuid>>(change.new.clone()).ok().flatten()
                     });
+                if value.is_none() && !change.new.is_null() {
+                    warn!(item_id = %id, raw = %change.new, "projector: container_type_id is non-null but could not be parsed as UUID, storing NULL");
+                }
                 sqlx::query(
                     "INSERT INTO container_properties (item_id, container_type_id) VALUES ($1, $2) \
                      ON CONFLICT (item_id) DO UPDATE SET container_type_id = EXCLUDED.container_type_id",
@@ -355,7 +367,12 @@ impl Projector {
                 .await?;
 
             } else if field == "is_container" {
-                let value = change.new.as_bool().unwrap_or(false);
+                let value = change.new.as_bool()
+                    .or_else(|| change.new.as_str().and_then(|s| s.parse::<bool>().ok()))
+                    .unwrap_or_else(|| {
+                        warn!(item_id = %id, raw = %change.new, "projector: is_container is not a bool, defaulting to false");
+                        false
+                    });
                 sqlx::query("UPDATE items SET is_container = $1, updated_by = $2 WHERE id = $3")
                     .bind(value)
                     .bind(actor_id)
@@ -379,7 +396,12 @@ impl Projector {
                 }
 
             } else if field == "is_fungible" {
-                let value = change.new.as_bool().unwrap_or(false);
+                let value = change.new.as_bool()
+                    .or_else(|| change.new.as_str().and_then(|s| s.parse::<bool>().ok()))
+                    .unwrap_or_else(|| {
+                        warn!(item_id = %id, raw = %change.new, "projector: is_fungible is not a bool, defaulting to false");
+                        false
+                    });
                 sqlx::query("UPDATE items SET is_fungible = $1, updated_by = $2 WHERE id = $3")
                     .bind(value)
                     .bind(actor_id)

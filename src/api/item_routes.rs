@@ -394,7 +394,13 @@ async fn upload_image(
                 file_data = Some((safe_filename, data.to_vec()));
             }
             "caption" => {
-                caption = field.text().await.ok();
+                caption = match field.text().await {
+                    Ok(text) => Some(text),
+                    Err(e) => {
+                        tracing::warn!(error = %e, "Failed to read caption field from multipart upload");
+                        None
+                    }
+                };
             }
             "order" => {
                 if let Ok(text) = field.text().await {

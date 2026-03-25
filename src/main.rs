@@ -93,7 +93,13 @@ async fn main() {
         let origins: Vec<_> = config
             .cors_origins
             .iter()
-            .filter_map(|o| o.parse().ok())
+            .filter_map(|o| match o.parse() {
+                Ok(hv) => Some(hv),
+                Err(e) => {
+                    tracing::warn!(origin = %o, error = %e, "Failed to parse CORS origin, skipping");
+                    None
+                }
+            })
             .collect();
         // SEC-7: Restrict methods and headers for non-wildcard origins.
         CorsLayer::new()
