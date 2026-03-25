@@ -12,6 +12,7 @@
 	let displayName = '';
 	let newPassword = '';
 	let confirmPassword = '';
+	let currentPassword = '';
 	let savingProfile = false;
 
 	function startEdit() {
@@ -19,10 +20,15 @@
 		displayName = user?.display_name ?? '';
 		newPassword = '';
 		confirmPassword = '';
+		currentPassword = '';
 		editingProfile = true;
 	}
 
 	async function saveProfile() {
+		if (newPassword && !currentPassword) {
+			toast('Current password is required to set a new password', 'error');
+			return;
+		}
 		if (newPassword && newPassword !== confirmPassword) {
 			toast('Passwords do not match', 'error');
 			return;
@@ -33,7 +39,10 @@
 			if (!user) return;
 			const updates: Record<string, string> = {};
 			if (displayName !== (user.display_name ?? '')) updates.display_name = displayName;
-			if (newPassword) updates.password = newPassword;
+			if (newPassword) {
+				updates.password = newPassword;
+				updates.current_password = currentPassword;
+			}
 			if (Object.keys(updates).length === 0) {
 				editingProfile = false;
 				savingProfile = false;
@@ -101,7 +110,11 @@
 						</div>
 						{#if newPassword}
 							<div>
-								<label class="mb-1 block text-sm font-medium text-slate-300" for="acct-pw2">Confirm password</label>
+								<label class="mb-1 block text-sm font-medium text-slate-300" for="acct-pw-cur">Current password</label>
+								<input id="acct-pw-cur" class="input" type="password" autocomplete="current-password" bind:value={currentPassword} placeholder="Required to change password" />
+							</div>
+							<div>
+								<label class="mb-1 block text-sm font-medium text-slate-300" for="acct-pw2">Confirm new password</label>
 								<input id="acct-pw2" class="input" type="password" autocomplete="new-password" bind:value={confirmPassword} />
 							</div>
 						{/if}

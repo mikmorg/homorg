@@ -8,7 +8,7 @@ use std::sync::Arc;
 use uuid::Uuid;
 
 use crate::auth::middleware::AuthUser;
-use crate::auth::password::hash_password;
+use crate::auth::password::{hash_password, verify_password};
 use crate::constants::{PASSWORD_MIN_LEN, PASSWORD_MAX_LEN, MAX_DISPLAY_NAME_LEN};
 use crate::errors::{AppError, AppResult};
 use crate::models::user::*;
@@ -66,6 +66,14 @@ async fn update_user(
             ));
         }
     }
+    // SEC-6: Self-service password change requires the current password so that
+    // a stolen access token cannot be used to permanently hijack the account.
+    let is_self = auth.user_id == id;
+    if req.password.is_some() && is_self && req.current_password.is_none() {
+        return Err(AppError::BadRequest(
+            "current_password is required to change your password".into(),
+        ));
+    }
     if let Some(ref dn) = req.display_name {
         if dn.trim().is_empty() {
             return Err(AppError::BadRequest("display_name cannot be blank".into()));
@@ -87,14 +95,22 @@ async fn update_user(
     let mut tx = state.pool.begin().await?;
 
     // EH-4: Lock and verify user exists before updating to produce a proper 404.
-    let found: Option<Uuid> = sqlx::query_scalar(
-        "SELECT id FROM users WHERE id = $1 FOR UPDATE",
+    // Also fetch password_hash so we can verify current_password for self-service changes.
+    let found: Option<(Uuid, String)> = sqlx::query_as(
+        "SELECT id, password_hash FROM users WHERE id = $1 FOR UPDATE",
     )
     .bind(id)
     .fetch_optional(&mut *tx)
     .await?;
-    if found.is_none() {
-        return Err(AppError::NotFound(format!("User {id} not found")));
+    let (_, stored_hash) = found
+        .ok_or_else(|| AppError::NotFound(format!("User {id} not found")))?;
+
+    // SEC-6: Verify current password before applying a self-service password change.
+    if req.password.is_some() && is_self {
+        let current_pw = req.current_password.as_deref().unwrap_or("");
+        if !verify_password(current_pw, &stored_hash).await? {
+            return Err(AppError::BadRequest("Current password is incorrect".into()));
+        }
     }
 
     if let Some(ref display_name) = req.display_name {

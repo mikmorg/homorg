@@ -87,6 +87,8 @@ pub struct InviteResponse {
 pub struct UpdateUserRequest {
     pub display_name: Option<String>,
     pub password: Option<String>,
+    /// Required when a non-admin user changes their own password.
+    pub current_password: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]

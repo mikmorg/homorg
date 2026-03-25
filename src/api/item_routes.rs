@@ -319,7 +319,7 @@ async fn get_history(
     Path(id): Path<Uuid>,
     Query(q): Query<HistoryQuery>,
 ) -> AppResult<Json<Vec<StoredEvent>>> {
-    let limit = q.limit.unwrap_or(50).min(200);
+    let limit = q.limit.unwrap_or(50).clamp(1, 200);
     let events = state.item_queries.get_history(id, q.after_seq, limit).await?;
     Ok(Json(events))
 }
