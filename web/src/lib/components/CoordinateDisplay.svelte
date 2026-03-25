@@ -1,11 +1,25 @@
 <script lang="ts">
-	import { parseCoordinate, formatCoordinate } from '$lib/coordinate-helpers.js';
+	import { parseCoordinate, parseLocationSchema, formatCoordinate } from '$lib/coordinate-helpers.js';
 
 	export let coordinate: unknown | null = null;
 	export let schema: unknown | null = null;
 
 	$: parsed = parseCoordinate(coordinate);
+	$: parsedSchema = parseLocationSchema(schema);
 	$: label = formatCoordinate(coordinate, schema);
+
+	// Detect stale/out-of-bounds coordinates so callers get a visible hint.
+	$: isStale = (() => {
+		if (!parsed || !parsedSchema) return false;
+		if (parsed.type !== parsedSchema.type) return true;
+		if (parsed.type === 'abstract' && parsedSchema.type === 'abstract') {
+			return !!(parsedSchema.labels && !parsedSchema.labels.includes(parsed.value));
+		}
+		if (parsed.type === 'grid' && parsedSchema.type === 'grid') {
+			return parsed.row >= parsedSchema.rows || parsed.column >= parsedSchema.columns;
+		}
+		return false;
+	})();
 </script>
 
 {#if coordinate != null}
@@ -23,7 +37,9 @@
 			{label}
 		</a>
 	{:else if parsed}
-		<span class="text-sm text-slate-200">{label}</span>
+		<span class="text-sm {isStale ? 'text-amber-400' : 'text-slate-200'}" title={isStale ? 'This position no longer exists in the container\'s current schema' : undefined}>
+			{label}{isStale ? ' (stale)' : ''}
+		</span>
 	{:else}
 		<span class="text-xs font-mono text-slate-400">{label}</span>
 	{/if}

@@ -84,6 +84,9 @@
 
 	{:else if parsed?.type === 'grid'}
 		<!-- Grid row/column selectors -->
+		{#if gridRow >= parsed.rows || gridCol >= parsed.columns}
+			<p class="text-xs text-amber-400 mb-1">Stored position (row {gridRow + 1}, col {gridCol + 1}) is outside the current grid ({parsed.rows}×{parsed.columns}) — select a new position.</p>
+		{/if}
 		<div class="grid grid-cols-2 gap-2">
 			<div>
 				<label class="mb-1 block text-xs text-slate-400" for="coord-row">Row</label>
