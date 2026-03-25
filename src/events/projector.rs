@@ -293,16 +293,6 @@ impl Projector {
                     .await?;
                 }
 
-            } else if field == "location_schema" {
-                sqlx::query(
-                    "INSERT INTO container_properties (item_id, location_schema) VALUES ($1, $2) \
-                     ON CONFLICT (item_id) DO UPDATE SET location_schema = EXCLUDED.location_schema",
-                )
-                .bind(id)
-                .bind(&change.new)
-                .execute(&mut **tx)
-                .await?;
-
             } else if field == "max_capacity_cc" {
                 let value = change.new.as_f64();
                 sqlx::query(

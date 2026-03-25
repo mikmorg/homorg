@@ -66,6 +66,19 @@ export function formatCoordinate(raw: unknown, schema?: unknown): string {
 	}
 }
 
+export function computeLabelRenames(
+	originalLabels: string[],
+	newLabels: string[]
+): Record<string, string> {
+	const removed = originalLabels.filter((l) => !newLabels.includes(l));
+	const added = newLabels.filter((l) => !originalLabels.includes(l));
+	const renames: Record<string, string> = {};
+	for (let i = 0; i < Math.min(removed.length, added.length); i++) {
+		renames[removed[i]] = added[i];
+	}
+	return renames;
+}
+
 export function schemaTypeLabel(raw: unknown): string {
 	const s = parseLocationSchema(raw);
 	if (!s) return raw ? 'Custom' : 'None';

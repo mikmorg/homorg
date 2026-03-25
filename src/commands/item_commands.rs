@@ -238,7 +238,6 @@ impl ItemCommands {
         diff_field!(tags, current.tags);
         diff_field!(is_container, current.is_container);
         diff_field!(coordinate, current.coordinate);
-        diff_field!(location_schema, current.location_schema);
         diff_numeric!(max_capacity_cc, current.max_capacity_cc);
         diff_numeric!(max_weight_grams, current.max_weight_grams);
         diff_field!(dimensions, current.dimensions);

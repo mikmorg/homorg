@@ -185,7 +185,9 @@ pub struct UpdateItemRequest {
     pub coordinate: Option<serde_json::Value>,
     // Container toggle — inserts/removes container_properties row
     pub is_container: Option<bool>,
-    pub location_schema: Option<serde_json::Value>,
+    // NOTE: location_schema is intentionally excluded from UpdateItemRequest.
+    // Use PUT /containers/:id/schema (update_container_schema command) so that
+    // label renames cascade correctly to children's coordinates.
     pub max_capacity_cc: Option<f64>,
     pub max_weight_grams: Option<f64>,
     pub container_type_id: Option<Uuid>,

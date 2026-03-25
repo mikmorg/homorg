@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { parseLocationSchema, parseCoordinate } from '$lib/coordinate-helpers.js';
+	import { onMount } from 'svelte';
 
 	export let schema: unknown | null = null;
 	export let value: unknown | null = null;
@@ -15,13 +16,15 @@
 	let geoLoading = false;
 	let geoError = '';
 
-	// Initialize from existing value
-	$: {
+	// Initialize from existing value once on mount.
+	// Using onMount (not a reactive $: block) prevents the feedback loop where
+	// setAbstract writes value → reactive fires → abstractText gets trimmed mid-keystroke.
+	onMount(() => {
 		const coord = parseCoordinate(value);
 		if (coord?.type === 'abstract') abstractText = coord.value;
 		else if (coord?.type === 'grid') { gridRow = coord.row; gridCol = coord.column; }
 		else if (coord?.type === 'geo') { geoLat = String(coord.latitude); geoLng = String(coord.longitude); }
-	}
+	});
 
 	function setAbstract(text: string) {
 		abstractText = text;
@@ -69,6 +72,9 @@
 
 	{#if parsed?.type === 'abstract' && parsed.labels && parsed.labels.length > 0}
 		<!-- Abstract with predefined labels -->
+		{#if abstractText && !parsed.labels.includes(abstractText)}
+			<p class="text-xs text-amber-400 mb-1">Position "{abstractText}" no longer exists in this container's schema — select a new position or leave blank.</p>
+		{/if}
 		<select class="input" value={abstractText} on:change={(e) => setAbstract(e.currentTarget.value)}>
 			<option value="">None</option>
 			{#each parsed.labels as lbl}

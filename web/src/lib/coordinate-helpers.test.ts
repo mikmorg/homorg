@@ -3,7 +3,8 @@ import {
 	parseLocationSchema,
 	parseCoordinate,
 	formatCoordinate,
-	schemaTypeLabel
+	schemaTypeLabel,
+	computeLabelRenames
 } from './coordinate-helpers';
 
 describe('parseLocationSchema', () => {
@@ -177,5 +178,48 @@ describe('schemaTypeLabel', () => {
 
 	it('returns "Geographic" for geo', () => {
 		expect(schemaTypeLabel({ type: 'geo' })).toBe('Geographic');
+	});
+});
+
+describe('computeLabelRenames', () => {
+	it('detects a single rename', () => {
+		expect(computeLabelRenames(['A', 'B'], ['Top', 'B'])).toEqual({ A: 'Top' });
+	});
+
+	it('returns empty for pure reorder', () => {
+		expect(computeLabelRenames(['A', 'B'], ['B', 'A'])).toEqual({});
+	});
+
+	it('returns empty for deletion from the middle (no corresponding addition)', () => {
+		expect(computeLabelRenames(['A', 'B', 'C'], ['A', 'C'])).toEqual({});
+	});
+
+	it('returns empty for deletion from the end', () => {
+		expect(computeLabelRenames(['A', 'B', 'C'], ['A', 'B'])).toEqual({});
+	});
+
+	it('returns empty for pure addition', () => {
+		expect(computeLabelRenames(['A', 'B'], ['A', 'B', 'C'])).toEqual({});
+	});
+
+	it('detects multiple simultaneous renames', () => {
+		expect(computeLabelRenames(['A', 'B', 'C'], ['X', 'Y', 'C'])).toEqual({ A: 'X', B: 'Y' });
+	});
+
+	it('returns empty for empty inputs', () => {
+		expect(computeLabelRenames([], [])).toEqual({});
+	});
+
+	it('returns empty when original is empty (all labels are new)', () => {
+		expect(computeLabelRenames([], ['A', 'B'])).toEqual({});
+	});
+
+	it('returns empty when all labels are removed', () => {
+		expect(computeLabelRenames(['A', 'B'], [])).toEqual({});
+	});
+
+	it('pairs first removed with first added when counts differ', () => {
+		// Two removed, one added — only first removed is treated as rename
+		expect(computeLabelRenames(['A', 'B', 'C'], ['X'])).toEqual({ A: 'X' });
 	});
 });

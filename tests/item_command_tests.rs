@@ -732,3 +732,93 @@ async fn update_container_schema() {
     let item = state.item_queries.get_by_id(container_id).await.unwrap();
     assert_eq!(item.item.location_schema, Some(schema));
 }
+
+#[tokio::test]
+#[ignore]
+async fn schema_label_rename_cascades_to_children() {
+    let ctx = common::setup().await;
+    let state = &ctx.state;
+    let metadata = EventMetadata::default();
+
+    // Create a container with an abstract schema
+    let container_id = Uuid::new_v4();
+    let bc = state.barcode_commands.generate_barcode().await.unwrap();
+    let req = common::make_item_request(&bc.barcode, ROOT_ID, "Box", true);
+    state.item_commands.create_item(container_id, &req, ctx.admin_id, &metadata).await.unwrap();
+
+    let schema = serde_json::json!({ "type": "abstract", "labels": ["Shelf A", "Shelf B"] });
+    state.item_commands
+        .update_container_schema(container_id, schema, std::collections::HashMap::new(), ctx.admin_id, &metadata)
+        .await
+        .unwrap();
+
+    // Add a child item positioned at "Shelf A"
+    let child_id = Uuid::new_v4();
+    let bc2 = state.barcode_commands.generate_barcode().await.unwrap();
+    let mut child_req = common::make_item_request(&bc2.barcode, container_id, "Widget", false);
+    child_req.coordinate = Some(serde_json::json!({ "type": "abstract", "value": "Shelf A" }));
+    state.item_commands.create_item(child_id, &child_req, ctx.admin_id, &metadata).await.unwrap();
+
+    // Rename "Shelf A" → "Top Shelf"
+    let new_schema = serde_json::json!({ "type": "abstract", "labels": ["Top Shelf", "Shelf B"] });
+    let mut renames = std::collections::HashMap::new();
+    renames.insert("Shelf A".to_string(), "Top Shelf".to_string());
+    state.item_commands
+        .update_container_schema(container_id, new_schema, renames, ctx.admin_id, &metadata)
+        .await
+        .unwrap();
+
+    // Child's coordinate should now reference "Top Shelf", not "Shelf A"
+    let child = state.item_queries.get_by_id(child_id).await.unwrap();
+    assert_eq!(
+        child.item.coordinate,
+        Some(serde_json::json!({ "type": "abstract", "value": "Top Shelf" }))
+    );
+}
+
+#[tokio::test]
+#[ignore]
+async fn schema_label_deletion_does_not_corrupt_other_children() {
+    let ctx = common::setup().await;
+    let state = &ctx.state;
+    let metadata = EventMetadata::default();
+
+    // Create container with three labels
+    let container_id = Uuid::new_v4();
+    let bc = state.barcode_commands.generate_barcode().await.unwrap();
+    let req = common::make_item_request(&bc.barcode, ROOT_ID, "Cabinet", true);
+    state.item_commands.create_item(container_id, &req, ctx.admin_id, &metadata).await.unwrap();
+
+    let schema = serde_json::json!({ "type": "abstract", "labels": ["A", "B", "C"] });
+    state.item_commands
+        .update_container_schema(container_id, schema, std::collections::HashMap::new(), ctx.admin_id, &metadata)
+        .await
+        .unwrap();
+
+    // Two children: one at "B", one at "C"
+    let child_b = Uuid::new_v4();
+    let bc2 = state.barcode_commands.generate_barcode().await.unwrap();
+    let mut req_b = common::make_item_request(&bc2.barcode, container_id, "ItemB", false);
+    req_b.coordinate = Some(serde_json::json!({ "type": "abstract", "value": "B" }));
+    state.item_commands.create_item(child_b, &req_b, ctx.admin_id, &metadata).await.unwrap();
+
+    let child_c = Uuid::new_v4();
+    let bc3 = state.barcode_commands.generate_barcode().await.unwrap();
+    let mut req_c = common::make_item_request(&bc3.barcode, container_id, "ItemC", false);
+    req_c.coordinate = Some(serde_json::json!({ "type": "abstract", "value": "C" }));
+    state.item_commands.create_item(child_c, &req_c, ctx.admin_id, &metadata).await.unwrap();
+
+    // Delete "A" from schema (no renames — pure deletion)
+    let new_schema = serde_json::json!({ "type": "abstract", "labels": ["B", "C"] });
+    state.item_commands
+        .update_container_schema(container_id, new_schema, std::collections::HashMap::new(), ctx.admin_id, &metadata)
+        .await
+        .unwrap();
+
+    // Child at "B" must still be at "B", child at "C" must still be at "C"
+    let b = state.item_queries.get_by_id(child_b).await.unwrap();
+    assert_eq!(b.item.coordinate, Some(serde_json::json!({ "type": "abstract", "value": "B" })));
+
+    let c = state.item_queries.get_by_id(child_c).await.unwrap();
+    assert_eq!(c.item.coordinate, Some(serde_json::json!({ "type": "abstract", "value": "C" })));
+}

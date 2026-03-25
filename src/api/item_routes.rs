@@ -178,8 +178,7 @@ fn validate_update_request(req: &UpdateItemRequest) -> Result<(), AppError> {
     }
     // VAL-4: Reject container-specific fields when explicitly disabling container status.
     if req.is_container == Some(false)
-        && (req.location_schema.is_some()
-            || req.max_capacity_cc.is_some()
+        && (req.max_capacity_cc.is_some()
             || req.max_weight_grams.is_some()
             || req.container_type_id.is_some())
     {

@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { parseLocationSchema } from '$lib/coordinate-helpers.js';
+	import { parseLocationSchema, computeLabelRenames } from '$lib/coordinate-helpers.js';
 	import { onMount } from 'svelte';
 
 	export let value: unknown | null = null;
@@ -31,16 +31,7 @@
 	});
 
 	function computeRenames(newLabels: string[]) {
-		// Labels removed from the schema (present in original, absent in new)
-		const removed = originalLabels.filter((l) => !newLabels.includes(l));
-		// Labels added to the schema (absent in original, present in new)
-		const added = newLabels.filter((l) => !originalLabels.includes(l));
-		// Pair removed→added by relative order; excess removals are pure deletions (no cascade)
-		const renames: Record<string, string> = {};
-		for (let i = 0; i < Math.min(removed.length, added.length); i++) {
-			renames[removed[i]] = added[i];
-		}
-		labelRenames = renames;
+		labelRenames = computeLabelRenames(originalLabels, newLabels);
 	}
 
 	function emit() {
