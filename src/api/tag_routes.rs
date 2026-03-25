@@ -45,9 +45,10 @@ async fn get_tag(
 async fn create_tag(
     State(state): State<Arc<AppState>>,
     auth: AuthUser,
-    Json(req): Json<CreateTagRequest>,
+    Json(mut req): Json<CreateTagRequest>,
 ) -> AppResult<(StatusCode, Json<Tag>)> {
     auth.require_role("member")?;
+    req.name = req.name.trim().to_string();
     validate_tag_name(&req.name)?;
     let tag = state.taxonomy_queries.create_tag(&req).await?;
     Ok((StatusCode::CREATED, Json(tag)))
@@ -58,9 +59,10 @@ async fn rename_tag(
     State(state): State<Arc<AppState>>,
     auth: AuthUser,
     Path(id): Path<Uuid>,
-    Json(req): Json<RenameTagRequest>,
+    Json(mut req): Json<RenameTagRequest>,
 ) -> AppResult<Json<Tag>> {
     auth.require_role("member")?;
+    req.name = req.name.trim().to_string();
     validate_tag_name(&req.name)?;
     let tag = state.taxonomy_queries.rename_tag(id, &req).await?;
     Ok(Json(tag))

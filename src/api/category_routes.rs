@@ -51,9 +51,10 @@ async fn get_category(
 async fn create_category(
     State(state): State<Arc<AppState>>,
     auth: AuthUser,
-    Json(req): Json<CreateCategoryRequest>,
+    Json(mut req): Json<CreateCategoryRequest>,
 ) -> AppResult<(StatusCode, Json<Category>)> {
     auth.require_role("member")?;
+    req.name = req.name.trim().to_string();
     validate_category_name(&req.name)?;
     if let Some(ref desc) = req.description {
         if desc.len() > MAX_CATEGORY_DESC_LEN {
@@ -71,10 +72,11 @@ async fn update_category(
     State(state): State<Arc<AppState>>,
     auth: AuthUser,
     Path(id): Path<Uuid>,
-    Json(req): Json<UpdateCategoryRequest>,
+    Json(mut req): Json<UpdateCategoryRequest>,
 ) -> AppResult<Json<Category>> {
     auth.require_role("member")?;
-    if let Some(ref name) = req.name {
+    if let Some(ref mut name) = req.name {
+        *name = name.trim().to_string();
         validate_category_name(name)?;
     }
     if let Some(ref desc) = req.description {

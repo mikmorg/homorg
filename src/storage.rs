@@ -42,10 +42,17 @@ impl StorageBackend for LocalStorage {
             .map_err(|e| AppError::Storage(format!("Failed to create item directory: {e}")))?;
 
         let file_id = Uuid::new_v4();
-        let ext = Path::new(filename)
+        let raw_ext = Path::new(filename)
             .extension()
             .and_then(|e| e.to_str())
-            .unwrap_or("bin");
+            .unwrap_or("bin")
+            .to_ascii_lowercase();
+        // ST-1: Only allow known image extensions to prevent content-type confusion
+        // if the storage directory is ever served directly by a reverse proxy.
+        let ext = match raw_ext.as_str() {
+            "jpg" | "jpeg" | "png" | "gif" | "webp" | "avif" | "heic" | "heif" | "svg" | "bmp" | "tiff" | "tif" => &raw_ext,
+            _ => "bin",
+        };
         let storage_filename = format!("{file_id}.{ext}");
         let file_path = dir.join(&storage_filename);
 
