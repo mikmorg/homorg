@@ -31,6 +31,7 @@ interface QueueSchema extends DBSchema {
 
 const DB_NAME = 'homorg-offline';
 const DB_VERSION = 1;
+const MAX_ATTEMPTS = 20;
 let db: IDBPDatabase<QueueSchema> | null = null;
 
 async function getDb(): Promise<IDBPDatabase<QueueSchema>> {
@@ -95,6 +96,13 @@ export async function sync(getToken: () => string | null): Promise<void> {
 	const all = await database.getAllFromIndex('pendingMutations', 'by-timestamp');
 
 	for (const mutation of all) {
+		// OQ-1: Drop mutations that have exceeded the retry limit.
+		if (mutation.attempts >= MAX_ATTEMPTS) {
+			console.warn('[offline-queue] Dropping mutation after max attempts', mutation.url);
+			await database.delete('pendingMutations', mutation.id!);
+			continue;
+		}
+
 		const token = getToken();
 		const headers: Record<string, string> = {
 			...mutation.headers,
@@ -108,7 +116,9 @@ export async function sync(getToken: () => string | null): Promise<void> {
 				body: mutation.body ?? undefined
 			});
 
-			if (res.ok || (res.status >= 400 && res.status < 500)) {
+			// OQ-2: 401 means the token expired — treat as transient so the
+			// mutation is retried on the next sync with a fresh token.
+			if (res.ok || (res.status >= 400 && res.status < 500 && res.status !== 401)) {
 				// Success or permanent client error — remove from queue
 				await database.delete('pendingMutations', mutation.id!);
 			} else {

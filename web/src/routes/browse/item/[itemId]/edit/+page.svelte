@@ -122,13 +122,15 @@
 			updates.acquisition_date = newAcqDate;
 		}
 
-		const newAcqCost = acquisitionCost ? parseFloat(acquisitionCost) : undefined;
+		const parsedAcqCost = parseFloat(acquisitionCost);
+		const newAcqCost = Number.isFinite(parsedAcqCost) ? parsedAcqCost : undefined;
 		const oldAcqCost = item.acquisition_cost ? parseFloat(item.acquisition_cost) : undefined;
 		if (newAcqCost !== oldAcqCost) {
 			updates.acquisition_cost = newAcqCost;
 		}
 
-		const newCurrVal = currentValue ? parseFloat(currentValue) : undefined;
+		const parsedCurrVal = parseFloat(currentValue);
+		const newCurrVal = Number.isFinite(parsedCurrVal) ? parsedCurrVal : undefined;
 		const oldCurrVal = item.current_value ? parseFloat(item.current_value) : undefined;
 		if (newCurrVal !== oldCurrVal) {
 			updates.current_value = newCurrVal;
@@ -144,7 +146,8 @@
 			updates.currency = newCurrency;
 		}
 
-		const newWeight = weightGrams ? parseFloat(weightGrams) : undefined;
+		const parsedWeight = parseFloat(weightGrams);
+		const newWeight = Number.isFinite(parsedWeight) ? parsedWeight : undefined;
 		const oldWeight = item.weight_grams ? parseFloat(item.weight_grams) : undefined;
 		if (newWeight !== oldWeight) {
 			updates.weight_grams = newWeight;
@@ -170,7 +173,8 @@
 		const schemaChanged = isContainer &&
 			JSON.stringify(locationSchemaValue) !== JSON.stringify(item.location_schema);
 
-		const newQty = fungibleQuantity !== '' ? parseInt(fungibleQuantity) : null;
+		const parsedQty = parseInt(fungibleQuantity);
+		const newQty = Number.isFinite(parsedQty) ? parsedQty : null;
 		const oldQty = item.fungible_quantity ?? null;
 		const quantityChanged = isFungible && newQty !== null && newQty !== oldQty;
 

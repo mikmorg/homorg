@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
 	import { page } from '$app/stores';
 	import { goto } from '$app/navigation';
 	import { api } from '$api/client.js';
@@ -56,8 +55,6 @@
 	$: if (containerId) {
 		load();
 	}
-
-	onMount(load);
 
 	async function load() {
 		loading = true;
@@ -183,9 +180,11 @@
 			if (createIsFungible && createType === 'item') {
 				body.is_fungible = true;
 				if (createFungibleUnit.trim()) body.fungible_unit = createFungibleUnit.trim();
-				if (createFungibleQty) body.fungible_quantity = parseInt(createFungibleQty);
+				const qty = parseInt(createFungibleQty);
+				if (Number.isFinite(qty)) body.fungible_quantity = qty;
 			}
-			if (createAcqCost) body.acquisition_cost = parseFloat(createAcqCost);
+			const cost = parseFloat(createAcqCost);
+			if (Number.isFinite(cost)) body.acquisition_cost = cost;
 			if (createCurrency.trim()) body.currency = createCurrency.trim();
 
 			// Category
@@ -256,7 +255,7 @@
 	};
 </script>
 
-<svelte:window on:keydown={(e) => { if (e.key === "Escape") { if (showCreate) showCreate = false; } }} />
+<svelte:window on:keydown={(e) => { if (e.key === "Escape") { if (showCreate) { showCreate = false; createImagePreviews.forEach((u) => URL.revokeObjectURL(u)); createImagePreviews = []; } } }} />
 
 <svelte:head>
 	<title>Browse — Homorg</title>

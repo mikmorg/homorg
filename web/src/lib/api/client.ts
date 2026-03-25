@@ -24,7 +24,7 @@ const BASE = '/api/v1';
 let isRefreshing = false;
 let refreshQueue: Array<{ resolve: (token: string) => void; reject: (err: Error) => void }> = [];
 
-async function refreshAndRetry(token: string): Promise<string> {
+async function refreshAndRetry(): Promise<string> {
 	if (isRefreshing) {
 		return new Promise((resolve, reject) => refreshQueue.push({ resolve, reject }));
 	}
@@ -86,7 +86,7 @@ async function request<T>(
 	const resp = await fetch(url, { method, ...fetchOptions, headers });
 
 	if (resp.status === 401 && retry && auth?.refresh_token) {
-		const newToken = await refreshAndRetry(auth.access_token ?? '');
+		const newToken = await refreshAndRetry();
 		headers.set('Authorization', `Bearer ${newToken}`);
 		const retry$ = await fetch(url, { method, ...fetchOptions, headers });
 		if (!retry$.ok) {
@@ -155,7 +155,7 @@ export const items = {
 	addExternalCode: (id: string, code_type: string, value: string) =>
 		post$<StoredEvent>(`/items/${id}/external-codes`, { type: code_type, value }),
 	removeExternalCode: (id: string, code_type: string, value: string) =>
-		del$<StoredEvent>(`/items/${id}/external-codes/${code_type}/${encodeURIComponent(value)}`),
+		del$<StoredEvent>(`/items/${id}/external-codes/${encodeURIComponent(code_type)}/${encodeURIComponent(value)}`),
 	adjustQuantity: (id: string, body: AdjustQuantityRequest) =>
 		post$<StoredEvent>(`/items/${id}/quantity`, body),
 	assignBarcode: (id: string, body: AssignBarcodeRequest) =>

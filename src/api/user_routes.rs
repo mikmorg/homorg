@@ -216,10 +216,46 @@ async fn deactivate_user(
         return Err(AppError::BadRequest("Cannot deactivate yourself".into()));
     }
 
-    state.user_queries.deactivate(id).await?;
+    // SEC-7: Run inside a transaction with FOR UPDATE to prevent a race where
+    // two concurrent requests deactivate each other, leaving zero admins.
+    let mut tx = state.pool.begin().await?;
+
+    let role: Option<String> = sqlx::query_scalar(
+        "SELECT role FROM users WHERE id = $1 AND is_active = TRUE FOR UPDATE",
+    )
+    .bind(id)
+    .fetch_optional(&mut *tx)
+    .await?;
+
+    let role = role.ok_or_else(|| AppError::NotFound(format!("User {id} not found")))?;
+
+    if role == "admin" {
+        let remaining_admins: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM users WHERE role = 'admin' AND is_active = TRUE AND id != $1",
+        )
+        .bind(id)
+        .fetch_one(&mut *tx)
+        .await?;
+
+        if remaining_admins == 0 {
+            return Err(AppError::BadRequest(
+                "Cannot deactivate the last admin. Promote another user first.".into(),
+            ));
+        }
+    }
+
+    sqlx::query("UPDATE users SET is_active = FALSE WHERE id = $1")
+        .bind(id)
+        .execute(&mut *tx)
+        .await?;
 
     // Revoke all refresh tokens for the deactivated user
-    state.token_repository.revoke_all_for_user(id).await?;
+    sqlx::query("UPDATE refresh_tokens SET revoked_at = NOW() WHERE user_id = $1 AND revoked_at IS NULL")
+        .bind(id)
+        .execute(&mut *tx)
+        .await?;
+
+    tx.commit().await?;
 
     Ok(StatusCode::NO_CONTENT)
 }

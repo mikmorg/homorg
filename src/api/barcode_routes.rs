@@ -51,6 +51,9 @@ async fn resolve(
     _auth: AuthUser,
     Path(code): Path<String>,
 ) -> AppResult<Json<BarcodeResolution>> {
+    if code.len() > 256 {
+        return Err(AppError::BadRequest("Barcode exceeds maximum length".into()));
+    }
     let resolution = state.barcode_commands.resolve_barcode(&code).await?;
     Ok(Json(resolution))
 }
