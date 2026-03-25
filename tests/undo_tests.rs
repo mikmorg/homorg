@@ -352,5 +352,54 @@ async fn undo_container_schema_restores_previous() {
     assert_eq!(compensating.event_type, "ContainerSchemaUpdated");
 
     let item = state.item_queries.get_by_id(container_id).await.unwrap();
-    assert!(item.item.location_schema.is_none() || item.item.location_schema == Some(serde_json::Value::Null));
+    // After undo, schema must be SQL NULL (None), not the JSON literal 'null'::jsonb
+    assert_eq!(item.item.location_schema, None);
+}
+
+#[tokio::test]
+#[ignore]
+async fn undo_container_schema_null_not_stored_as_json_null() {
+    // Regression test: undoing a ContainerSchemaUpdated whose oldSchema was None must
+    // store SQL NULL in location_schema, not the JSON literal 'null'::jsonb.
+    let ctx = common::setup().await;
+    let state = &ctx.state;
+    let metadata = EventMetadata::default();
+
+    let container_id = Uuid::new_v4();
+    let bc = state.barcode_commands.generate_barcode().await.unwrap();
+    state
+        .item_commands
+        .create_item(
+            container_id,
+            &common::make_item_request(&bc.barcode, ROOT_ID, "Null Schema Box", true),
+            ctx.admin_id,
+            &metadata,
+        )
+        .await
+        .unwrap();
+
+    // Set a schema (was previously None)
+    let schema_event = state
+        .item_commands
+        .update_container_schema(
+            container_id,
+            serde_json::json!({"type": "abstract", "labels": ["A"]}),
+            std::collections::HashMap::new(),
+            ctx.admin_id,
+            &metadata,
+        )
+        .await
+        .unwrap();
+
+    // Undo restores the schema to None
+    state
+        .undo_commands
+        .undo_event(schema_event.event_id, ctx.admin_id)
+        .await
+        .unwrap();
+
+    let item = state.item_queries.get_by_id(container_id).await.unwrap();
+    // Must be SQL NULL (None), not Some(Value::Null) — the 'null'::jsonb literal
+    assert_eq!(item.item.location_schema, None,
+        "undo of initial schema set should produce SQL NULL, not JSON null literal");
 }

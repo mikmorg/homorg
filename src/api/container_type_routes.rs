@@ -155,7 +155,7 @@ async fn create_container_type(
     auth: AuthUser,
     Json(req): Json<CreateContainerTypeRequest>,
 ) -> AppResult<(StatusCode, Json<ContainerType>)> {
-    auth.require_role("member")?;
+    auth.require_role("admin")?;
     validate_create_container_type_request(&req)?;
     let ct = state
         .container_type_queries
@@ -171,7 +171,7 @@ async fn update_container_type(
     Path(id): Path<Uuid>,
     Json(req): Json<UpdateContainerTypeRequest>,
 ) -> AppResult<Json<ContainerType>> {
-    auth.require_role("member")?;
+    auth.require_role("admin")?;
     validate_update_container_type_request(&req)?;
     let ct = state.container_type_queries.update(id, &req).await?;
     Ok(Json(ct))
@@ -183,7 +183,7 @@ async fn delete_container_type(
     auth: AuthUser,
     Path(id): Path<Uuid>,
 ) -> AppResult<StatusCode> {
-    auth.require_role("member")?;
+    auth.require_role("admin")?;
     state.container_type_queries.delete(id).await?;
     Ok(StatusCode::NO_CONTENT)
 }

@@ -703,12 +703,19 @@ impl Projector {
         actor_id: Uuid,
     ) -> AppResult<()> {
         // Location schema lives in container_properties.  UPSERT for idempotent replay.
+        // When new_schema is JSON null (produced by undo of an initial schema set), bind as
+        // SQL NULL so the column is properly cleared rather than storing 'null'::jsonb.
+        let schema_value: Option<&serde_json::Value> = if data.new_schema.is_null() {
+            None
+        } else {
+            Some(&data.new_schema)
+        };
         sqlx::query(
             "INSERT INTO container_properties (item_id, location_schema) VALUES ($1, $2) \
              ON CONFLICT (item_id) DO UPDATE SET location_schema = EXCLUDED.location_schema",
         )
         .bind(id)
-        .bind(&data.new_schema)
+        .bind(schema_value)
         .execute(&mut **tx)
         .await?;
 
