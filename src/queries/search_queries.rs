@@ -42,7 +42,9 @@ impl SearchQueries {
 
     /// Combined search: full-text + trigram + LTREE path + structured filters.
     pub async fn search(&self, params: &SearchParams) -> AppResult<Vec<ItemSummary>> {
-        let limit = params.limit.unwrap_or(50).min(200);
+        // SQ-1: clamp ensures limit=0 is rejected (runs full FTS for no result),
+        // and limit > 200 is capped defensively.
+        let limit = params.limit.unwrap_or(50).clamp(1, 200);
 
         // Parse tags
         let tags: Option<Vec<String>> = params.tags.as_ref().map(|t| {
@@ -71,7 +73,7 @@ impl SearchQueries {
               -- Category filter (by name via JOIN)
               AND ($3::text IS NULL OR cat.name = $3)
               AND ($4::text IS NULL OR i.condition = $4)
-              AND ($5::uuid IS NULL OR i.container_path <@ (SELECT container_path FROM items WHERE id = $5))
+              AND ($5::uuid IS NULL OR i.container_path <@ (SELECT container_path FROM items WHERE id = $5 AND is_deleted = FALSE))
               -- Tag filter: all listed tags must be present
               AND ($6::text[] IS NULL OR NOT EXISTS (
                   SELECT 1 FROM unnest($6::text[]) AS required_tag
@@ -88,7 +90,7 @@ impl SearchQueries {
               AND (
                   $10::uuid IS NULL
                   OR (COALESCE(i.name, ''), i.id) > (
-                      SELECT COALESCE(name, ''), id FROM items WHERE id = $10
+                      SELECT COALESCE(name, ''), id FROM items WHERE id = $10 AND is_deleted = FALSE
                   )
               )
             ORDER BY

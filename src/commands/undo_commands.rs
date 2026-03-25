@@ -123,7 +123,9 @@ impl UndoCommands {
         max_events: usize,
     ) -> AppResult<Vec<StoredEvent>> {
         let mut tx = self.pool.begin().await?;
-        let events = self.event_store.get_events_by_session_in_tx(&mut tx, session_id).await?;
+        // Fetch at most max_events+1 rows at the SQL level so a giant session cannot
+        // allocate unboundedly before the size guard below fires (DoS-1 companion).
+        let events = self.event_store.get_events_by_session_in_tx(&mut tx, session_id, (max_events + 1) as i64).await?;
 
         // DoS-1: Reject sessions with more events than the configured batch limit so a
         // long-running session cannot trigger an unbounded single transaction.

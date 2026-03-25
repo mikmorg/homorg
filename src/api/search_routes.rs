@@ -25,8 +25,9 @@ async fn search(
     Query(params): Query<SearchParams>,
 ) -> AppResult<Json<Vec<ItemSummary>>> {
     // API-4: Reject overly long query strings to prevent DoS via expensive full-text ops.
+    // chars().count() counts Unicode scalars, matching the user-visible "characters" limit.
     if let Some(ref q) = params.q {
-        if q.len() > MAX_SEARCH_QUERY_LEN {
+        if q.chars().count() > MAX_SEARCH_QUERY_LEN {
             return Err(AppError::BadRequest(format!(
                 "Search query exceeds maximum length of {MAX_SEARCH_QUERY_LEN} characters"
             )));

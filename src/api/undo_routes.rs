@@ -57,6 +57,15 @@ async fn undo_batch(
         }
     }
 
+    // UN-1: Bound session_id length to prevent trivially large JSONB comparison values.
+    if let Some(ref sid) = body.session_id {
+        if sid.len() > 256 {
+            return Err(crate::errors::AppError::BadRequest(
+                "session_id exceeds maximum length of 256 bytes".into(),
+            ));
+        }
+    }
+
     // API-3: If both are provided, it's ambiguous — reject with a clear error.
     match (&body.session_id, &body.event_ids) {
         (Some(_), Some(_)) => {

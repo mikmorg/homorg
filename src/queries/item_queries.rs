@@ -141,8 +141,14 @@ impl ItemQueries {
         .await?
         .ok_or_else(|| AppError::NotFound(format!("Item {item_id} not found")))?;
 
-        let images: Vec<ImageEntry> = serde_json::from_value(images_json)
-            .map_err(|_| AppError::Internal("Failed to parse images".into()))?;
+        // IQ-1: A NULL images column (items that have never had images) deserializes as
+        // Value::Null via sqlx.  Calling from_value(Null) would fail; return empty Vec instead.
+        let images: Vec<ImageEntry> = if images_json.is_null() {
+            vec![]
+        } else {
+            serde_json::from_value(images_json)
+                .map_err(|_| AppError::Internal("Failed to parse images".into()))?
+        };
 
         Ok(images)
     }

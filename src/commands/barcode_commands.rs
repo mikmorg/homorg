@@ -262,9 +262,11 @@ impl BarcodeCommands {
     ) -> AppResult<crate::models::event::StoredEvent> {
         let mut tx = self.pool.begin().await?;
 
-        // Fetch current item to get previous barcode and verify item exists.
+        // BC-1: Use FOR UPDATE to serialize concurrent barcode assignments to the same item so
+        // that previous_barcode in the event always reflects the true prior state, preventing
+        // undo chain corruption when two callers race.
         let current: Option<(Uuid, Option<String>)> = sqlx::query_as(
-            "SELECT id, system_barcode FROM items WHERE id = $1 AND is_deleted = FALSE",
+            "SELECT id, system_barcode FROM items WHERE id = $1 AND is_deleted = FALSE FOR UPDATE",
         )
         .bind(item_id)
         .fetch_optional(&mut *tx)

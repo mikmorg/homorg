@@ -128,6 +128,8 @@ impl EventStore {
         limit: i64,
     ) -> AppResult<Vec<StoredEvent>> {
         let after = after_id.unwrap_or(0);
+        // ES-2: Defensive cap prevents callers from fetching the entire event log in one shot.
+        let limit = limit.min(1000);
         let rows = sqlx::query_as::<_, StoredEvent>(
             r#"
             SELECT id, event_id, aggregate_id, aggregate_type, event_type, event_data, metadata, actor_id, created_at, sequence_number, schema_version
@@ -183,10 +185,13 @@ impl EventStore {
     }
 
     /// Get events correlated by session_id within an existing transaction.
+    /// `limit` caps the rows fetched at the SQL level so large sessions don't allocate
+    /// unboundedly before the caller's size guard fires (DoS-1 companion fix).
     pub async fn get_events_by_session_in_tx(
         &self,
         tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
         session_id: &str,
+        limit: i64,
     ) -> AppResult<Vec<StoredEvent>> {
         let rows = sqlx::query_as::<_, StoredEvent>(
             r#"
@@ -194,9 +199,11 @@ impl EventStore {
             FROM event_store
             WHERE metadata->>'session_id' = $1
             ORDER BY id ASC
+            LIMIT $2
             "#,
         )
         .bind(session_id)
+        .bind(limit)
         .fetch_all(&mut **tx)
         .await?;
         Ok(rows)
