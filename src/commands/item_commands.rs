@@ -346,17 +346,22 @@ impl ItemCommands {
             ));
         }
 
-        // Circular reference check: destination must not be a descendant of the moved item
+        // Circular reference check: destination must not be a descendant of the moved item.
+        // Require paths to be present — if either is NULL we cannot verify safety.
         if item.4 {
             // item is_container
-            if let Some(ref item_path) = item.2 {
-                if let Some(ref dest_path) = dest.2 {
-                    // Proper LTREE containment: dest is self or a child of self
+            match (&item.2, &dest.2) {
+                (Some(item_path), Some(dest_path)) => {
                     if dest_path == item_path || dest_path.starts_with(&format!("{item_path}.")) {
                         return Err(AppError::Conflict(
                             "Cannot move a container into its own descendant".into(),
                         ));
                     }
+                }
+                _ => {
+                    return Err(AppError::Internal(
+                        "Cannot verify move safety: container_path is missing for item or destination".into(),
+                    ));
                 }
             }
         }
@@ -668,8 +673,11 @@ impl ItemCommands {
     ) -> AppResult<StoredEvent> {
         let mut tx = self.pool.begin().await?;
 
+        // QA-1: Use FOR UPDATE to serialize concurrent quantity adjustments so that
+        // the old_qty recorded in each event reflects the true prior state, preventing
+        // incorrect undo behavior when two callers write simultaneously.
         let current = sqlx::query_as::<_, (bool, Option<i32>)>(
-            "SELECT i.is_fungible, fp.quantity FROM items i LEFT JOIN fungible_properties fp ON fp.item_id = i.id WHERE i.id = $1 AND i.is_deleted = FALSE",
+            "SELECT i.is_fungible, fp.quantity FROM items i LEFT JOIN fungible_properties fp ON fp.item_id = i.id WHERE i.id = $1 AND i.is_deleted = FALSE FOR UPDATE",
         )
         .bind(item_id)
         .fetch_optional(&mut *tx)

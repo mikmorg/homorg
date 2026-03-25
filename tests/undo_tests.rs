@@ -186,7 +186,6 @@ async fn undo_update_reverses_fields() {
         tags: None,
         is_container: None,
         coordinate: None,
-        location_schema: None,
         max_capacity_cc: None,
         max_weight_grams: None,
         container_type_id: None,

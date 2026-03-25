@@ -81,7 +81,8 @@ async fn stats(
 /// OP-1: Stub Prometheus-compatible metrics endpoint.
 /// Returns basic build metadata as gauges.  Replace with a real prometheus/openmetrics
 /// exporter (e.g., `metrics-exporter-prometheus`) when runtime instrumentation is added.
-async fn metrics(State(state): State<Arc<AppState>>) -> impl IntoResponse {
+/// OP-2: Requires authentication to prevent unauthenticated enumeration of server state.
+async fn metrics(State(state): State<Arc<AppState>>, _auth: AuthUser) -> impl IntoResponse {
     let in_progress = if state.rebuild_in_progress.load(Ordering::Relaxed) {
         1
     } else {

@@ -71,14 +71,19 @@ impl UndoCommands {
         let mut tx = self.pool.begin().await?;
         let mut results = Vec::new();
 
-        // Process in reverse order (most recent first) for consistency
-        for &eid in event_ids.iter().rev() {
-            // Idempotency guard: skip events already undone
+        // Fetch all non-already-undone events first, then sort by global sequence id
+        // descending (most recent first).  This ensures correct chronological reversal
+        // regardless of the order the caller supplied the UUIDs.
+        let mut events_to_undo: Vec<StoredEvent> = Vec::new();
+        for &eid in event_ids {
             if self.event_store.has_compensating_event_in_tx(&mut tx, eid).await? {
                 continue;
             }
+            events_to_undo.push(self.event_store.get_event_by_id_in_tx(&mut tx, eid).await?);
+        }
+        events_to_undo.sort_by_key(|e| std::cmp::Reverse(e.id));
 
-            let original = self.event_store.get_event_by_id_in_tx(&mut tx, eid).await?;
+        for original in events_to_undo {
             let domain_event: DomainEvent = serde_json::from_value(original.event_data.clone())
                 .map_err(|e| AppError::Internal(format!("Failed to deserialize event: {e}")))?;
 
@@ -90,7 +95,7 @@ impl UndoCommands {
             ).await?;
 
             let metadata = EventMetadata {
-                causation_id: Some(eid.to_string()),
+                causation_id: Some(original.event_id.to_string()),
                 ..Default::default()
             };
 
