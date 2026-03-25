@@ -722,17 +722,31 @@ impl Projector {
         .await?;
 
         // Rename children's coordinates when labels are renamed.
-        // Sort so that entries whose old_label is also a new_label of another rename are
-        // processed first.  This prevents chained renames (e.g. {A→B, B→C}) from
-        // contaminating items: B→C must run before A→B so items originally at B end up
-        // at C, not at B alongside items that were moved from A.
-        let mut rename_pairs: Vec<(&String, &String)> = data.label_renames.iter().collect();
-        rename_pairs.sort_by_key(|(old, _)| {
-            // Lower key = processed first.  A rename whose old_label is the *target* of
-            // another rename in this batch must run first to avoid double-movement.
-            if data.label_renames.values().any(|v| v == *old) { 0usize } else { 1usize }
-        });
-        for (old_label, new_label) in rename_pairs {
+        // Topological sort (Kahn's algorithm) so rename chains of any length are
+        // processed correctly.  Rule: entry F must be processed AFTER entry E whenever
+        // E.old_label == F.new_label (otherwise F would move items into E's source
+        // slot, causing double-movement for chained renames like {A→B, B→C, C→D}).
+        //
+        // "Not blocked" in each round = entries whose new_label does not appear as the
+        // old_label of any remaining entry.  These are safe to defer no longer and are
+        // emitted into `sorted` first.  Remaining entries are processed in the next round.
+        let mut remaining: Vec<(&String, &String)> = data.label_renames.iter().collect();
+        let mut sorted: Vec<(&String, &String)> = Vec::with_capacity(remaining.len());
+        while !remaining.is_empty() {
+            let old_labels: std::collections::HashSet<&str> =
+                remaining.iter().map(|(old, _)| old.as_str()).collect();
+            let (ready, blocked): (Vec<_>, Vec<_>) = remaining
+                .into_iter()
+                .partition(|(_, new)| !old_labels.contains(new.as_str()));
+            if ready.is_empty() {
+                // Cycle in renames — process blocked in any order to avoid infinite loop.
+                sorted.extend(blocked);
+                break;
+            }
+            sorted.extend(ready);
+            remaining = blocked;
+        }
+        for (old_label, new_label) in sorted {
             sqlx::query(
                 "UPDATE items SET coordinate = jsonb_set(coordinate, '{value}', to_jsonb($1::text)) \
                  WHERE parent_id = $2 AND coordinate->>'type' = 'abstract' AND coordinate->>'value' = $3",
