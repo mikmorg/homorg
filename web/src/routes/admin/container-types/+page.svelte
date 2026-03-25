@@ -231,6 +231,7 @@
 				</div>
 			</div>
 			<LocationSchemaEditor bind:value={formLocationSchema} />
+			<p class="text-xs text-slate-500">This schema is applied to new containers of this type. Existing containers are not affected when you change it here.</p>
 			<button class="btn btn-primary w-full" on:click={saveType} disabled={formLoading}>
 				{formLoading ? 'Saving…' : editingId ? 'Update' : 'Create'}
 			</button>

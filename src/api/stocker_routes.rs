@@ -363,6 +363,17 @@ async fn process_batch_event_in_tx(
                 Some(barcode.clone())
             };
 
+            // When creating a container with a type, inherit the type's default schema.
+            let location_schema: Option<serde_json::Value> = match (is_container, container_type_id) {
+                (Some(true), Some(type_id)) => state
+                    .container_type_queries
+                    .get_by_id(*type_id)
+                    .await
+                    .ok()
+                    .and_then(|ct| ct.default_location_schema),
+                _ => None,
+            };
+
             let create_req = CreateItemRequest {
                 system_barcode,
                 parent_id: container_id,
@@ -372,7 +383,7 @@ async fn process_batch_event_in_tx(
                 tags: tags.clone(),
                 is_container: *is_container,
                 coordinate: coordinate.clone(),
-                location_schema: None,
+                location_schema,
                 max_capacity_cc: None,
                 max_weight_grams: None,
                 dimensions: None,
