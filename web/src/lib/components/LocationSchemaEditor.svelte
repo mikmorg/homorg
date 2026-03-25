@@ -31,16 +31,14 @@
 	});
 
 	function computeRenames(newLabels: string[]) {
+		// Labels removed from the schema (present in original, absent in new)
+		const removed = originalLabels.filter((l) => !newLabels.includes(l));
+		// Labels added to the schema (absent in original, present in new)
+		const added = newLabels.filter((l) => !originalLabels.includes(l));
+		// Pair removed→added by relative order; excess removals are pure deletions (no cascade)
 		const renames: Record<string, string> = {};
-		for (let i = 0; i < originalLabels.length; i++) {
-			const oldLabel = originalLabels[i];
-			if (i < newLabels.length && newLabels[i] !== oldLabel) {
-				// Only rename if the new label isn't also an original label
-				// (to avoid conflicts when reordering)
-				if (!newLabels.includes(oldLabel)) {
-					renames[oldLabel] = newLabels[i];
-				}
-			}
+		for (let i = 0; i < Math.min(removed.length, added.length); i++) {
+			renames[removed[i]] = added[i];
 		}
 		labelRenames = renames;
 	}
