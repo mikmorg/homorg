@@ -562,15 +562,17 @@ impl Projector {
             "caption": data.caption,
             "order": data.order,
         });
-        // Dedup: only append if no existing entry has the same path
+        // Dedup: only append if no existing entry has the same path.
+        // PI-1: COALESCE is required because NULL || value = NULL in Postgres;
+        // without it, the first image on a row with images = NULL is silently lost.
         sqlx::query(
             r#"
             UPDATE items
             SET images = CASE
                 WHEN NOT EXISTS (
-                    SELECT 1 FROM jsonb_array_elements(images) AS elem
+                    SELECT 1 FROM jsonb_array_elements(COALESCE(images, '[]'::jsonb)) AS elem
                     WHERE elem->>'path' = $1
-                ) THEN images || $4::jsonb
+                ) THEN COALESCE(images, '[]'::jsonb) || $4::jsonb
                 ELSE images
             END,
             updated_by = $2

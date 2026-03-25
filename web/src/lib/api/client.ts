@@ -22,11 +22,11 @@ export class ApiClientError extends Error {
 
 const BASE = '/api/v1';
 let isRefreshing = false;
-let refreshQueue: Array<(token: string) => void> = [];
+let refreshQueue: Array<{ resolve: (token: string) => void; reject: (err: Error) => void }> = [];
 
 async function refreshAndRetry(token: string): Promise<string> {
 	if (isRefreshing) {
-		return new Promise((resolve) => refreshQueue.push(resolve));
+		return new Promise((resolve, reject) => refreshQueue.push({ resolve, reject }));
 	}
 	isRefreshing = true;
 	try {
@@ -39,12 +39,18 @@ async function refreshAndRetry(token: string): Promise<string> {
 		});
 		if (!resp.ok) {
 			authStore.clear();
-			throw new Error('Refresh failed');
+			throw new Error('Session expired');
 		}
 		const data: AuthResponse = await resp.json();
 		authStore.set(data);
-		refreshQueue.forEach((cb) => cb(data.access_token));
+		refreshQueue.forEach(({ resolve }) => resolve(data.access_token));
 		return data.access_token;
+	} catch (e) {
+		// CL-1: Reject all queued callers so their Promises don't hang indefinitely
+		// when a token refresh fails (e.g. expired refresh token, network error).
+		const err = e instanceof Error ? e : new Error('Refresh failed');
+		refreshQueue.forEach(({ reject }) => reject(err));
+		throw err;
 	} finally {
 		isRefreshing = false;
 		refreshQueue = [];

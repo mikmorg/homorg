@@ -40,7 +40,7 @@ async fn get_children(
     Path(id): Path<Uuid>,
     Query(q): Query<ChildrenQuery>,
 ) -> AppResult<Json<Vec<ItemSummary>>> {
-    let limit = q.limit.unwrap_or(50).min(200);
+    let limit = q.limit.unwrap_or(50).clamp(1, 200);
     let items = state
         .container_queries
         .get_children(
@@ -67,7 +67,7 @@ async fn get_descendants(
     Path(id): Path<Uuid>,
     Query(q): Query<DescendantsQuery>,
 ) -> AppResult<Json<Vec<ItemSummary>>> {
-    let limit = q.limit.unwrap_or(200).min(1000);
+    let limit = q.limit.unwrap_or(200).clamp(1, 1000);
     let items = state
         .container_queries
         .get_descendants(id, q.max_depth, limit)

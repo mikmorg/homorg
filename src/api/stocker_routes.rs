@@ -99,7 +99,7 @@ async fn list_sessions(
     auth: AuthUser,
     Query(q): Query<ListSessionsQuery>,
 ) -> AppResult<Json<Vec<ScanSession>>> {
-    let limit = q.limit.unwrap_or(20).min(100);
+    let limit = q.limit.unwrap_or(20).clamp(1, 100);
     let sessions = state.session_repository.list_for_user(auth.user_id, limit).await?;
     Ok(Json(sessions))
 }
@@ -364,13 +364,13 @@ async fn process_batch_event_in_tx(
             };
 
             // When creating a container with a type, inherit the type's default schema.
+            // SR-1: Propagate errors so an invalid container_type_id fails the event
+            // rather than silently creating a container with no schema.
             let location_schema: Option<serde_json::Value> = match (is_container, container_type_id) {
-                (Some(true), Some(type_id)) => state
-                    .container_type_queries
-                    .get_by_id(*type_id)
-                    .await
-                    .ok()
-                    .and_then(|ct| ct.default_location_schema),
+                (Some(true), Some(type_id)) => {
+                    let ct = state.container_type_queries.get_by_id(*type_id).await?;
+                    ct.default_location_schema
+                }
                 _ => None,
             };
 
@@ -411,7 +411,7 @@ async fn process_batch_event_in_tx(
                 .create_item_in_tx(tx, item_id, &create_req, actor_id, &metadata)
                 .await?;
 
-            let needs_details = name.is_none() || name.as_deref().is_none_or(|n| n.is_empty());
+            let needs_details = name.as_deref().map_or(true, |n| n.is_empty());
 
             Ok(StockerBatchResult::Created {
                 index,
