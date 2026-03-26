@@ -5,7 +5,7 @@
 
 import { writable, derived } from 'svelte/store';
 import { HidScanner } from './hid-scanner.js';
-import type { ScanEvent } from './scanner.js';
+import type { Scanner, ScanEvent } from './scanner.js';
 
 export type ScannerSource = 'hid' | 'serial' | 'camera' | 'none';
 export type ScannerStatus = 'idle' | 'active' | 'error';
@@ -27,7 +27,7 @@ export const isScanning = derived(scannerState, (s) => s.status === 'active');
 
 type ScanHandler = (event: ScanEvent) => void;
 
-let activeScanner: HidScanner | null = null;
+let activeScanner: Scanner | null = null;
 let unsub: (() => void) | null = null;
 const handlers: Set<ScanHandler> = new Set();
 
@@ -53,6 +53,7 @@ export async function startSerialScanner() {
 	});
 	try {
 		await scanner.start();
+		activeScanner = scanner;
 		scannerState.set({ source: 'serial', status: 'active', errorMessage: null });
 	} catch (err) {
 		scannerState.set({
@@ -73,6 +74,7 @@ export async function startCameraScanner(): Promise<HTMLVideoElement | null> {
 	});
 	try {
 		await scanner.start();
+		activeScanner = scanner;
 		scannerState.set({ source: 'camera', status: 'active', errorMessage: null });
 		return scanner.videoElement;
 	} catch (err) {

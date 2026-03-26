@@ -37,7 +37,12 @@
 
 	let pendingBatch: StockerBatchEvent[] = [];
 	let flushTimer: ReturnType<typeof setInterval> | null = null;
+	let flushing = false;
 	const FLUSH_INTERVAL_MS = 2000;
+
+	// SC-2: Track in-flight barcodes to prevent duplicate processing when the
+	// same barcode fires twice before the first async resolve completes.
+	const inFlight = new Set<string>();
 
 	// Quick-create panel
 	let showQuickCreate = false;
@@ -93,6 +98,20 @@
 		const now = Date.now();
 		if (scanLog.length > 0 && scanLog[0].barcode === barcode && now - scanLog[0].timestamp < 500) return;
 
+		// SC-2: Prevent duplicate processing from rapid-fire scan events that
+		// arrive while the first async resolve is still in-flight.
+		if (inFlight.has(barcode)) return;
+		inFlight.add(barcode);
+
+		try {
+			await handleScanInner(barcode);
+		} finally {
+			inFlight.delete(barcode);
+		}
+	}
+
+	async function handleScanInner(barcode: string) {
+
 		let resolution: BarcodeResolution;
 		try {
 			resolution = await api.barcodes.resolve(barcode);
@@ -119,6 +138,14 @@
 						containerName: item.name,
 						containerBarcode: barcode
 					});
+					// SC-1: Notify the server so subsequent batched move_item
+					// events target this container, not the stale session default.
+					pendingBatch.push({
+						type: 'set_context',
+						barcode,
+						scanned_at: new Date().toISOString()
+					});
+					setPendingCount(pendingBatch.length);
 					addLog(barcode, 'context', `Context → ${item.name}`);
 					contextSet();
 				} else {
@@ -214,7 +241,8 @@
 
 	// ── Batch flush ──────────────────────────────────────────────────────────
 	async function flushBatch() {
-		if (pendingBatch.length === 0) return;
+		if (pendingBatch.length === 0 || flushing) return;
+		flushing = true;
 		const batch = [...pendingBatch];
 		pendingBatch = [];
 		setPendingCount(0);
@@ -223,10 +251,12 @@
 			await api.stocker.submitBatch(sessionId, { events: batch }, false);
 			markSynced();
 		} catch (err) {
-			// Re-queue failed batch
+			// Re-queue failed batch at the front so ordering is preserved
 			pendingBatch = [...batch, ...pendingBatch];
 			setPendingCount(pendingBatch.length);
 			console.error('[stocker] batch flush failed', err);
+		} finally {
+			flushing = false;
 		}
 	}
 
@@ -258,11 +288,17 @@
 				addRecentItem(createdItem);
 				addLog(qcBarcode || '—', 'success', `Created: ${qcName} → ${context.containerName}`);
 				scanSuccess();
+				showQuickCreate = false;
+				qcName = '';
+				qcBarcode = '';
+				qcQuantity = 1;
+			} else {
+				// SC-3: The server returned ok but no 'created' result — show errors
+				// instead of silently closing the panel and losing the user's input.
+				const errorMsgs = batchRes.errors?.map((e) => e.message) ?? [];
+				qcError = errorMsgs.length > 0 ? errorMsgs.join('; ') : 'Item was not created. Please try again.';
+				scanError();
 			}
-			showQuickCreate = false;
-			qcName = '';
-			qcBarcode = '';
-			qcQuantity = 1;
 		} catch (err) {
 			qcError = err instanceof Error ? err.message : 'Create failed';
 			scanError();
@@ -300,6 +336,15 @@
 			containerName: item.name,
 			containerBarcode: item.system_barcode ?? null
 		});
+		// SC-1: Send set_context to server if the container has a barcode.
+		if (item.system_barcode) {
+			pendingBatch.push({
+				type: 'set_context',
+				barcode: item.system_barcode,
+				scanned_at: new Date().toISOString()
+			});
+			setPendingCount(pendingBatch.length);
+		}
 		addLog(item.name ?? item.id, 'context', `Context → ${item.name}`);
 		contextSet();
 		showContainerPicker = false;
