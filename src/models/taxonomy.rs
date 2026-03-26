@@ -51,5 +51,16 @@ pub struct CreateCategoryRequest {
 pub struct UpdateCategoryRequest {
     pub name: Option<String>,
     pub description: Option<String>,
-    pub parent_category_id: Option<Uuid>,
+    /// Absent → don't change; `null` → clear to top-level; UUID → set new parent.
+    #[serde(default, deserialize_with = "deserialize_optional_field")]
+    pub parent_category_id: Option<Option<Uuid>>,
+}
+
+/// Deserialize a field that distinguishes absent (None) from explicit null (Some(None)).
+fn deserialize_optional_field<'de, D, T>(deserializer: D) -> Result<Option<Option<T>>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: serde::Deserialize<'de>,
+{
+    Ok(Some(Option::deserialize(deserializer)?))
 }

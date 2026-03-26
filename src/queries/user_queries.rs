@@ -197,10 +197,12 @@ impl UserQueries {
 
     /// List all users ordered by creation date.
     pub async fn list_all(&self) -> AppResult<Vec<UserPublic>> {
-        let users = sqlx::query_as::<_, User>("SELECT * FROM users ORDER BY created_at")
+        let users = sqlx::query_as::<_, UserPublic>(
+            "SELECT id, username, display_name, role, container_id, is_active, created_at FROM users ORDER BY created_at"
+        )
             .fetch_all(&self.pool)
             .await?;
-        Ok(users.into_iter().map(Into::into).collect())
+        Ok(users)
     }
 
     /// Update a user's display name.

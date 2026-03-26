@@ -86,6 +86,16 @@ async function request<T>(
 	const resp = await fetch(url, { method, ...fetchOptions, headers });
 
 	if (resp.status === 401 && retry && auth?.refresh_token) {
+		// CL-2: FormData/ReadableStream bodies are consumed by the first fetch()
+		// and cannot be re-sent on retry. Refresh the token but let the caller
+		// re-initiate the request (e.g. re-submit the upload form).
+		if (fetchOptions.body instanceof FormData) {
+			await refreshAndRetry();
+			throw new ApiClientError({
+				status: 401,
+				message: 'Session refreshed — please retry the upload'
+			});
+		}
 		const newToken = await refreshAndRetry();
 		headers.set('Authorization', `Bearer ${newToken}`);
 		const retry$ = await fetch(url, { method, ...fetchOptions, headers });

@@ -251,13 +251,17 @@ impl TaxonomyQueries {
     ) -> AppResult<Category> {
         // Pre-check: reject self-referencing parent for a clear error message.
         // The DB trigger check_category_no_cycle() also enforces cycle prevention.
-        if let Some(parent_id) = req.parent_category_id {
+        if let Some(Some(parent_id)) = req.parent_category_id {
             if parent_id == id {
                 return Err(AppError::BadRequest(
                     "Category cannot be its own parent".into(),
                 ));
             }
         }
+
+        // Flatten Option<Option<Uuid>>: Some(x) means "update parent", None means "leave unchanged".
+        let update_parent = req.parent_category_id.is_some();
+        let parent_value: Option<Uuid> = req.parent_category_id.flatten();
 
         let row = sqlx::query_as::<_, Category>(
             r#"
@@ -274,8 +278,8 @@ impl TaxonomyQueries {
         .bind(req.name.as_deref())
         .bind(req.description.is_some())  // $2: whether to update description
         .bind(req.description.as_deref().filter(|s| !s.is_empty())) // $3: empty → NULL
-        .bind(req.parent_category_id.is_some())  // $4: whether to update parent
-        .bind(req.parent_category_id)
+        .bind(update_parent)  // $4: whether to update parent
+        .bind(parent_value)   // $5: NULL clears parent, UUID sets it
         .bind(id)
         .fetch_optional(&self.pool)
         .await

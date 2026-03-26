@@ -13,6 +13,15 @@ use crate::AppState;
 
 /// API-4: Maximum allowed length for the search query string.
 const MAX_SEARCH_QUERY_LEN: usize = 500;
+/// API-5: Maximum length for LTREE lquery path pattern.
+const MAX_SEARCH_PATH_LEN: usize = 500;
+
+/// API-5: Only allow safe LTREE lquery characters (alphanumeric, underscore,
+/// dot, and the star wildcard).  Reject all other lquery meta-characters
+/// ({, }, !, @, |, quantifiers) to prevent computationally expensive patterns.
+fn is_safe_lquery(path: &str) -> bool {
+    path.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'.' || b == b'*')
+}
 
 pub fn router() -> Router<Arc<AppState>> {
     Router::new().route("/", get(search))
@@ -31,6 +40,19 @@ async fn search(
             return Err(AppError::BadRequest(format!(
                 "Search query exceeds maximum length of {MAX_SEARCH_QUERY_LEN} characters"
             )));
+        }
+    }
+    // API-5: Validate lquery path to prevent DoS via expensive patterns.
+    if let Some(ref path) = params.path {
+        if path.len() > MAX_SEARCH_PATH_LEN {
+            return Err(AppError::BadRequest(format!(
+                "Path pattern exceeds maximum length of {MAX_SEARCH_PATH_LEN} bytes"
+            )));
+        }
+        if !is_safe_lquery(path) {
+            return Err(AppError::BadRequest(
+                "Path pattern contains invalid characters; only alphanumeric, '_', '.', and '*' are allowed".into()
+            ));
         }
     }
     let results = state.search_queries.search(&params).await?;
