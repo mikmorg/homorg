@@ -537,6 +537,7 @@ impl Projector {
             from_path: Some(data.from_path.clone()),
             to_path: resolved_to_path,
             coordinate: data.coordinate.clone(),
+            from_coordinate: None,
         };
         Self::project_item_moved(tx, id, &move_data, actor_id).await
     }
@@ -643,15 +644,16 @@ impl Projector {
         actor_id: Uuid,
     ) -> AppResult<()> {
         let entry = serde_json::json!({"type": data.code_type, "value": data.value});
-        // Dedup: only append if no existing entry has the same type+value
+        // Dedup: only append if no existing entry has the same type+value.
+        // PI-2: COALESCE guards against NULL external_codes (same pattern as images).
         sqlx::query(
             r#"
             UPDATE items
             SET external_codes = CASE
                 WHEN NOT EXISTS (
-                    SELECT 1 FROM jsonb_array_elements(external_codes) AS elem
+                    SELECT 1 FROM jsonb_array_elements(COALESCE(external_codes, '[]'::jsonb)) AS elem
                     WHERE elem->>'type' = $1 AND elem->>'value' = $4
-                ) THEN external_codes || $5::jsonb
+                ) THEN COALESCE(external_codes, '[]'::jsonb) || $5::jsonb
                 ELSE external_codes
             END,
             updated_by = $2

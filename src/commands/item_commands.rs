@@ -317,8 +317,8 @@ impl ItemCommands {
         actor_id: Uuid,
         metadata: &EventMetadata,
     ) -> AppResult<StoredEvent> {
-        let item = sqlx::query_as::<_, (Uuid, Option<Uuid>, Option<String>, String, bool)>(
-            "SELECT id, parent_id, container_path::text, node_id, is_container FROM items WHERE id = $1 AND is_deleted = FALSE",
+        let item = sqlx::query_as::<_, (Uuid, Option<Uuid>, Option<String>, String, bool, Option<serde_json::Value>)>(
+            "SELECT id, parent_id, container_path::text, node_id, is_container, coordinate FROM items WHERE id = $1 AND is_deleted = FALSE",
         )
         .bind(item_id)
         .fetch_optional(&mut **tx)
@@ -375,6 +375,7 @@ impl ItemCommands {
             from_path: item.2.clone(),
             to_path: new_path,
             coordinate: req.coordinate.clone(),
+            from_coordinate: item.5,
         });
 
         let stored = self.event_store.append_in_tx(tx, item_id, &event, actor_id, metadata).await?;

@@ -128,6 +128,10 @@ pub struct ItemMovedData {
     pub from_path: Option<String>,
     pub to_path: String,
     pub coordinate: Option<serde_json::Value>,
+    /// The item's coordinate at its source location, captured at move time.
+    /// Used by undo to restore the original placement. Absent in legacy events.
+    #[serde(default)]
+    pub from_coordinate: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -290,6 +294,7 @@ mod tests {
             from_path: Some("n_root".into()),
             to_path: "n_root.n_abc".into(),
             coordinate: None,
+            from_coordinate: None,
         });
         assert_eq!(roundtrip(&evt).event_type(), "ItemMoved");
     }
@@ -502,6 +507,7 @@ mod tests {
             DomainEvent::ItemMoved(ItemMovedData {
                 from_container_id: None, to_container_id: Uuid::nil(),
                 from_path: None, to_path: String::new(), coordinate: None,
+                from_coordinate: None,
             }).event_type(),
             DomainEvent::ItemDeleted(ItemDeletedData { reason: None }).event_type(),
             DomainEvent::ItemRestored(ItemRestoredData { from_event_id: None }).event_type(),

@@ -208,14 +208,16 @@ impl UndoCommands {
     ) -> AppResult<(DomainEvent, Uuid)> {
         match original {
             DomainEvent::ItemMoved(data) => {
-                // Reverse the move: go back to original container
+                // Reverse the move: go back to original container.
+                // Use from_coordinate (captured at move time) so the item's
+                // original placement within the source container is restored.
                 let compensating = DomainEvent::ItemMoveReverted(ItemMoveRevertedData {
                     original_event_id,
                     from_container_id: data.to_container_id,
                     to_container_id: data.from_container_id,
                     from_path: data.to_path.clone(),
                     to_path: data.from_path.clone(),
-                    coordinate: None,
+                    coordinate: data.from_coordinate.clone(),
                 });
                 Ok((compensating, aggregate_id))
             }
