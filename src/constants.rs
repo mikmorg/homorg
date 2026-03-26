@@ -72,6 +72,11 @@ pub const MAX_CODE_VALUE_LEN: usize = 200;
 /// Maximum character length of an external code type identifier.
 pub const MAX_CODE_TYPE_LEN: usize = 64;
 
+// ── Images ────────────────────────────────────────────────────────────
+
+/// Maximum number of images allowed per item.
+pub const MAX_IMAGES_PER_ITEM: usize = 50;
+
 // ── Item condition ──────────────────────────────────────────────────────
 
 /// Allowed values for the `condition` field.

@@ -413,6 +413,22 @@ async fn upload_image(
 
     let (filename, data) = file_data.ok_or_else(|| AppError::BadRequest("No file provided".into()))?;
 
+    // IMG-1: Limit the number of images per item to prevent unbounded JSONB growth.
+    let image_count: i64 = sqlx::query_scalar(
+        "SELECT COALESCE(jsonb_array_length(images), 0) FROM items WHERE id = $1 AND is_deleted = FALSE",
+    )
+    .bind(id)
+    .fetch_optional(&state.pool)
+    .await?
+    .ok_or_else(|| AppError::NotFound(format!("Item {id} not found")))?;
+
+    if image_count as usize >= crate::constants::MAX_IMAGES_PER_ITEM {
+        return Err(AppError::BadRequest(format!(
+            "Item already has {image_count} images (maximum {})",
+            crate::constants::MAX_IMAGES_PER_ITEM
+        )));
+    }
+
     let key = state.storage.upload(id, &filename, &data).await?;
     let url = state.storage.get_url(&key);
 

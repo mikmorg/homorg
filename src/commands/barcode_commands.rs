@@ -187,6 +187,14 @@ impl BarcodeCommands {
                     value: code.to_string(),
                     item_ids: found,
                 })
+            } else if !found.is_empty() {
+                // BC-R1: Non-classifiable code (e.g. alphanumeric ASIN) but items
+                // matched by external_codes value — return them as untyped external.
+                Ok(BarcodeResolution::External {
+                    code_type: "BARCODE".to_string(),
+                    value: code.to_string(),
+                    item_ids: found,
+                })
             } else {
                 Ok(BarcodeResolution::Unknown {
                     value: code.to_string(),
@@ -238,6 +246,12 @@ impl BarcodeCommands {
             if let Some(ct) = code_type {
                 Ok(BarcodeResolution::External {
                     code_type: ct.to_string(),
+                    value: code.to_string(),
+                    item_ids: found,
+                })
+            } else if !found.is_empty() {
+                Ok(BarcodeResolution::External {
+                    code_type: "BARCODE".to_string(),
                     value: code.to_string(),
                     item_ids: found,
                 })
