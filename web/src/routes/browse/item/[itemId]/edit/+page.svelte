@@ -9,7 +9,7 @@
 	import LocationSchemaEditor from '$lib/components/LocationSchemaEditor.svelte';
 	import { toast } from '$stores/toast.js';
 
-	const itemId = $page.params.itemId!;
+	$: itemId = $page.params.itemId!;
 	let item: Item | null = null;
 	let loading = true;
 	let saving = false;
@@ -104,8 +104,8 @@
 			else if (!newCategoryId) updates.category = '';
 		}
 
-		const newCondition = condition || undefined;
-		if (newCondition !== (item.condition ?? undefined)) {
+		const newCondition: string | null = condition || null;
+		if (newCondition !== (item.condition ?? null)) {
 			updates.condition = newCondition;
 		}
 
@@ -117,38 +117,38 @@
 			updates.tags = newTagNames;
 		}
 
-		const newAcqDate = acquisitionDate || undefined;
-		if (newAcqDate !== (item.acquisition_date ?? undefined)) {
+		const newAcqDate: string | null = acquisitionDate || null;
+		if (newAcqDate !== (item.acquisition_date ?? null)) {
 			updates.acquisition_date = newAcqDate;
 		}
 
 		const parsedAcqCost = parseFloat(acquisitionCost);
-		const newAcqCost = Number.isFinite(parsedAcqCost) ? parsedAcqCost : undefined;
-		const oldAcqCost = item.acquisition_cost ? parseFloat(item.acquisition_cost) : undefined;
+		const newAcqCost: number | null = Number.isFinite(parsedAcqCost) ? parsedAcqCost : null;
+		const oldAcqCost: number | null = item.acquisition_cost ? parseFloat(item.acquisition_cost) : null;
 		if (newAcqCost !== oldAcqCost) {
 			updates.acquisition_cost = newAcqCost;
 		}
 
 		const parsedCurrVal = parseFloat(currentValue);
-		const newCurrVal = Number.isFinite(parsedCurrVal) ? parsedCurrVal : undefined;
-		const oldCurrVal = item.current_value ? parseFloat(item.current_value) : undefined;
+		const newCurrVal: number | null = Number.isFinite(parsedCurrVal) ? parsedCurrVal : null;
+		const oldCurrVal: number | null = item.current_value ? parseFloat(item.current_value) : null;
 		if (newCurrVal !== oldCurrVal) {
 			updates.current_value = newCurrVal;
 		}
 
-		const newWarranty = warrantyExpiry || undefined;
-		if (newWarranty !== (item.warranty_expiry ?? undefined)) {
+		const newWarranty: string | null = warrantyExpiry || null;
+		if (newWarranty !== (item.warranty_expiry ?? null)) {
 			updates.warranty_expiry = newWarranty;
 		}
 
-		const newCurrency = currency || undefined;
-		if (newCurrency !== (item.currency ?? undefined)) {
+		const newCurrency: string | null = currency || null;
+		if (newCurrency !== (item.currency ?? null)) {
 			updates.currency = newCurrency;
 		}
 
 		const parsedWeight = parseFloat(weightGrams);
-		const newWeight = Number.isFinite(parsedWeight) ? parsedWeight : undefined;
-		const oldWeight = item.weight_grams ? parseFloat(item.weight_grams) : undefined;
+		const newWeight: number | null = Number.isFinite(parsedWeight) ? parsedWeight : null;
+		const oldWeight: number | null = item.weight_grams ? parseFloat(item.weight_grams) : null;
 		if (newWeight !== oldWeight) {
 			updates.weight_grams = newWeight;
 		}
@@ -157,8 +157,8 @@
 			updates.is_fungible = isFungible;
 		}
 
-		const newFungibleUnit = fungibleUnit || undefined;
-		if (newFungibleUnit !== (item.fungible_unit ?? undefined)) {
+		const newFungibleUnit: string | null = fungibleUnit || null;
+		if (newFungibleUnit !== (item.fungible_unit ?? null)) {
 			updates.fungible_unit = newFungibleUnit;
 		}
 

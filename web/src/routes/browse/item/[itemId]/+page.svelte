@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { page } from '$app/stores';
 	import { api } from '$api/client.js';
@@ -10,7 +9,7 @@
 	import LocationSchemaDisplay from '$lib/components/LocationSchemaDisplay.svelte';
 	import { toast } from '$stores/toast.js';
 
-	const itemId = $page.params.itemId!;
+	$: itemId = $page.params.itemId!;
 	let item: Item | null = null;
 	let parentItem: Item | null = null;
 	let ancestors: AncestorEntry[] = [];
@@ -61,26 +60,38 @@
 	let newCodeValue = '';
 	let addingCode = false;
 
-	onMount(async () => {
+	async function loadItem(id: string) {
+		loading = true;
+		error = '';
+		item = null;
+		parentItem = null;
+		ancestors = [];
+		containerStats = null;
 		try {
 			const [fetchedItem, ancs] = await Promise.all([
-				api.items.get(itemId),
-				api.containers.ancestors(itemId)
+				api.items.get(id),
+				api.containers.ancestors(id)
 			]);
+			// Guard: if itemId changed while we were loading, discard stale result.
+			if (id !== itemId) return;
 			item = fetchedItem;
 			ancestors = ancs;
 			if (fetchedItem.parent_id) {
 				parentItem = await api.items.get(fetchedItem.parent_id);
 			}
 			if (fetchedItem.is_container) {
-				try { containerStats = await api.containers.stats(itemId); } catch { /* ignore */ }
+				try { containerStats = await api.containers.stats(id); } catch { /* ignore */ }
 			}
 		} catch (err) {
+			if (id !== itemId) return;
 			error = err instanceof Error ? err.message : 'Item not found';
 		} finally {
 			loading = false;
 		}
-	});
+	}
+
+	// Reactive: re-load when itemId changes (handles same-layout navigation).
+	$: loadItem(itemId);
 
 	async function deleteItem() {
 		deleting = true;
