@@ -315,8 +315,29 @@ impl UndoCommands {
             DomainEvent::ItemBarcodeAssigned(data) => {
                 // Reverse: restore the previous barcode (empty string signals "clear barcode"
                 // to the projector, which treats it as NULL).
+                let restore_barcode = data.previous_barcode.clone().unwrap_or_default();
+
+                // BC-U1: If restoring a non-empty barcode, verify it hasn't been reassigned
+                // to another item since the original event.  Without this check the DB
+                // UNIQUE constraint on system_barcode would produce an opaque error.
+                if !restore_barcode.is_empty() {
+                    let conflict: Option<Uuid> = sqlx::query_scalar(
+                        "SELECT id FROM items WHERE system_barcode = $1 AND id != $2 AND is_deleted = FALSE",
+                    )
+                    .bind(&restore_barcode)
+                    .bind(aggregate_id)
+                    .fetch_optional(&mut **tx)
+                    .await?;
+
+                    if let Some(other_id) = conflict {
+                        return Err(AppError::Conflict(format!(
+                            "Cannot restore barcode '{restore_barcode}': now assigned to item {other_id}"
+                        )));
+                    }
+                }
+
                 let compensating = DomainEvent::ItemBarcodeAssigned(ItemBarcodeAssignedData {
-                    barcode: data.previous_barcode.clone().unwrap_or_default(),
+                    barcode: restore_barcode,
                     previous_barcode: Some(data.barcode.clone()),
                 });
                 Ok((compensating, aggregate_id))
