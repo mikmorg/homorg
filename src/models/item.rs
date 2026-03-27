@@ -175,6 +175,11 @@ pub struct CreateItemRequest {
 /// Container-specific fields are only meaningful when the item is (or becomes) a container.
 /// Fungible-specific fields are only meaningful when the item is (or becomes) fungible.
 /// Providing both container and fungible fields produces a validation error.
+///
+/// For nullable fields, the double-Option pattern `Option<Option<T>>` distinguishes:
+///   - absent (field omitted from JSON) → `None` → no change
+///   - explicit null in JSON             → `Some(None)` → clear to NULL
+///   - value present in JSON             → `Some(Some(val))` → set to val
 #[derive(Debug, Clone, Deserialize)]
 pub struct UpdateItemRequest {
     pub name: Option<String>,
@@ -188,24 +193,45 @@ pub struct UpdateItemRequest {
     // NOTE: location_schema is intentionally excluded from UpdateItemRequest.
     // Use PUT /containers/:id/schema (update_container_schema command) so that
     // label renames cascade correctly to children's coordinates.
-    pub max_capacity_cc: Option<f64>,
-    pub max_weight_grams: Option<f64>,
-    pub container_type_id: Option<Uuid>,
+    #[serde(default, deserialize_with = "deserialize_nullable")]
+    pub max_capacity_cc: Option<Option<f64>>,
+    #[serde(default, deserialize_with = "deserialize_nullable")]
+    pub max_weight_grams: Option<Option<f64>>,
+    #[serde(default, deserialize_with = "deserialize_nullable")]
+    pub container_type_id: Option<Option<Uuid>>,
     // Physical properties
     pub dimensions: Option<serde_json::Value>,
-    pub weight_grams: Option<f64>,
+    #[serde(default, deserialize_with = "deserialize_nullable")]
+    pub weight_grams: Option<Option<f64>>,
     // Fungible toggle — inserts/removes fungible_properties row
     pub is_fungible: Option<bool>,
-    pub fungible_unit: Option<String>,
+    #[serde(default, deserialize_with = "deserialize_nullable")]
+    pub fungible_unit: Option<Option<String>>,
     // Valuation
-    pub condition: Option<String>,
-    pub currency: Option<String>,
-    pub acquisition_date: Option<NaiveDate>,
-    pub acquisition_cost: Option<f64>,
-    pub current_value: Option<f64>,
-    pub depreciation_rate: Option<f64>,
-    pub warranty_expiry: Option<NaiveDate>,
+    #[serde(default, deserialize_with = "deserialize_nullable")]
+    pub condition: Option<Option<String>>,
+    #[serde(default, deserialize_with = "deserialize_nullable")]
+    pub currency: Option<Option<String>>,
+    #[serde(default, deserialize_with = "deserialize_nullable")]
+    pub acquisition_date: Option<Option<NaiveDate>>,
+    #[serde(default, deserialize_with = "deserialize_nullable")]
+    pub acquisition_cost: Option<Option<f64>>,
+    #[serde(default, deserialize_with = "deserialize_nullable")]
+    pub current_value: Option<Option<f64>>,
+    #[serde(default, deserialize_with = "deserialize_nullable")]
+    pub depreciation_rate: Option<Option<f64>>,
+    #[serde(default, deserialize_with = "deserialize_nullable")]
+    pub warranty_expiry: Option<Option<NaiveDate>>,
     pub metadata: Option<serde_json::Value>,
+}
+
+/// Deserialize a field that distinguishes absent (`None`) from explicit null (`Some(None)`).
+fn deserialize_nullable<'de, D, T>(deserializer: D) -> Result<Option<Option<T>>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: serde::Deserialize<'de>,
+{
+    Ok(Some(Option::deserialize(deserializer)?))
 }
 
 /// Request to move an item to a different container.

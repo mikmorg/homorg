@@ -210,23 +210,58 @@ impl ItemCommands {
             };
         }
 
-        // Numeric diff: compare as f64 rounded to 6 decimal places to avoid
-        // CB-3: Decimal→f64 conversion producing phantom field-change events (e.g., 10.50 ≠ 10.500000000000001).
-        macro_rules! diff_numeric {
+        // Nullable field diff for Option<Option<T>>:
+        //   None          → field absent from JSON → no change
+        //   Some(None)    → explicit null in JSON  → clear to NULL
+        //   Some(Some(v)) → value present in JSON  → set to v
+        macro_rules! diff_nullable_field {
             ($field:ident, $current_val:expr) => {
-                if let Some(ref new_val) = req.$field {
-                    use rust_decimal::prelude::ToPrimitive;
-                    let old_f64: Option<f64> = $current_val.as_ref().and_then(|d: &rust_decimal::Decimal| d.to_f64());
-                    let new_f64: f64 = *new_val;
-                    // Round to 6 decimal places before comparing to suppress binary-float noise.
-                    let old_r = old_f64.map(|f| (f * 1_000_000.0).round() / 1_000_000.0);
-                    let new_r = (new_f64 * 1_000_000.0).round() / 1_000_000.0;
-                    if old_r.map_or(true, |o| (o - new_r).abs() > 1e-9) {
+                if let Some(ref inner) = req.$field {
+                    let old = serde_json::to_value(&$current_val).unwrap_or(serde_json::Value::Null);
+                    let new = serde_json::to_value(inner).unwrap_or(serde_json::Value::Null);
+                    if old != new {
                         changes.push(FieldChange {
                             field: stringify!($field).to_string(),
-                            old: serde_json::to_value(&old_f64).unwrap_or(serde_json::Value::Null),
-                            new: serde_json::to_value(new_f64).unwrap_or(serde_json::Value::Null),
+                            old,
+                            new,
                         });
+                    }
+                }
+            };
+        }
+
+        // Nullable numeric diff for Option<Option<f64>>:
+        //   None          → field absent → no change
+        //   Some(None)    → explicit null → clear to NULL
+        //   Some(Some(v)) → value present → compare with rounding
+        // CB-3: Decimal→f64 rounding to 6dp suppresses binary-float noise.
+        macro_rules! diff_nullable_numeric {
+            ($field:ident, $current_val:expr) => {
+                if let Some(ref inner) = req.$field {
+                    use rust_decimal::prelude::ToPrimitive;
+                    let old_f64: Option<f64> = $current_val.as_ref().and_then(|d: &rust_decimal::Decimal| d.to_f64());
+                    match inner {
+                        None => {
+                            // Clearing to NULL — only record change if currently set
+                            if old_f64.is_some() {
+                                changes.push(FieldChange {
+                                    field: stringify!($field).to_string(),
+                                    old: serde_json::to_value(&old_f64).unwrap_or(serde_json::Value::Null),
+                                    new: serde_json::Value::Null,
+                                });
+                            }
+                        }
+                        Some(new_f64) => {
+                            let old_r = old_f64.map(|f| (f * 1_000_000.0).round() / 1_000_000.0);
+                            let new_r = (*new_f64 * 1_000_000.0).round() / 1_000_000.0;
+                            if old_r.map_or(true, |o| (o - new_r).abs() > 1e-9) {
+                                changes.push(FieldChange {
+                                    field: stringify!($field).to_string(),
+                                    old: serde_json::to_value(&old_f64).unwrap_or(serde_json::Value::Null),
+                                    new: serde_json::to_value(new_f64).unwrap_or(serde_json::Value::Null),
+                                });
+                            }
+                        }
                     }
                 }
             };
@@ -238,21 +273,21 @@ impl ItemCommands {
         diff_field!(tags, current.tags);
         diff_field!(is_container, current.is_container);
         diff_field!(coordinate, current.coordinate);
-        diff_numeric!(max_capacity_cc, current.max_capacity_cc);
-        diff_numeric!(max_weight_grams, current.max_weight_grams);
+        diff_nullable_numeric!(max_capacity_cc, current.max_capacity_cc);
+        diff_nullable_numeric!(max_weight_grams, current.max_weight_grams);
         diff_field!(dimensions, current.dimensions);
-        diff_numeric!(weight_grams, current.weight_grams);
-        diff_field!(condition, current.condition);
-        diff_field!(currency, current.currency);
-        diff_field!(acquisition_date, current.acquisition_date);
-        diff_numeric!(acquisition_cost, current.acquisition_cost);
-        diff_numeric!(current_value, current.current_value);
-        diff_numeric!(depreciation_rate, current.depreciation_rate);
-        diff_field!(warranty_expiry, current.warranty_expiry);
+        diff_nullable_numeric!(weight_grams, current.weight_grams);
+        diff_nullable_field!(condition, current.condition);
+        diff_nullable_field!(currency, current.currency);
+        diff_nullable_field!(acquisition_date, current.acquisition_date);
+        diff_nullable_numeric!(acquisition_cost, current.acquisition_cost);
+        diff_nullable_numeric!(current_value, current.current_value);
+        diff_nullable_numeric!(depreciation_rate, current.depreciation_rate);
+        diff_nullable_field!(warranty_expiry, current.warranty_expiry);
         diff_field!(metadata, current.metadata);
         diff_field!(is_fungible, current.is_fungible);
-        diff_field!(fungible_unit, current.fungible_unit);
-        diff_field!(container_type_id, current.container_type_id);
+        diff_nullable_field!(fungible_unit, current.fungible_unit);
+        diff_nullable_field!(container_type_id, current.container_type_id);
 
         // Mutual exclusivity: reject if the update would result in is_container AND is_fungible both being true.
         let will_be_container = req.is_container.unwrap_or(current.is_container);

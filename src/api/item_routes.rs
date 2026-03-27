@@ -153,41 +153,45 @@ fn validate_update_request(req: &UpdateItemRequest) -> Result<(), AppError> {
         }
     }
     // VAL-2: Reject invalid condition values before they hit the DB CHECK constraint.
-    if !is_valid_condition(req.condition.as_deref()) {
+    // Flatten Option<Option<String>> → Option<&str> for validation.
+    let condition_inner = req.condition.as_ref().and_then(|inner| inner.as_deref());
+    if !is_valid_condition(condition_inner) {
         return Err(AppError::BadRequest(format!(
             "Invalid condition '{}'. Allowed: {}",
-            req.condition.as_deref().unwrap_or(""),
+            condition_inner.unwrap_or(""),
             crate::constants::ALLOWED_CONDITIONS.join(", ")
         )));
     }
     // VAL-5: Reject negative numeric values (mirrors DB CHECK constraints).
-    if let Some(v) = req.weight_grams {
+    // Double-Option: Some(Some(v)) = set value, Some(None) = clear, None = no change.
+    if let Some(Some(v)) = req.weight_grams {
         if v < 0.0 { return Err(AppError::BadRequest("weight_grams must be >= 0".into())); }
     }
-    if let Some(v) = req.max_capacity_cc {
+    if let Some(Some(v)) = req.max_capacity_cc {
         if v < 0.0 { return Err(AppError::BadRequest("max_capacity_cc must be >= 0".into())); }
     }
-    if let Some(v) = req.max_weight_grams {
+    if let Some(Some(v)) = req.max_weight_grams {
         if v < 0.0 { return Err(AppError::BadRequest("max_weight_grams must be >= 0".into())); }
     }
-    if let Some(v) = req.acquisition_cost {
+    if let Some(Some(v)) = req.acquisition_cost {
         if v < 0.0 { return Err(AppError::BadRequest("acquisition_cost must be >= 0".into())); }
     }
-    if let Some(v) = req.current_value {
+    if let Some(Some(v)) = req.current_value {
         if v < 0.0 { return Err(AppError::BadRequest("current_value must be >= 0".into())); }
     }
     // VAL-4: Reject container-specific fields when explicitly disabling container status.
+    // Only block when a *value* is being set (Some(Some(_))), not when clearing (Some(None)).
     if req.is_container == Some(false)
-        && (req.max_capacity_cc.is_some()
-            || req.max_weight_grams.is_some()
-            || req.container_type_id.is_some())
+        && (matches!(req.max_capacity_cc, Some(Some(_)))
+            || matches!(req.max_weight_grams, Some(Some(_)))
+            || matches!(req.container_type_id, Some(Some(_))))
     {
         return Err(AppError::BadRequest(
             "Cannot set container-specific fields when is_container is false".into(),
         ));
     }
     // VAL-4b: Reject fungible-specific fields when explicitly disabling fungible status.
-    if req.is_fungible == Some(false) && req.fungible_unit.is_some() {
+    if req.is_fungible == Some(false) && matches!(req.fungible_unit, Some(Some(_))) {
         return Err(AppError::BadRequest(
             "Cannot set fungible_unit when is_fungible is false".into(),
         ));
