@@ -104,7 +104,7 @@
 			else if (!newCategoryId) updates.category = '';
 		}
 
-		const newCondition: string | null = condition || null;
+		const newCondition: Condition | null = (condition as Condition) || null;
 		if (newCondition !== (item.condition ?? null)) {
 			updates.condition = newCondition;
 		}

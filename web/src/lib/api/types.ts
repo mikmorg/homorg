@@ -168,17 +168,17 @@ export interface UpdateItemRequest {
 	tags?: string[];
 	is_container?: boolean;
 	is_fungible?: boolean;
-	fungible_unit?: string;
+	fungible_unit?: string | null;
 	coordinate?: unknown;
-	condition?: Condition;
+	condition?: Condition | null;
 	dimensions?: unknown;
-	weight_grams?: number;
-	acquisition_date?: string;
-	acquisition_cost?: number;
-	current_value?: number;
-	depreciation_rate?: number;
-	warranty_expiry?: string;
-	currency?: string;
+	weight_grams?: number | null;
+	acquisition_date?: string | null;
+	acquisition_cost?: number | null;
+	current_value?: number | null;
+	depreciation_rate?: number | null;
+	warranty_expiry?: string | null;
+	currency?: string | null;
 	metadata?: Record<string, unknown>;
 	container_type_id?: string;
 }
