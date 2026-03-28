@@ -150,7 +150,7 @@
 					// Set as context container
 					setContext({
 						containerId: item.id,
-						containerName: item.name,
+						containerName: item.name ?? 'Unnamed',
 						containerBarcode: barcode
 					});
 					// SC-1: Notify the server so subsequent batched move_item
@@ -161,7 +161,7 @@
 						scanned_at: new Date().toISOString()
 					});
 					setPendingCount(pendingBatch.length);
-					addLog(barcode, 'context', `Context → ${item.name}`);
+					addLog(barcode, 'context', `Context → ${item.name ?? 'Unnamed'}`);
 					contextSet();
 				} else {
 					// Move item into current context
@@ -176,7 +176,7 @@
 						scanned_at: new Date().toISOString()
 					});
 					setPendingCount(pendingBatch.length);
-					addLog(barcode, 'success', `Queued: ${item.name} → ${context.containerName}`);
+					addLog(barcode, 'success', `Queued: ${item.name ?? 'Unnamed'} → ${context.containerName}`);
 					addRecentItem(item);
 					scanSuccess();
 				}
@@ -221,7 +221,7 @@
 						scanned_at: new Date().toISOString()
 					});
 					setPendingCount(pendingBatch.length);
-					addLog(barcode, 'success', `Queued: ${item.name} → ${context.containerName}`);
+					addLog(barcode, 'success', `Queued: ${item.name ?? 'Unnamed'} → ${context.containerName}`);
 				} else {
 					// Item has no system barcode — move directly via items API
 					try {
@@ -231,7 +231,7 @@
 						scanError();
 						return;
 					}
-					addLog(barcode, 'success', `Moved: ${item.name} → ${context.containerName}`);
+					addLog(barcode, 'success', `Moved: ${item.name ?? 'Unnamed'} → ${context.containerName}`);
 				}
 				addRecentItem(item);
 				scanSuccess();
@@ -353,7 +353,7 @@
 	function pickContainer(item: ItemSummary) {
 		setContext({
 			containerId: item.id,
-			containerName: item.name,
+			containerName: item.name ?? 'Unnamed',
 			containerBarcode: item.system_barcode ?? null
 		});
 		// SC-1: Send set_context to server if the container has a barcode.
@@ -365,7 +365,7 @@
 			});
 			setPendingCount(pendingBatch.length);
 		}
-		addLog(item.name ?? item.id, 'context', `Context → ${item.name}`);
+		addLog(item.name ?? item.id, 'context', `Context → ${item.name ?? 'Unnamed'}`);
 		contextSet();
 		showContainerPicker = false;
 		pickerQuery = '';
@@ -600,7 +600,7 @@
 							📦
 						</div>
 						<div class="min-w-0">
-							<p class="truncate font-medium text-slate-100">{item.name}</p>
+							<p class="truncate font-medium text-slate-100">{item.name ?? 'Unnamed'}</p>
 							{#if item.system_barcode}
 								<p class="text-xs text-slate-400 font-mono">{item.system_barcode}</p>
 							{/if}

@@ -209,6 +209,7 @@
 			if (quantityChanged && newQty !== null) {
 				await api.items.adjustQuantity(itemId, { new_quantity: newQty });
 			}
+			toast('Changes saved', 'success');
 			goto(`/browse/item/${itemId}`);
 		} catch (err) {
 			saveError = err instanceof Error ? err.message : 'Save failed';

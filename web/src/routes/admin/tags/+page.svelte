@@ -42,6 +42,7 @@
 			await api.tags.create(newTagName.trim());
 			newTagName = '';
 			await loadTags();
+			toast('Tag created', 'success');
 		} catch (err) {
 			toast(err instanceof Error ? err.message : 'Create failed', 'error');
 		} finally {
@@ -61,6 +62,7 @@
 			await api.tags.rename(renamingId, renameValue.trim());
 			renamingId = null;
 			await loadTags();
+			toast('Tag renamed', 'success');
 		} catch (err) {
 			toast(err instanceof Error ? err.message : 'Rename failed', 'error');
 		} finally {
@@ -73,6 +75,7 @@
 		try {
 			await api.tags.delete(tag.id);
 			await loadTags();
+			toast('Tag deleted', 'success');
 		} catch (err) {
 			toast(err instanceof Error ? err.message : 'Delete failed', 'error');
 		}

@@ -120,12 +120,12 @@
 		createImages = [];
 		createImagePreviews.forEach((url) => URL.revokeObjectURL(url));
 		createImagePreviews = [];
-			createIsFungible = false;
-			createFungibleUnit = '';
-			createFungibleQty = '';
-			createAcqCost = '';
-			createCurrency = '';
-			showCreateAdvanced = false;
+		createIsFungible = false;
+		createFungibleUnit = '';
+		createFungibleQty = '';
+		createAcqCost = '';
+		createCurrency = '';
+		showCreateAdvanced = false;
 		createError = '';
 		showCreate = true;
 		loadTaxonomy();

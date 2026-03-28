@@ -73,6 +73,7 @@
 			}
 			showForm = false;
 			await loadCategories();
+			toast(editingId ? 'Category updated' : 'Category created', 'success');
 		} catch (err) {
 			formError = err instanceof Error ? err.message : 'Save failed';
 		} finally {
@@ -85,6 +86,7 @@
 		try {
 			await api.categories.delete(cat.id);
 			await loadCategories();
+			toast('Category deleted', 'success');
 		} catch (err) {
 			toast(err instanceof Error ? err.message : 'Delete failed', 'error');
 		}
