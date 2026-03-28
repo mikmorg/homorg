@@ -91,24 +91,24 @@ async fn setup(
     }
 
     let user_id = Uuid::new_v4();
-    // SEC-8: Hash password BEFORE acquiring the advisory lock.
-    // Argon2 is CPU-intensive (~300 ms); holding the pg advisory lock while hashing
-    // serialises all concurrent callers unnecessarily.
-    let pw_hash = hash_password(&req.password).await?;
 
-    // SEC-10: Use a named, non-colliding advisory lock ID.
+    // H-6: Check if setup already completed BEFORE hashing.
+    // This prevents CPU burn from Argon2 on repeated calls after initial setup.
     let mut tx = state.pool.begin().await?;
     sqlx::query("SELECT pg_advisory_xact_lock($1)")
         .bind(ADVISORY_LOCK_SETUP)
         .execute(&mut *tx)
         .await?;
 
-    // Check no active users exist (now safe under advisory lock).
-    // Excludes the seeded system actor (is_active=FALSE).
     let count = state.user_queries.count_active_in_tx(&mut tx).await?;
     if count > 0 {
         return Err(AppError::Conflict("Setup already completed".into()));
     }
+
+    // SEC-8: Hash password after confirming setup is needed but outside the lock hold.
+    // We still hold the advisory lock through the transaction, but Argon2 only runs
+    // when setup is genuinely proceeding.
+    let pw_hash = hash_password(&req.password).await?;
 
     // Create the admin user within the advisory-locked transaction
     let user = state.user_queries.create_in_tx(
@@ -155,6 +155,13 @@ async fn login(
     State(state): State<Arc<AppState>>,
     Json(req): Json<LoginRequest>,
 ) -> AppResult<Json<AuthResponse>> {
+    // H-4: Validate input lengths before expensive operations.
+    // Prevents multi-MB password from burning Argon2 CPU.
+    let pw_len = req.password.len();
+    if req.username.len() > 64 || pw_len > PASSWORD_MAX_LEN {
+        return Err(AppError::Unauthorized);
+    }
+
     // SEC-2: Prevent timing oracle — run dummy Argon2 verify when user is not found
     // so an attacker cannot distinguish "user not found" from "wrong password" by timing.
     let user_opt = state

@@ -77,9 +77,9 @@ impl KeyExtractor for ClientIpKeyExtractor {
 }
 
 /// SEC-3: Middleware that validates a bearer token before serving uploaded files.
-/// Checks the JWT signature and expiry; does NOT re-fetch the DB (to keep latency low for
-/// static assets). Revoked tokens will be rejected on the next API call; this is an
-/// acceptable trade-off since file URLs are not guessable (UUID-based paths).
+/// H-7: Now also checks the DB to verify the user is still active, matching the
+/// AuthUser extractor's behavior. This prevents deactivated users from accessing
+/// images for the remaining lifetime of their JWT.
 async fn require_file_auth(
     State(state): State<Arc<AppState>>,
     request: axum::extract::Request,
@@ -94,7 +94,25 @@ async fn require_file_auth(
 
     match token {
         Some(t) => match crate::auth::jwt::decode_access_token(&t, &state.config.jwt_secret) {
-            Ok(_) => next.run(request).await,
+            Ok(claims) => {
+                // Verify user is still active in the database
+                let user_id = claims.sub;
+                let is_active = sqlx::query_scalar::<_, bool>(
+                    "SELECT is_active FROM users WHERE id = $1",
+                )
+                .bind(user_id)
+                .fetch_optional(&state.pool)
+                .await
+                .ok()
+                .flatten()
+                .unwrap_or(false);
+
+                if is_active {
+                    next.run(request).await
+                } else {
+                    AppError::Unauthorized.into_response()
+                }
+            }
             Err(e) => e.into_response(),
         },
         None => AppError::Unauthorized.into_response(),

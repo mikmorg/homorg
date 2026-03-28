@@ -27,10 +27,12 @@ pub fn router() -> Router<Arc<AppState>> {
 struct HealthResponse {
     status: String,
     database: String,
-    /// OP-3: Include version and build metadata so operators can confirm which build is running.
+    /// OP-3: Include version so operators can confirm which build is running.
     version: &'static str,
     /// True when no users exist yet — the client should redirect to /setup.
-    setup_required: bool,
+    /// Only included when the database is reachable (avoids leaking state on errors).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    setup_required: Option<bool>,
 }
 
 /// Liveness check with DB connectivity status.
@@ -52,14 +54,20 @@ async fn health(State(state): State<Arc<AppState>>) -> (StatusCode, Json<HealthR
         }
     };
 
-    // Exclude inactive system actors when determining setup state.
-    let setup_required = sqlx::query_scalar::<_, i64>(
-        "SELECT COUNT(*) FROM users WHERE is_active = TRUE",
-    )
-    .fetch_one(&state.pool)
-    .await
-    .unwrap_or(1)
-        == 0;
+    // H-5: Only check setup_required when DB is reachable.
+    // Leaking this flag is acceptable for the initial setup UX flow;
+    // the /auth/setup endpoint is locked after first use regardless.
+    let setup_required = if status_code == StatusCode::OK {
+        let count = sqlx::query_scalar::<_, i64>(
+            "SELECT COUNT(*) FROM users WHERE is_active = TRUE",
+        )
+        .fetch_one(&state.pool)
+        .await
+        .unwrap_or(1);
+        Some(count == 0)
+    } else {
+        None
+    };
 
     (status_code, Json(HealthResponse {
         status,
