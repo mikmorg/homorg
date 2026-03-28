@@ -143,8 +143,19 @@ pub fn build_router(state: Arc<AppState>, config: &AppConfig) -> Router {
             .expect("Failed to build API rate limiter config"),
     );
 
+    // M-8: Rate limiter for /files static serving (bandwidth exhaustion guard)
+    let files_governor_conf = Arc::new(
+        GovernorConfigBuilder::default()
+            .per_second(state.config.rate_limit_rps * 5)
+            .burst_size(state.config.rate_limit_burst * 10)
+            .key_extractor(ClientIpKeyExtractor)
+            .finish()
+            .expect("Failed to build files rate limiter config"),
+    );
+
     // SEC-3: Wrap ServeDir with a lightweight JWT auth check.
     let files_service = ServiceBuilder::new()
+        .layer(GovernorLayer::new(files_governor_conf))
         .layer(middleware::from_fn_with_state(state.clone(), require_file_auth))
         .service(ServeDir::new(&config.storage_path));
 

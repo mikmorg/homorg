@@ -235,8 +235,14 @@ impl Projector {
 
             } else if allowed_jsonb_fields.contains(&field) {
                 let query = format!("UPDATE items SET {field} = $1, updated_by = $2 WHERE id = $3");
+                // Bind None when new value is JSON null so DB stores SQL NULL, not 'null'::jsonb
+                let jsonb_value: Option<&serde_json::Value> = if change.new.is_null() {
+                    None
+                } else {
+                    Some(&change.new)
+                };
                 sqlx::query(&query)
-                    .bind(&change.new)
+                    .bind(jsonb_value)
                     .bind(actor_id)
                     .bind(id)
                     .execute(&mut **tx)
