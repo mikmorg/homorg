@@ -53,21 +53,25 @@
 	$: containerId = $page.url.searchParams.get('id') ?? ROOT_ID;
 
 	$: if (containerId) {
-		load();
+		load(containerId);
 	}
 
-	async function load() {
+	async function load(targetId?: string) {
+		const id = targetId ?? containerId;
 		loading = true;
 		error = '';
 		try {
-			const res = await api.containers.children(containerId, { limit: 200, sort_by: sortBy, sort_dir: sortDir });
+			const res = await api.containers.children(id, { limit: 200, sort_by: sortBy, sort_dir: sortDir });
+			// H-8: Guard against stale responses from rapid navigation
+			if (id !== containerId) return;
 			children = res;
 
-			if (containerId !== ROOT_ID) {
+			if (id !== ROOT_ID) {
 				const [ancs, item] = await Promise.all([
-					api.containers.ancestors(containerId),
-					api.items.get(containerId)
+					api.containers.ancestors(id),
+					api.items.get(id)
 				]);
+				if (id !== containerId) return;
 				breadcrumb = ancs.map((a) => ({ id: a.id, name: a.name ?? 'Container' }));
 				containerItem = item;
 			} else {
@@ -75,6 +79,7 @@
 				containerItem = null;
 			}
 		} catch (err) {
+			if (id !== containerId) return;
 			error = err instanceof Error ? err.message : 'Failed to load';
 		} finally {
 			loading = false;
@@ -321,7 +326,7 @@
 	{#if children.length > 1}
 		<div class="flex items-center gap-2 border-b border-slate-800 px-3 py-1.5">
 			<span class="text-xs text-slate-500">Sort:</span>
-			<select class="bg-transparent text-xs text-slate-300 border-0 py-0 pr-6 pl-0 focus:ring-0" bind:value={sortBy} on:change={load}>
+			<select class="bg-transparent text-xs text-slate-300 border-0 py-0 pr-6 pl-0 focus:ring-0" bind:value={sortBy} on:change={() => load()}>
 				<option value="name">Name</option>
 				<option value="created_at">Created</option>
 				<option value="category">Category</option>

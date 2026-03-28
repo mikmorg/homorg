@@ -17,7 +17,7 @@
 		setPendingCount
 	} from '$stores/stocker.js';
 
-	const sessionId = $page.params.sessionId!;
+	$: sessionId = $page.params.sessionId!;
 
 	// ── State ────────────────────────────────────────────────────────────────
 	interface ScanLogEntry {

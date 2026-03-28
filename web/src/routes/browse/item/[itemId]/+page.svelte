@@ -67,6 +67,12 @@
 		parentItem = null;
 		ancestors = [];
 		containerStats = null;
+		// M-23: Reset UI state on navigation to prevent stale data from previous item
+		showHistory = false;
+		historyEvents = [];
+		showMovePicker = false;
+		moveResults = [];
+		actionError = '';
 		try {
 			const [fetchedItem, ancs] = await Promise.all([
 				api.items.get(id),
