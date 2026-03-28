@@ -127,9 +127,9 @@ export interface AncestorEntry {
 export interface ContainerStats {
 	child_count: number;
 	descendant_count: number;
-	total_weight_grams: string | null;
-	capacity_used_cc: string | null;
-	max_capacity_cc: string | null;
+	total_weight_grams: number | null;
+	capacity_used_cc: number | null;
+	max_capacity_cc: number | null;
 	utilization_pct: number | null;
 }
 
@@ -139,13 +139,13 @@ export interface CreateItemRequest {
 	description?: string;
 	system_barcode?: string;
 	category?: string;
-	category_id?: string;
 	tags?: string[];
 	is_container?: boolean;
 	is_fungible?: boolean;
 	fungible_quantity?: number;
 	fungible_unit?: string;
 	coordinate?: unknown;
+	location_schema?: unknown;
 	condition?: Condition;
 	dimensions?: unknown;
 	weight_grams?: number;
@@ -158,13 +158,14 @@ export interface CreateItemRequest {
 	metadata?: Record<string, unknown>;
 	external_codes?: ExternalCode[];
 	container_type_id?: string;
+	max_capacity_cc?: number;
+	max_weight_grams?: number;
 }
 
 export interface UpdateItemRequest {
 	name?: string;
 	description?: string;
 	category?: string;
-	category_id?: string;
 	tags?: string[];
 	is_container?: boolean;
 	is_fungible?: boolean;
@@ -180,7 +181,9 @@ export interface UpdateItemRequest {
 	warranty_expiry?: string | null;
 	currency?: string | null;
 	metadata?: Record<string, unknown>;
-	container_type_id?: string;
+	container_type_id?: string | null;
+	max_capacity_cc?: number | null;
+	max_weight_grams?: number | null;
 }
 
 export interface MoveItemRequest {
@@ -282,7 +285,7 @@ export interface StockerBatchResponse {
 export interface ChildrenParams {
 	cursor?: string;
 	limit?: number;
-	sort_by?: 'name' | 'created_at' | 'category' | 'barcode';
+	sort_by?: 'name' | 'created_at' | 'updated_at' | 'category' | 'system_barcode';
 	sort_dir?: 'asc' | 'desc';
 }
 
@@ -295,15 +298,16 @@ export interface DescendantsParams {
 
 export interface SearchParams {
 	q?: string;
+	path?: string;
 	category?: string;
 	condition?: Condition;
 	container_id?: string;
+	tags?: string;
 	is_container?: boolean;
-	is_deleted?: boolean;
+	min_value?: number;
+	max_value?: number;
 	cursor?: string;
 	limit?: number;
-	sort_by?: string;
-	sort_dir?: 'asc' | 'desc';
 }
 
 // ─── Taxonomy ────────────────────────────────────────────────────────────────
@@ -337,7 +341,7 @@ export interface ContainerType {
 	default_location_schema: unknown | null;
 	icon: string | null;
 	purpose: string | null;
-	created_by: string;
+	created_by: string | null;
 	created_at: string;
 	updated_at: string;
 }
@@ -416,18 +420,28 @@ export interface StoredEvent {
 
 export interface HealthResponse {
 	status: string;
-	db: string;
+	database: string;
 	version: string;
 	setup_required?: boolean;
+}
+
+export interface CategoryCount {
+	category: string | null;
+	count: number;
+}
+
+export interface ConditionCount {
+	condition: string | null;
+	count: number;
 }
 
 export interface StatsResponse {
 	total_items: number;
 	total_containers: number;
-	total_fungible: number;
 	total_events: number;
 	total_users: number;
-	items_needing_review: number;
+	items_by_category: CategoryCount[];
+	items_by_condition: ConditionCount[];
 }
 
 // ─── Users ───────────────────────────────────────────────────────────────────
@@ -435,6 +449,7 @@ export interface StatsResponse {
 export interface UpdateUserRequest {
 	display_name?: string;
 	password?: string;
+	current_password?: string;
 }
 
 export interface UpdateRoleRequest {

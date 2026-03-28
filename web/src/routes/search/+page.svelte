@@ -51,9 +51,6 @@
 				category: filterCategory || undefined,
 				condition: (filterCondition as Condition) || undefined,
 				is_container: filterContainersOnly || undefined,
-				is_deleted: filterDeleted || undefined,
-				sort_by: sortBy || undefined,
-				sort_dir: sortDir,
 				limit: 50
 			});
 			results = res;
