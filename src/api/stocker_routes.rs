@@ -359,6 +359,11 @@ async fn process_batch_event_in_tx(
             // POST /items/{id}/barcode).
             let system_barcode: Option<String> = if barcode.is_empty() {
                 None
+            } else if barcode.chars().count() > 32 {
+                // M-29: Validate barcode length (same as direct assignment endpoint)
+                return Err(AppError::BadRequest(format!(
+                    "Barcode exceeds 32 characters: '{}'", barcode
+                )));
             } else {
                 Some(barcode.clone())
             };

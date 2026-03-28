@@ -22,14 +22,15 @@ impl TaxonomyQueries {
     // Tags
     // ─────────────────────────────────────────────────────────────────────
 
-    /// List all tags with their item counts.
+    /// List all tags with their item counts (excludes soft-deleted items).
     pub async fn list_tags(&self) -> AppResult<Vec<Tag>> {
         let rows = sqlx::query_as::<_, Tag>(
             r#"
             SELECT t.id, t.name, t.created_at,
-                   COUNT(it.item_id) AS item_count
+                   COUNT(it.item_id) FILTER (WHERE i.is_deleted = FALSE) AS item_count
             FROM tags t
             LEFT JOIN item_tags it ON it.tag_id = t.id
+            LEFT JOIN items i ON i.id = it.item_id
             GROUP BY t.id, t.name, t.created_at
             ORDER BY t.name ASC
             "#,

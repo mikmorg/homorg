@@ -19,9 +19,9 @@ pub async fn resolve_ancestors(
     let labels: Vec<&str> = path_str.split('.').collect();
     let labels_owned: Vec<String> = labels.iter().map(|s| s.to_string()).collect();
 
-    // Single batch query for all ancestor node_ids
+    // Single batch query for all ancestor node_ids (M-12: exclude soft-deleted)
     let rows = sqlx::query_as::<_, (uuid::Uuid, Option<String>, Option<String>, String)>(
-        "SELECT id, system_barcode, name, node_id FROM items WHERE node_id = ANY($1)",
+        "SELECT id, system_barcode, name, node_id FROM items WHERE node_id = ANY($1) AND is_deleted = FALSE",
     )
     .bind(&labels_owned)
     .fetch_all(pool)

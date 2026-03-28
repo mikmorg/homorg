@@ -83,61 +83,76 @@ export async function enqueue(mutation: Omit<PendingMutation, 'id' | 'attempts' 
  * On permanent failure (4xx) the entry is discarded.
  * On transient failure (5xx / network error) the attempt counter increments.
  */
+let isSyncing = false;
+
 export async function sync(getToken: () => string | null): Promise<void> {
 	if (!navigator.onLine) return;
+	// M-14: Prevent concurrent sync runs from sending duplicate requests
+	if (isSyncing) return;
+	isSyncing = true;
 
-	let database: IDBPDatabase<QueueSchema>;
 	try {
-		database = await getDb();
-	} catch {
-		return;
-	}
-
-	const all = await database.getAllFromIndex('pendingMutations', 'by-timestamp');
-
-	for (const mutation of all) {
-		// OQ-1: Drop mutations that have exceeded the retry limit.
-		if (mutation.attempts >= MAX_ATTEMPTS) {
-			console.warn('[offline-queue] Dropping mutation after max attempts', mutation.url);
-			await database.delete('pendingMutations', mutation.id!);
-			continue;
+		let database: IDBPDatabase<QueueSchema>;
+		try {
+			database = await getDb();
+		} catch {
+			return;
 		}
 
-		const token = getToken();
-		const headers: Record<string, string> = {
-			...mutation.headers,
-			...(token ? { Authorization: `Bearer ${token}` } : {})
-		};
+		const all = await database.getAllFromIndex('pendingMutations', 'by-timestamp');
 
-		try {
-			const res = await fetch(mutation.url, {
-				method: mutation.method,
-				headers,
-				body: mutation.body ?? undefined
-			});
-
-			// OQ-2: 401 means the token expired — treat as transient so the
-			// mutation is retried on the next sync with a fresh token.
-			if (res.ok || (res.status >= 400 && res.status < 500 && res.status !== 401)) {
-				// Success or permanent client error — remove from queue
+		for (const mutation of all) {
+			// OQ-1: Drop mutations that have exceeded the retry limit.
+			if (mutation.attempts >= MAX_ATTEMPTS) {
+				console.warn('[offline-queue] Dropping mutation after max attempts', mutation.url);
 				await database.delete('pendingMutations', mutation.id!);
-			} else {
-				// Transient server error — increment attempts
+				continue;
+			}
+
+			const token = getToken();
+			const headers: Record<string, string> = {
+				...mutation.headers,
+				...(token ? { Authorization: `Bearer ${token}` } : {})
+			};
+
+			try {
+				const res = await fetch(mutation.url, {
+					method: mutation.method,
+					headers,
+					body: mutation.body ?? undefined
+				});
+
+				if (res.ok || (res.status >= 400 && res.status < 500 && res.status !== 401)) {
+					// Success or permanent client error — remove from queue
+					await database.delete('pendingMutations', mutation.id!);
+				} else if (res.status === 401) {
+					// M-15: Stop processing on 401 — all remaining mutations would fail
+					// with the same stale token, wasting their attempt counters.
+					await database.put('pendingMutations', {
+						...mutation,
+						attempts: mutation.attempts + 1
+					});
+					break;
+				} else {
+					// Transient server error — increment attempts
+					await database.put('pendingMutations', {
+						...mutation,
+						attempts: mutation.attempts + 1
+					});
+				}
+			} catch {
+				// Network failure — increment attempts
 				await database.put('pendingMutations', {
 					...mutation,
 					attempts: mutation.attempts + 1
 				});
 			}
-		} catch {
-			// Network failure — increment attempts
-			await database.put('pendingMutations', {
-				...mutation,
-				attempts: mutation.attempts + 1
-			});
 		}
-	}
 
-	await refreshCount();
+		await refreshCount();
+	} finally {
+		isSyncing = false;
+	}
 }
 
 /** Remove all queued mutations (e.g. after logout). */
