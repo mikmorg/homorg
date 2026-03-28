@@ -86,18 +86,33 @@ impl SearchQueries {
               AND ($7::bool IS NULL OR i.is_container = $7)
               AND ($8::float8 IS NULL OR i.current_value >= $8)
               AND ($9::float8 IS NULL OR i.current_value <= $9)
-              -- Keyset cursor on (COALESCE(name,''), id)
+              -- M-10: Keyset cursor must match full ORDER BY (ts_rank DESC, name ASC, id ASC).
+              -- Negate ts_rank so the row-value comparison works with uniform ASC direction.
               AND (
                   $10::uuid IS NULL
-                  OR (COALESCE(i.name, ''), i.id) > (
-                      SELECT COALESCE(name, ''), id FROM items WHERE id = $10 AND is_deleted = FALSE
+                  OR (
+                      -(CASE WHEN $1::text IS NOT NULL AND i.search_vector @@ plainto_tsquery('english', $1)
+                             THEN ts_rank(i.search_vector, plainto_tsquery('english', $1))
+                             ELSE 0
+                        END),
+                      COALESCE(i.name, ''),
+                      i.id
+                  ) > (
+                      SELECT
+                          -(CASE WHEN $1::text IS NOT NULL AND c.search_vector @@ plainto_tsquery('english', $1)
+                                 THEN ts_rank(c.search_vector, plainto_tsquery('english', $1))
+                                 ELSE 0
+                            END),
+                          COALESCE(c.name, ''),
+                          c.id
+                      FROM items c WHERE c.id = $10 AND c.is_deleted = FALSE
                   )
               )
             ORDER BY
-              CASE WHEN $1::text IS NOT NULL AND i.search_vector @@ plainto_tsquery('english', $1)
+              -(CASE WHEN $1::text IS NOT NULL AND i.search_vector @@ plainto_tsquery('english', $1)
                    THEN ts_rank(i.search_vector, plainto_tsquery('english', $1))
                    ELSE 0
-              END DESC,
+              END) ASC,
               COALESCE(i.name, '') ASC,
               i.id ASC
             LIMIT $11

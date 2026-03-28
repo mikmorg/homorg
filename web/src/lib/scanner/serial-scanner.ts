@@ -45,10 +45,12 @@ export class SerialScanner extends BaseScanner {
 				if (done) break;
 				const chunk = this.decoder.decode(value, { stream: true });
 				this.lineBuffer += chunk;
-				let idx: number;
-				while ((idx = this.lineBuffer.search(/\r?\n|\r/)) !== -1) {
-					const line = this.lineBuffer.slice(0, idx).trim();
-					this.lineBuffer = this.lineBuffer.slice(idx + 1);
+				let match: RegExpExecArray | null;
+				const terminator = /\r?\n|\r/g;
+				while ((match = terminator.exec(this.lineBuffer)) !== null) {
+					const line = this.lineBuffer.slice(0, match.index).trim();
+					this.lineBuffer = this.lineBuffer.slice(match.index + match[0].length);
+					terminator.lastIndex = 0; // reset since lineBuffer changed
 					if (line.length >= MIN_BARCODE_LENGTH) {
 						this.emit(line, 'serial');
 					}

@@ -92,9 +92,10 @@ impl ItemCommands {
         let system_barcode = req.system_barcode.clone();
 
         // If a barcode is provided, check it is unique (prevents silent collision on concurrent requests).
+        // M-5: exclude soft-deleted items — barcode reuse after deletion is allowed.
         if let Some(ref bc) = system_barcode {
             let exists: bool = sqlx::query_scalar(
-                "SELECT EXISTS(SELECT 1 FROM items WHERE system_barcode = $1)",
+                "SELECT EXISTS(SELECT 1 FROM items WHERE system_barcode = $1 AND is_deleted = FALSE)",
             )
             .bind(bc)
             .fetch_one(&mut **tx)
@@ -158,7 +159,7 @@ impl ItemCommands {
                         "node_id collision detected — retry with a new item UUID".into(),
                     );
                 }
-                if db_err.constraint() == Some("items_system_barcode_key") {
+                if db_err.constraint() == Some("idx_items_system_barcode_live") {
                     return AppError::Conflict(format!(
                         "Barcode '{}' already exists",
                         system_barcode.as_deref().unwrap_or("(unknown)")
