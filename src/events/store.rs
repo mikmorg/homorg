@@ -166,6 +166,7 @@ impl EventStore {
     }
 
     /// Look up a single event by its event_id within an existing transaction.
+    /// Uses FOR UPDATE to serialize concurrent undo operations on the same event.
     pub async fn get_event_by_id_in_tx(
         &self,
         tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
@@ -176,6 +177,7 @@ impl EventStore {
             SELECT id, event_id, aggregate_id, aggregate_type, event_type, event_data, metadata, actor_id, created_at, sequence_number, schema_version
             FROM event_store
             WHERE event_id = $1
+            FOR UPDATE
             "#,
         )
         .bind(event_id)

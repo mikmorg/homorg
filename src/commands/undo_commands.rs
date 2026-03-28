@@ -30,12 +30,14 @@ impl UndoCommands {
     ) -> AppResult<StoredEvent> {
         let mut tx = self.pool.begin().await?;
 
-        // Idempotency guard: reject if already undone
+        // Lock the event row first (FOR UPDATE) so concurrent undo requests serialize.
+        // After acquiring the lock, check for a compensating event — this check now sees
+        // the committed state from any other transaction that held this lock before us.
+        let original = self.event_store.get_event_by_id_in_tx(&mut tx, event_id).await?;
         if self.event_store.has_compensating_event_in_tx(&mut tx, event_id).await? {
             return Err(AppError::Conflict(format!("Event {event_id} has already been undone")));
         }
 
-        let original = self.event_store.get_event_by_id_in_tx(&mut tx, event_id).await?;
         let domain_event: DomainEvent = serde_json::from_value(original.event_data.clone())
             .map_err(|e| AppError::Internal(format!("Failed to deserialize event: {e}")))?;
 
@@ -76,10 +78,12 @@ impl UndoCommands {
         // regardless of the order the caller supplied the UUIDs.
         let mut events_to_undo: Vec<StoredEvent> = Vec::new();
         for &eid in event_ids {
+            // Lock the event row first (FOR UPDATE), then check idempotency.
+            let event = self.event_store.get_event_by_id_in_tx(&mut tx, eid).await?;
             if self.event_store.has_compensating_event_in_tx(&mut tx, eid).await? {
-                continue;
+                continue; // already undone, skip silently
             }
-            events_to_undo.push(self.event_store.get_event_by_id_in_tx(&mut tx, eid).await?);
+            events_to_undo.push(event);
         }
         events_to_undo.sort_by_key(|e| std::cmp::Reverse(e.id));
 
