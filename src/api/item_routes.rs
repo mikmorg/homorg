@@ -42,8 +42,20 @@ fn mime_to_extension(mime: &str) -> Option<&'static str> {
 /// Validate lengths on create requests.
 pub(crate) fn validate_create_request(req: &CreateItemRequest) -> Result<(), AppError> {
     if let Some(ref n) = req.name {
-        if n.chars().count() > MAX_NAME_LEN {
+        let chars = n.chars().count();
+        if chars == 0 || n.trim().is_empty() {
+            return Err(AppError::BadRequest("name cannot be blank".into()));
+        }
+        if chars > MAX_NAME_LEN {
             return Err(AppError::BadRequest(format!("name exceeds {MAX_NAME_LEN} chars")));
+        }
+    }
+    // E: Validate system_barcode length up front to avoid a raw DB error from VARCHAR(32).
+    if let Some(ref bc) = req.system_barcode {
+        if bc.chars().count() > 32 {
+            return Err(AppError::BadRequest(
+                "system_barcode exceeds 32 characters".into(),
+            ));
         }
     }
     if let Some(ref d) = req.description {
@@ -117,13 +129,20 @@ pub(crate) fn validate_create_request(req: &CreateItemRequest) -> Result<(), App
     if let Some(v) = req.fungible_quantity {
         if v < 0 { return Err(AppError::BadRequest("fungible_quantity must be >= 0".into())); }
     }
+    if let Some(v) = req.depreciation_rate {
+        if v < 0.0 { return Err(AppError::BadRequest("depreciation_rate must be >= 0".into())); }
+    }
     Ok(())
 }
 
 /// Validate lengths on update requests.
 fn validate_update_request(req: &UpdateItemRequest) -> Result<(), AppError> {
     if let Some(ref n) = req.name {
-        if n.chars().count() > MAX_NAME_LEN {
+        let chars = n.chars().count();
+        if chars == 0 || n.trim().is_empty() {
+            return Err(AppError::BadRequest("name cannot be blank".into()));
+        }
+        if chars > MAX_NAME_LEN {
             return Err(AppError::BadRequest(format!("name exceeds {MAX_NAME_LEN} chars")));
         }
     }
@@ -178,6 +197,9 @@ fn validate_update_request(req: &UpdateItemRequest) -> Result<(), AppError> {
     }
     if let Some(Some(v)) = req.current_value {
         if v < 0.0 { return Err(AppError::BadRequest("current_value must be >= 0".into())); }
+    }
+    if let Some(Some(v)) = req.depreciation_rate {
+        if v < 0.0 { return Err(AppError::BadRequest("depreciation_rate must be >= 0".into())); }
     }
     // VAL-4: Reject container-specific fields when explicitly disabling container status.
     // Only block when a *value* is being set (Some(Some(_))), not when clearing (Some(None)).

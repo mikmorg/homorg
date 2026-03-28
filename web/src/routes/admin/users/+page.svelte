@@ -17,6 +17,7 @@
 
 	// Role change
 	let changingRole: string | null = null;
+	let deactivatingId: string | null = null;
 
 	const ROLE_LABELS: Record<string, string> = {
 		admin: 'Admin',
@@ -61,11 +62,15 @@
 
 	async function deactivateUser(user: UserPublic) {
 		if (!confirm(`Deactivate ${user.username}? They will no longer be able to log in.`)) return;
+		deactivatingId = user.id;
 		try {
 			await api.users.deactivate(user.id);
+			toast('User deactivated', 'success');
 			await loadUsers();
 		} catch (err) {
 			toast(err instanceof Error ? err.message : 'Failed to deactivate', 'error');
+		} finally {
+			deactivatingId = null;
 		}
 	}
 
@@ -166,8 +171,8 @@
 									<option value="member">Member</option>
 									<option value="readonly">Read-only</option>
 								</select>
-								<button class="btn btn-ghost text-xs text-red-400 px-2 py-1" on:click={() => deactivateUser(user)}>
-									Deactivate
+								<button class="btn btn-ghost text-xs text-red-400 px-2 py-1" on:click={() => deactivateUser(user)} disabled={deactivatingId === user.id}>
+									{deactivatingId === user.id ? "Deactivating…" : "Deactivate"}
 								</button>
 							</div>
 						{/if}

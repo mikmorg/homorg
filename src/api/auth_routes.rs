@@ -295,6 +295,9 @@ async fn me(
     auth: AuthUser,
 ) -> AppResult<Json<UserPublic>> {
     let user = state.user_queries.find_by_id(auth.user_id).await?;
+    if !user.is_active {
+        return Err(AppError::Unauthorized);
+    }
     Ok(Json(user.into()))
 }
 
@@ -327,6 +330,10 @@ async fn register(
         return Err(AppError::BadRequest(
             "Username must be 2–32 alphanumeric/underscore/hyphen chars; password must be 8–128 characters".into(),
         ));
+    }
+    // Invite codes are 64 hex chars; reject overlong strings before they hit the DB.
+    if req.invite_code.len() > 64 {
+        return Err(AppError::BadRequest("Invalid or expired invite code".into()));
     }
     if let Some(ref dn) = req.display_name {
         if dn.chars().count() > MAX_DISPLAY_NAME_LEN {
