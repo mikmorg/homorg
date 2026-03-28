@@ -265,6 +265,11 @@
 		try {
 			await api.stocker.submitBatch(sessionId, { events: batch }, false);
 			markSynced();
+			// Refresh session stats so counters stay current
+			try {
+				const s = await api.stocker.getSession(sessionId);
+				setSession(s);
+			} catch { /* ignore stats refresh failure */ }
 		} catch (err) {
 			// Re-queue failed batch at the front so ordering is preserved
 			pendingBatch = [...batch, ...pendingBatch];

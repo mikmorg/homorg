@@ -4,8 +4,9 @@ use axum::extract::DefaultBodyLimit;
 use tower_http::compression::CompressionLayer;
 use tower_http::cors::{CorsLayer};
 use tower_http::request_id::{MakeRequestUuid, PropagateRequestIdLayer, SetRequestIdLayer};
+use tower_http::set_header::SetResponseHeaderLayer;
 use tower_http::trace::TraceLayer;
-use axum::http::{header, Method};
+use axum::http::{header, HeaderValue, Method};
 use tracing::Level;
 use tracing_subscriber::EnvFilter;
 
@@ -143,6 +144,15 @@ async fn main() {
         .layer(CompressionLayer::new())
         .layer(trace_layer)
         .layer(SetRequestIdLayer::x_request_id(MakeRequestUuid))
+        // M-9: Security response headers
+        .layer(SetResponseHeaderLayer::overriding(
+            header::X_CONTENT_TYPE_OPTIONS,
+            HeaderValue::from_static("nosniff"),
+        ))
+        .layer(SetResponseHeaderLayer::overriding(
+            header::X_FRAME_OPTIONS,
+            HeaderValue::from_static("DENY"),
+        ))
         .layer(cors);
 
     // Start server with graceful shutdown

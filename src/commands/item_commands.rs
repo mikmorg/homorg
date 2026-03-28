@@ -324,7 +324,14 @@ impl ItemCommands {
         let event = DomainEvent::ItemUpdated(ItemUpdatedData { changes });
 
         let stored = self.event_store.append_in_tx(&mut tx, item_id, &event, actor_id, metadata).await?;
-        Projector::apply(&mut tx, item_id, &event, actor_id).await?;
+        Projector::apply(&mut tx, item_id, &event, actor_id).await.map_err(|e| {
+            if let AppError::Database(sqlx::Error::Database(ref db_err)) = e {
+                if db_err.constraint() == Some("idx_items_system_barcode_live") {
+                    return AppError::Conflict("Barcode already exists".into());
+                }
+            }
+            e
+        })?;
         tx.commit().await?;
 
         Ok(stored)
