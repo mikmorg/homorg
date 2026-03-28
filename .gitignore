@@ -14,7 +14,7 @@ nohup.out
 *.log
 
 # Svelte / Node frontend
-web/node_modules/
+node_modules/
 web/build/
 web/.svelte-kit/
 web/.env
