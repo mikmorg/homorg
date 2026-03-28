@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
 	import { api } from '$api/client.js';
+	import type { UpdateUserRequest } from '$api/types.js';
 	import { authStore, currentUser } from '$stores/auth.js';
 	import { toast } from '$stores/toast.js';
 	import { get } from 'svelte/store';
@@ -37,7 +38,7 @@
 		try {
 			const user = get(currentUser);
 			if (!user) return;
-			const updates: Record<string, string> = {};
+			const updates: Partial<UpdateUserRequest> = {};
 			if (displayName !== (user.display_name ?? '')) updates.display_name = displayName;
 			if (newPassword) {
 				updates.password = newPassword;
