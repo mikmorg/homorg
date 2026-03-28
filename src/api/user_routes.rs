@@ -85,7 +85,23 @@ async fn update_user(
         }
     }
 
-    // Hash password outside the transaction (CPU-intensive work)
+    // Hash password outside the transaction (CPU-intensive work).
+    // Pre-verify current_password first so we don't waste CPU hashing when the current
+    // password is wrong — verify is fast (~10ms), hash is slow (~100ms).
+    if req.password.is_some() && is_self {
+        let stored_hash: Option<String> = sqlx::query_scalar(
+            "SELECT password_hash FROM users WHERE id = $1",
+        )
+        .bind(id)
+        .fetch_optional(&state.pool)
+        .await?;
+        if let Some(ref hash) = stored_hash {
+            let current_pw = req.current_password.as_deref().unwrap_or("");
+            if !verify_password(current_pw, hash).await? {
+                return Err(AppError::Unauthorized);
+            }
+        }
+    }
     let pw_hash = match req.password {
         Some(ref password) => Some(hash_password(password).await?),
         None => None,
@@ -105,11 +121,11 @@ async fn update_user(
     let (_, stored_hash) = found
         .ok_or_else(|| AppError::NotFound(format!("User {id} not found")))?;
 
-    // SEC-6: Verify current password before applying a self-service password change.
+    // SEC-6: Verify current password in-transaction as a second safeguard (TOCTOU safety).
     if req.password.is_some() && is_self {
         let current_pw = req.current_password.as_deref().unwrap_or("");
         if !verify_password(current_pw, &stored_hash).await? {
-            return Err(AppError::BadRequest("Current password is incorrect".into()));
+            return Err(AppError::Unauthorized);
         }
     }
 

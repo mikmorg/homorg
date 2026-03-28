@@ -35,6 +35,11 @@ async fn search(
 ) -> AppResult<Json<Vec<ItemSummary>>> {
     // API-4: Reject overly long query strings to prevent DoS via expensive full-text ops.
     // chars().count() counts Unicode scalars, matching the user-visible "characters" limit.
+    // Normalize empty-string q to None so `q=""` behaves identically to omitting q.
+    let params = SearchParams {
+        q: params.q.filter(|q| !q.trim().is_empty()),
+        ..params
+    };
     if let Some(ref q) = params.q {
         if q.chars().count() > MAX_SEARCH_QUERY_LEN {
             return Err(AppError::BadRequest(format!(
