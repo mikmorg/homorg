@@ -185,7 +185,7 @@ impl ItemCommands {
         // Use the full JOIN query so extension-table fields (fungible_unit, location_schema…)
         // are populated on the Item struct.
         let current = sqlx::query_as::<_, Item>(
-            &format!("SELECT {ITEM_FULL_SELECT} WHERE i.id = $1 AND i.is_deleted = FALSE"),
+            &format!("SELECT {ITEM_FULL_SELECT} WHERE i.id = $1 AND i.is_deleted = FALSE FOR UPDATE OF i"),
         )
         .bind(item_id)
         .fetch_optional(&mut *tx)
@@ -353,7 +353,7 @@ impl ItemCommands {
         metadata: &EventMetadata,
     ) -> AppResult<StoredEvent> {
         let item = sqlx::query_as::<_, (Uuid, Option<Uuid>, Option<String>, String, bool, Option<serde_json::Value>)>(
-            "SELECT id, parent_id, container_path::text, node_id, is_container, coordinate FROM items WHERE id = $1 AND is_deleted = FALSE",
+            "SELECT id, parent_id, container_path::text, node_id, is_container, coordinate FROM items WHERE id = $1 AND is_deleted = FALSE FOR UPDATE",
         )
         .bind(item_id)
         .fetch_optional(&mut **tx)
@@ -524,7 +524,23 @@ impl ItemCommands {
         let event = DomainEvent::ItemImageAdded(ItemImageAddedData { path, caption, order });
 
         let mut tx = self.pool.begin().await?;
-        self.verify_item_exists(&mut tx, item_id).await?;
+        // IMG-1 + H-3: Check image count inside the transaction with FOR UPDATE
+        // to prevent concurrent uploads from exceeding the limit.
+        let image_count: i64 = sqlx::query_scalar(
+            "SELECT COALESCE(jsonb_array_length(images), 0) FROM items WHERE id = $1 AND is_deleted = FALSE FOR UPDATE",
+        )
+        .bind(item_id)
+        .fetch_optional(&mut *tx)
+        .await?
+        .ok_or_else(|| AppError::NotFound(format!("Item {item_id} not found")))?;
+
+        if image_count as usize >= crate::constants::MAX_IMAGES_PER_ITEM {
+            return Err(AppError::BadRequest(format!(
+                "Item already has {image_count} images (maximum {})",
+                crate::constants::MAX_IMAGES_PER_ITEM
+            )));
+        }
+
         let stored = self.event_store.append_in_tx(&mut tx, item_id, &event, actor_id, metadata).await?;
         Projector::apply(&mut tx, item_id, &event, actor_id).await?;
         tx.commit().await?;
