@@ -23,8 +23,8 @@ pub struct ScanSession {
 pub struct StartSessionRequest {
     pub device_id: Option<String>,
     pub notes: Option<String>,
-    /// System barcode of a container to pre-set as the active context at session start.
-    pub initial_container_barcode: Option<String>,
+    /// UUID of a container to pre-set as the active context at session start.
+    pub initial_container_id: Option<Uuid>,
 }
 
 /// A single event in a stocker batch submission.
@@ -36,12 +36,12 @@ pub struct StartSessionRequest {
 pub enum StockerBatchEvent {
     #[serde(rename = "set_context")]
     SetContext {
-        barcode: String,
+        container_id: Uuid,
         scanned_at: DateTime<Utc>,
     },
     #[serde(rename = "move_item")]
     MoveItem {
-        barcode: String,
+        item_id: Uuid,
         coordinate: Option<serde_json::Value>,
         scanned_at: DateTime<Utc>,
     },
@@ -90,7 +90,7 @@ pub enum StockerBatchResult {
     ContextSet {
         index: usize,
         status: String,
-        context_set: String,
+        container_id: Uuid,
     },
     #[serde(rename = "moved")]
     Moved {

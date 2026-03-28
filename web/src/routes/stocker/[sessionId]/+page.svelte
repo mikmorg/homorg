@@ -151,13 +151,10 @@
 					setContext({
 						containerId: item.id,
 						containerName: item.name ?? 'Unnamed',
-						containerBarcode: barcode
 					});
-					// SC-1: Notify the server so subsequent batched move_item
-					// events target this container, not the stale session default.
 					pendingBatch.push({
 						type: 'set_context',
-						barcode,
+						container_id: item.id,
 						scanned_at: new Date().toISOString()
 					});
 					setPendingCount(pendingBatch.length);
@@ -172,7 +169,7 @@
 					}
 					pendingBatch.push({
 						type: 'move_item',
-						barcode,
+						item_id: item.id,
 						scanned_at: new Date().toISOString()
 					});
 					setPendingCount(pendingBatch.length);
@@ -214,25 +211,13 @@
 					scanError();
 					return;
 				}
-				if (item.system_barcode) {
-					pendingBatch.push({
-						type: 'move_item',
-						barcode: item.system_barcode,
-						scanned_at: new Date().toISOString()
-					});
-					setPendingCount(pendingBatch.length);
-					addLog(barcode, 'success', `Queued: ${item.name ?? 'Unnamed'} → ${context.containerName}`);
-				} else {
-					// Item has no system barcode — move directly via items API
-					try {
-						await api.items.move(item.id, { container_id: context.containerId });
-					} catch (err) {
-						addLog(barcode, 'error', `Move failed: ${err instanceof Error ? err.message : 'Unknown error'}`);
-						scanError();
-						return;
-					}
-					addLog(barcode, 'success', `Moved: ${item.name ?? 'Unnamed'} → ${context.containerName}`);
-				}
+				pendingBatch.push({
+					type: 'move_item',
+					item_id: item.id,
+					scanned_at: new Date().toISOString()
+				});
+				setPendingCount(pendingBatch.length);
+				addLog(barcode, 'success', `Queued: ${item.name ?? 'Unnamed'} → ${context.containerName}`);
 				addRecentItem(item);
 				scanSuccess();
 				break;
@@ -354,17 +339,13 @@
 		setContext({
 			containerId: item.id,
 			containerName: item.name ?? 'Unnamed',
-			containerBarcode: item.system_barcode ?? null
 		});
-		// SC-1: Send set_context to server if the container has a barcode.
-		if (item.system_barcode) {
-			pendingBatch.push({
-				type: 'set_context',
-				barcode: item.system_barcode,
-				scanned_at: new Date().toISOString()
-			});
-			setPendingCount(pendingBatch.length);
-		}
+		pendingBatch.push({
+			type: 'set_context',
+			container_id: item.id,
+			scanned_at: new Date().toISOString()
+		});
+		setPendingCount(pendingBatch.length);
 		addLog(item.name ?? item.id, 'context', `Context → ${item.name ?? 'Unnamed'}`);
 		contextSet();
 		showContainerPicker = false;

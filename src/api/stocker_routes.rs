@@ -40,22 +40,22 @@ async fn start_session(
     auth.require_role("member")?;
     let req = body.map(|b| b.0).unwrap_or_default();
 
-    // Resolve initial container barcode if provided.
-    let initial_container_id = if let Some(ref barcode) = req.initial_container_barcode {
-        let container = sqlx::query_as::<_, (Uuid, bool)>(
-            "SELECT id, is_container FROM items WHERE system_barcode = $1 AND is_deleted = FALSE",
+    // Validate initial container if provided.
+    let initial_container_id = if let Some(container_id) = req.initial_container_id {
+        let is_container: Option<bool> = sqlx::query_scalar(
+            "SELECT is_container FROM items WHERE id = $1 AND is_deleted = FALSE",
         )
-        .bind(barcode)
+        .bind(container_id)
         .fetch_optional(&state.pool)
         .await?
-        .ok_or_else(|| AppError::NotFound(format!("Container barcode {barcode} not found")))?;
+        .ok_or_else(|| AppError::NotFound(format!("Container {container_id} not found")))?;
 
-        if !container.1 {
+        if !is_container.unwrap_or(false) {
             return Err(AppError::BadRequest(format!(
-                "Barcode {barcode} is not a container"
+                "Item {container_id} is not a container"
             )));
         }
-        Some(container.0)
+        Some(container_id)
     } else {
         None
     };
@@ -275,31 +275,31 @@ async fn process_batch_event_in_tx(
         ..Default::default()
     };
     match event {
-        StockerBatchEvent::SetContext { barcode, .. } => {
-            let container = sqlx::query_as::<_, (Uuid, bool)>(
-                "SELECT id, is_container FROM items WHERE system_barcode = $1 AND is_deleted = FALSE",
+        StockerBatchEvent::SetContext { container_id, .. } => {
+            let is_container: Option<bool> = sqlx::query_scalar(
+                "SELECT is_container FROM items WHERE id = $1 AND is_deleted = FALSE",
             )
-            .bind(barcode)
+            .bind(container_id)
             .fetch_optional(&mut **tx)
             .await?
-            .ok_or_else(|| AppError::NotFound(format!("Container barcode {barcode} not found")))?;
+            .ok_or_else(|| AppError::NotFound(format!("Container {container_id} not found")))?;
 
-            if !container.1 {
+            if !is_container.unwrap_or(false) {
                 return Err(AppError::BadRequest(format!(
-                    "Barcode {barcode} is not a container"
+                    "Item {container_id} is not a container"
                 )));
             }
 
-            *active_container_id = Some(container.0);
+            *active_container_id = Some(*container_id);
 
             Ok(StockerBatchResult::ContextSet {
                 index,
                 status: "ok".into(),
-                context_set: barcode.clone(),
+                container_id: *container_id,
             })
         }
         StockerBatchEvent::MoveItem {
-            barcode,
+            item_id,
             coordinate,
             ..
         } => {
@@ -307,13 +307,17 @@ async fn process_batch_event_in_tx(
                 AppError::BadRequest("No active container set. Send set_context first.".into())
             })?;
 
-            let item_id: Uuid = sqlx::query_scalar(
-                "SELECT id FROM items WHERE system_barcode = $1 AND is_deleted = FALSE",
+            // Validate the item exists and is not deleted.
+            let exists: bool = sqlx::query_scalar(
+                "SELECT EXISTS(SELECT 1 FROM items WHERE id = $1 AND is_deleted = FALSE)",
             )
-            .bind(barcode)
-            .fetch_optional(&mut **tx)
-            .await?
-            .ok_or_else(|| AppError::NotFound(format!("Item {barcode} not found")))?;
+            .bind(item_id)
+            .fetch_one(&mut **tx)
+            .await?;
+
+            if !exists {
+                return Err(AppError::NotFound(format!("Item {item_id} not found")));
+            }
 
             let move_req = MoveItemRequest {
                 container_id,
@@ -322,7 +326,7 @@ async fn process_batch_event_in_tx(
 
             let stored = state
                 .item_commands
-                .move_item_in_tx(tx, item_id, &move_req, actor_id, &metadata)
+                .move_item_in_tx(tx, *item_id, &move_req, actor_id, &metadata)
                 .await?;
 
             Ok(StockerBatchResult::Moved {

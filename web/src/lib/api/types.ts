@@ -231,12 +231,12 @@ export interface ScanSession {
 export interface StartSessionRequest {
 	device_id?: string;
 	notes?: string;
-	initial_container_barcode?: string;
+	initial_container_id?: string;
 }
 
 export type StockerBatchEvent =
-	| { type: 'set_context'; barcode: string; scanned_at: string }
-	| { type: 'move_item'; barcode: string; coordinate?: unknown; scanned_at: string }
+	| { type: 'set_context'; container_id: string; scanned_at: string }
+	| { type: 'move_item'; item_id: string; coordinate?: unknown; scanned_at: string }
 	| {
 			type: 'create_and_place';
 			barcode: string;
@@ -263,7 +263,7 @@ export interface StockerBatchRequest {
 }
 
 export type StockerBatchResult =
-	| { type: 'context_set'; index: number; status: string; context_set: string }
+	| { type: 'context_set'; index: number; status: string; container_id: string }
 	| { type: 'moved'; index: number; status: string; event_id: string }
 	| { type: 'created'; index: number; status: string; event_id: string; item_id: string; needs_details: boolean }
 	| { type: 'resolved'; index: number; status: string; resolution: BarcodeResolution };

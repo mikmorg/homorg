@@ -108,12 +108,10 @@ describe('stockerStore', () => {
 		setContext({
 			containerId: 'container-1',
 			containerName: 'Box A',
-			containerBarcode: 'HOM-000010'
 		});
 		const ctx = get(activeContext);
 		expect(ctx.containerId).toBe('container-1');
 		expect(ctx.containerName).toBe('Box A');
-		expect(ctx.containerBarcode).toBe('HOM-000010');
 	});
 
 	it('addRecentItem adds items newest first', () => {

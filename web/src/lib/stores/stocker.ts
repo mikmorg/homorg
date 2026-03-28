@@ -8,7 +8,6 @@ import type { ScanSession, Item } from '$api/types.js';
 export interface SessionContext {
 	containerId: string | null;
 	containerName: string | null;
-	containerBarcode: string | null;
 }
 
 export interface StockerState {
@@ -24,7 +23,7 @@ export interface StockerState {
 
 const initial: StockerState = {
 	session: null,
-	context: { containerId: null, containerName: null, containerBarcode: null },
+	context: { containerId: null, containerName: null },
 	recentItems: [],
 	pendingCount: 0,
 	lastSyncAt: null,
