@@ -50,6 +50,12 @@
 	let sortBy: 'name' | 'created_at' | 'category' = 'name';
 	let sortDir: 'asc' | 'desc' = 'asc';
 
+	// Pagination
+	const PAGE_SIZE = 50;
+	let cursor: string | undefined = undefined;
+	let hasMore = false;
+	let loadingMore = false;
+
 	$: containerId = $page.url.searchParams.get('id') ?? ROOT_ID;
 
 	$: if (containerId) {
@@ -60,11 +66,15 @@
 		const id = targetId ?? containerId;
 		loading = true;
 		error = '';
+		cursor = undefined;
+		hasMore = false;
 		try {
-			const res = await api.containers.children(id, { limit: 200, sort_by: sortBy, sort_dir: sortDir });
+			const res = await api.containers.children(id, { limit: PAGE_SIZE + 1, sort_by: sortBy, sort_dir: sortDir });
 			// H-8: Guard against stale responses from rapid navigation
 			if (id !== containerId) return;
-			children = res;
+			hasMore = res.length > PAGE_SIZE;
+			children = hasMore ? res.slice(0, PAGE_SIZE) : res;
+			cursor = children.length > 0 ? children[children.length - 1].id : undefined;
 
 			if (id !== ROOT_ID) {
 				const [ancs, item] = await Promise.all([
@@ -83,6 +93,27 @@
 			error = err instanceof Error ? err.message : 'Failed to load';
 		} finally {
 			loading = false;
+		}
+	}
+
+	async function loadMore() {
+		if (!cursor || loadingMore || !hasMore) return;
+		loadingMore = true;
+		try {
+			const res = await api.containers.children(containerId, {
+				limit: PAGE_SIZE + 1,
+				cursor,
+				sort_by: sortBy,
+				sort_dir: sortDir
+			});
+			hasMore = res.length > PAGE_SIZE;
+			const page = hasMore ? res.slice(0, PAGE_SIZE) : res;
+			children = [...children, ...page];
+			cursor = children.length > 0 ? children[children.length - 1].id : undefined;
+		} catch (err) {
+			toast(err instanceof Error ? err.message : 'Failed to load more', 'error');
+		} finally {
+			loadingMore = false;
 		}
 	}
 
@@ -401,7 +432,18 @@
 					</button>
 				{/each}
 			</div>
-			<p class="px-4 py-2 text-xs text-slate-500">{children.length} item{children.length !== 1 ? 's' : ''}</p>
+			{#if hasMore}
+				<div class="px-4 py-3">
+					<button class="btn btn-secondary w-full text-sm" on:click={loadMore} disabled={loadingMore}>
+						{#if loadingMore}
+							<span class="h-4 w-4 animate-spin rounded-full border-2 border-slate-600 border-t-indigo-500 inline-block"></span>
+						{:else}
+							Load more
+						{/if}
+					</button>
+				</div>
+			{/if}
+			<p class="px-4 py-2 text-xs text-slate-500">{children.length}{hasMore ? '+' : ''} item{children.length !== 1 || hasMore ? 's' : ''}</p>
 		{/if}
 	</div>
 </div>
