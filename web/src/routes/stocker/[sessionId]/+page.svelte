@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { onMount, onDestroy } from 'svelte';
 	import { page } from '$app/stores';
-	import { goto } from '$app/navigation';
+	import { goto, beforeNavigate } from '$app/navigation';
 	import { api } from '$api/client.js';
 	import type { BarcodeResolution, Item, ItemSummary, StockerBatchEvent } from '$api/types.js';
 	import { onScan, scannerState, startSerialScanner, startCameraScanner, stopScanner, startHidScanner } from '$scanner/index.js';
@@ -80,9 +80,24 @@
 		flushTimer = setInterval(flushBatch, FLUSH_INTERVAL_MS);
 	});
 
+	// H-11: Flush pending batch before navigation so events aren't lost.
+	// SvelteKit beforeNavigate doesn't await async callbacks, so we cancel
+	// navigation, flush, and re-navigate once complete.
+	let navigationTarget: URL | null = null;
+	beforeNavigate(({ cancel, to }) => {
+		if (pendingBatch.length > 0 && !navigationTarget) {
+			cancel();
+			navigationTarget = to?.url ?? null;
+			flushBatch().finally(() => {
+				const target = navigationTarget;
+				navigationTarget = null;
+				if (target) goto(target.pathname + target.search);
+			});
+		}
+	});
+
 	onDestroy(() => {
 		if (flushTimer) clearInterval(flushTimer);
-		flushBatch(); // final flush
 		unregisterScan();
 	});
 

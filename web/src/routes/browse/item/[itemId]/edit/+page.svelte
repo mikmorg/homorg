@@ -1,5 +1,4 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
 	import { page } from '$app/stores';
 	import { goto } from '$app/navigation';
 	import { api } from '$api/client.js';
@@ -10,6 +9,9 @@
 	import { toast } from '$stores/toast.js';
 
 	$: itemId = $page.params.itemId!;
+	// H-12: Re-load when itemId changes (client-side navigation between items)
+	$: if (itemId) loadItem(itemId);
+
 	let item: Item | null = null;
 	let loading = true;
 	let saving = false;
@@ -45,13 +47,23 @@
 	let uploading = false;
 	let uploadError = '';
 
-	onMount(async () => {
+	let loadedItemId = '';
+
+	async function loadItem(id: string) {
+		if (id === loadedItemId) return;
+		loadedItemId = id;
+		loading = true;
+		error = '';
+		saveError = '';
+		item = null;
+		parentItem = null;
 		try {
 			const [fetchedItem, cats, tags] = await Promise.all([
-				api.items.get(itemId),
+				api.items.get(id),
 				api.categories.list(),
 				api.tags.list()
 			]);
+			if (id !== loadedItemId) return; // stale guard
 			item = fetchedItem;
 			categories = cats;
 			allTags = tags;
@@ -80,11 +92,12 @@
 				parentItem = await api.items.get(item.parent_id);
 			}
 		} catch (err) {
+			if (id !== loadedItemId) return;
 			error = err instanceof Error ? err.message : 'Failed to load item';
 		} finally {
-			loading = false;
+			if (id === loadedItemId) loading = false;
 		}
-	});
+	}
 
 	async function save() {
 		if (!item) return;
@@ -388,17 +401,21 @@
 					{/if}
 				</div>
 
-				<!-- Coordinate -->
+				<!-- Coordinate (M-18: {#key} forces remount on navigation) -->
 				{#if parentItem?.location_schema || item.coordinate}
 					<div class="card p-3">
-						<CoordinateInput schema={parentItem?.location_schema} bind:value={coordinateValue} />
+						{#key itemId}
+							<CoordinateInput schema={parentItem?.location_schema} bind:value={coordinateValue} />
+						{/key}
 					</div>
 				{/if}
 
 				<!-- Location Schema (containers only) -->
 				{#if isContainer}
 					<div class="card p-3">
-						<LocationSchemaEditor bind:value={locationSchemaValue} bind:labelRenames={schemaLabelRenames} />
+						{#key itemId}
+							<LocationSchemaEditor bind:value={locationSchemaValue} bind:labelRenames={schemaLabelRenames} />
+						{/key}
 					</div>
 				{/if}
 
