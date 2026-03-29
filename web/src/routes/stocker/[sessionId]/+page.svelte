@@ -3,7 +3,7 @@
 	import { page } from '$app/state';
 	import { goto, beforeNavigate } from '$app/navigation';
 	import { api } from '$api/client.js';
-	import type { BarcodeResolution, Item, ItemSummary, StockerBatchEvent } from '$api/types.js';
+	import type { BarcodeResolution, CameraToken, Item, ItemSummary, StockerBatchEvent } from '$api/types.js';
 	import { onScan, scannerState, startSerialScanner, startCameraScanner, startHidScanner } from '$scanner/index.js';
 	import { scanSuccess, scanError, contextSet, newItem as newItemSound } from '$audio/feedback.js';
 	import { init as initAudio } from '$audio/feedback.js';
@@ -59,6 +59,13 @@
 
 	// Scanner modal
 	let showScannerSettings: boolean = $state(false);
+
+	// Camera link
+	let showCameraLink: boolean = $state(false);
+	let cameraTokens: CameraToken[] = $state([]);
+	let cameraLinkLoading: boolean = $state(false);
+	let cameraLinkError: string = $state('');
+	let cameraDeviceName: string = $state('');
 
 	let context = $derived($stockerStore.context);
 	let session = $derived($stockerStore.session);
@@ -352,6 +359,46 @@
 		pickerResults = [];
 	}
 
+	// ── Camera link management ───────────────────────────────────────────────
+	async function loadCameraLinks() {
+		try {
+			cameraTokens = await api.stocker.listCameraLinks(sessionId);
+		} catch {
+			cameraTokens = [];
+		}
+	}
+
+	async function createCameraLink() {
+		cameraLinkLoading = true;
+		cameraLinkError = '';
+		try {
+			await api.stocker.createCameraLink(sessionId, {
+				device_name: cameraDeviceName.trim() || undefined,
+				expires_in_hours: 24
+			});
+			cameraDeviceName = '';
+			await loadCameraLinks();
+		} catch (err) {
+			cameraLinkError = err instanceof Error ? err.message : 'Failed to create camera link';
+		} finally {
+			cameraLinkLoading = false;
+		}
+	}
+
+	async function revokeCameraLink(tokenId: string) {
+		try {
+			await api.stocker.revokeCameraLink(sessionId, tokenId);
+			await loadCameraLinks();
+		} catch (err) {
+			cameraLinkError = err instanceof Error ? err.message : 'Failed to revoke camera link';
+		}
+	}
+
+	function getCameraUrl(token: string): string {
+		const base = typeof window !== 'undefined' ? window.location.origin : '';
+		return `${base}/api/v1/stocker/camera/${token}`;
+	}
+
 	// ── End session ──────────────────────────────────────────────────────────
 	async function endSession() {
 		ending = true;
@@ -400,6 +447,13 @@
 				{$stockerStore.pendingCount} pending
 			</span>
 		{/if}
+
+		<button class="btn btn-icon text-slate-400" onclick={() => { showCameraLink = !showCameraLink; if (showCameraLink) loadCameraLinks(); }} aria-label="Camera link">
+			<svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+				<rect x="2" y="6" width="20" height="12" rx="2" />
+				<circle cx="12" cy="12" r="3" />
+			</svg>
+		</button>
 
 		<button class="btn btn-icon text-slate-400" onclick={() => (showScannerSettings = !showScannerSettings)} aria-label="Scanner settings">
 			<svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -588,6 +642,88 @@
 					</button>
 				{/each}
 			</div>
+		{/if}
+	</div>
+</div>
+{/if}
+
+<!-- ── Camera link panel ────────────────────────────────────────────── -->
+{#if showCameraLink}
+<!-- svelte-ignore a11y_no_static_element_interactions -->
+<div class="fixed inset-0 z-50 flex flex-col justify-end bg-black/60" onclick={(e) => { if (e.target === e.currentTarget) { showCameraLink = false } }} onkeydown={(e) => e.key === 'Escape' && (showCameraLink = false)}>
+	<div class="rounded-t-2xl bg-slate-900 p-4 pb-8 max-h-[80vh] overflow-y-auto" role="dialog" aria-modal="true" aria-labelledby="camera-link-title">
+		<div class="mb-4 flex items-center justify-between">
+			<h2 id="camera-link-title" class="text-base font-semibold text-slate-100">📷 Remote Camera</h2>
+			<button class="btn btn-icon text-slate-400" onclick={() => (showCameraLink = false)} aria-label="Close">
+				<svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+					<path d="M18 6L6 18M6 6l12 12" />
+				</svg>
+			</button>
+		</div>
+
+		<p class="mb-3 text-sm text-slate-400">
+			Link a remote camera device (e.g. Android phone) to this session. Photos taken will auto-attach to the most recently scanned item.
+		</p>
+
+		{#if cameraLinkError}
+			<div class="mb-3 rounded-lg bg-red-950 px-3 py-2 text-sm text-red-300 border border-red-800">
+				{cameraLinkError}
+			</div>
+		{/if}
+
+		<!-- Create new link -->
+		<div class="mb-4 space-y-2">
+			<div class="flex gap-2">
+				<input
+					class="input flex-1 text-sm"
+					placeholder="Device name (optional)"
+					bind:value={cameraDeviceName}
+					disabled={cameraLinkLoading}
+				/>
+				<button class="btn btn-primary text-sm px-3" onclick={createCameraLink} disabled={cameraLinkLoading}>
+					{cameraLinkLoading ? '…' : 'Link'}
+				</button>
+			</div>
+		</div>
+
+		<!-- Active links -->
+		{#if cameraTokens.length > 0}
+			<div class="space-y-3">
+				{#each cameraTokens as ct (ct.id)}
+					<div class="rounded-lg border border-slate-700 bg-slate-800/50 p-3">
+						<div class="flex items-start justify-between gap-2 mb-2">
+							<div>
+								<p class="text-sm font-medium text-slate-200">
+									{ct.device_name ?? 'Camera device'}
+								</p>
+								<p class="text-xs text-slate-400">
+									Expires {new Date(ct.expires_at).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+								</p>
+							</div>
+							<button
+								class="text-xs text-red-400 hover:text-red-300"
+								onclick={() => revokeCameraLink(ct.id)}
+							>
+								Revoke
+							</button>
+						</div>
+
+						<!-- Token URL for camera app -->
+						<div class="rounded bg-slate-950 p-2">
+							<p class="text-xs text-slate-500 mb-1">Camera upload endpoint:</p>
+							<code class="block text-xs text-emerald-400 break-all select-all">
+								{getCameraUrl(ct.token)}/upload
+							</code>
+						</div>
+
+						<p class="mt-2 text-xs text-slate-500">
+							Use this URL in the Android camera app. Send multipart POST with a "file" field to upload images.
+						</p>
+					</div>
+				{/each}
+			</div>
+		{:else}
+			<p class="text-sm text-slate-500 text-center py-4">No active camera links</p>
 		{/if}
 	</div>
 </div>

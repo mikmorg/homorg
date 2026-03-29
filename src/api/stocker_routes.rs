@@ -1,7 +1,7 @@
 use axum::{
-    extract::{Json, Path, Query, State},
+    extract::{Json, Multipart, Path, Query, State},
     http::StatusCode,
-    routing::{get, post, put},
+    routing::{delete, get, post, put},
     Router,
 };
 use serde::Deserialize;
@@ -10,6 +10,7 @@ use uuid::Uuid;
 
 use crate::auth::middleware::AuthUser;
 use crate::errors::{AppError, AppResult};
+use crate::models::camera::*;
 use crate::models::event::EventMetadata;
 use crate::models::item::{CreateItemRequest, MoveItemRequest};
 use crate::models::session::*;
@@ -25,6 +26,12 @@ pub fn router() -> Router<Arc<AppState>> {
         )
         .route("/sessions/{id}/batch", post(submit_batch))
         .route("/sessions/{id}/end", put(end_session))
+        // Camera link management (JWT-authenticated)
+        .route("/sessions/{id}/camera-links", post(create_camera_link).get(list_camera_links))
+        .route("/sessions/{id}/camera-links/{token_id}", delete(revoke_camera_link))
+        // Camera device endpoints (token-authenticated, no JWT required)
+        .route("/camera/{token}/status", get(camera_status))
+        .route("/camera/{token}/upload", post(camera_upload))
 }
 
 // Field limits matching DB schema column widths for scan sessions.
@@ -138,6 +145,7 @@ async fn submit_batch(
     let mut results = Vec::new();
     let mut errors = Vec::new();
     let mut active_container_id = session.active_container_id;
+    let mut active_item_id = session.active_item_id;
     let mut items_scanned: i32 = 0;
     let mut items_created: i32 = 0;
     let mut items_moved: i32 = 0;
@@ -156,6 +164,7 @@ async fn submit_batch(
                 session_id,
                 batch_event,
                 &mut active_container_id,
+                &mut active_item_id,
                 index,
             )
             .await?; // ? propagates error, rolling back tx on drop
@@ -171,7 +180,7 @@ async fn submit_batch(
 
         // Update session stats within the same transaction
         state.session_repository.update_stats_in_tx(
-            &mut tx, session_id, active_container_id, items_scanned, items_created, items_moved, items_errored,
+            &mut tx, session_id, active_container_id, active_item_id, items_scanned, items_created, items_moved, items_errored,
         ).await?;
 
         tx.commit().await?;
@@ -184,6 +193,7 @@ async fn submit_batch(
                 session_id,
                 batch_event,
                 &mut active_container_id,
+                &mut active_item_id,
                 index,
             )
             .await;
@@ -211,7 +221,7 @@ async fn submit_batch(
 
         // Update session stats
         state.session_repository.update_stats(
-            session_id, active_container_id, items_scanned, items_created, items_moved, items_errored,
+            session_id, active_container_id, active_item_id, items_scanned, items_created, items_moved, items_errored,
         ).await?;
     }
 
@@ -235,6 +245,7 @@ async fn process_batch_event(
     session_id: Uuid,
     event: &StockerBatchEvent,
     active_container_id: &mut Option<Uuid>,
+    active_item_id: &mut Option<Uuid>,
     index: usize,
 ) -> AppResult<StockerBatchResult> {
     let mut tx = state.pool.begin().await?;
@@ -245,6 +256,7 @@ async fn process_batch_event(
         session_id,
         event,
         active_container_id,
+        active_item_id,
         index,
     )
     .await?;
@@ -260,6 +272,7 @@ async fn process_batch_event_in_tx(
     session_id: Uuid,
     event: &StockerBatchEvent,
     active_container_id: &mut Option<Uuid>,
+    active_item_id: &mut Option<Uuid>,
     index: usize,
 ) -> AppResult<StockerBatchResult> {
     // H-2: Build metadata here so we can capture client-side scanned_at per event.
@@ -328,6 +341,9 @@ async fn process_batch_event_in_tx(
                 .item_commands
                 .move_item_in_tx(tx, *item_id, &move_req, actor_id, &metadata)
                 .await?;
+
+            // Track this item as the active item for camera attachment
+            *active_item_id = Some(*item_id);
 
             Ok(StockerBatchResult::Moved {
                 index,
@@ -422,6 +438,9 @@ async fn process_batch_event_in_tx(
 
             let needs_details = name.as_deref().is_none_or(|n| n.is_empty());
 
+            // Track this newly created item as the active item for camera attachment
+            *active_item_id = Some(item_id);
+
             Ok(StockerBatchResult::Created {
                 index,
                 status: "ok".into(),
@@ -450,6 +469,242 @@ async fn end_session(
     Path(id): Path<Uuid>,
 ) -> AppResult<Json<ScanSession>> {
     auth.require_role("member")?;
+    // Revoke all camera tokens when session ends
+    let _ = state.session_repository.revoke_all_camera_tokens(id, auth.user_id).await;
     let session = state.session_repository.end_session(id, auth.user_id).await?;
     Ok(Json(session))
+}
+
+// ── Camera link management (JWT-authenticated) ──────────────────────────
+
+const MAX_CAMERA_DEVICE_NAME_LEN: usize = 128;
+const DEFAULT_CAMERA_TOKEN_HOURS: u32 = 24;
+const MAX_CAMERA_TOKEN_HOURS: u32 = 168; // 7 days
+
+/// Create a camera link token for a session.
+async fn create_camera_link(
+    State(state): State<Arc<AppState>>,
+    auth: AuthUser,
+    Path(session_id): Path<Uuid>,
+    body: Option<Json<CreateCameraLinkRequest>>,
+) -> AppResult<(StatusCode, Json<CameraLinkResponse>)> {
+    auth.require_role("member")?;
+    // Verify session exists, belongs to user, and is active
+    let _session = state.session_repository.get_active_for_user(session_id, auth.user_id).await?;
+
+    let req = body.map(|b| b.0).unwrap_or(CreateCameraLinkRequest {
+        device_name: None,
+        expires_in_hours: None,
+    });
+
+    if let Some(ref name) = req.device_name {
+        if name.chars().count() > MAX_CAMERA_DEVICE_NAME_LEN {
+            return Err(AppError::BadRequest(format!(
+                "device_name exceeds maximum length of {MAX_CAMERA_DEVICE_NAME_LEN} characters"
+            )));
+        }
+    }
+
+    let hours = req.expires_in_hours
+        .unwrap_or(DEFAULT_CAMERA_TOKEN_HOURS)
+        .clamp(1, MAX_CAMERA_TOKEN_HOURS);
+    let expires_at = chrono::Utc::now() + chrono::Duration::hours(i64::from(hours));
+
+    // Generate a cryptographically random token
+    let token_bytes: [u8; 32] = rand::random();
+    let token = hex::encode(token_bytes);
+
+    let ct = state.session_repository.create_camera_token(
+        session_id,
+        auth.user_id,
+        &token,
+        req.device_name.as_deref(),
+        expires_at,
+    ).await?;
+
+    Ok((StatusCode::CREATED, Json(CameraLinkResponse {
+        token: ct.token,
+        session_id: ct.session_id,
+        expires_at: ct.expires_at,
+        device_name: ct.device_name,
+    })))
+}
+
+/// List active camera links for a session.
+async fn list_camera_links(
+    State(state): State<Arc<AppState>>,
+    auth: AuthUser,
+    Path(session_id): Path<Uuid>,
+) -> AppResult<Json<Vec<CameraToken>>> {
+    // Verify session belongs to user
+    let _session = state.session_repository.get_for_user(session_id, auth.user_id).await?;
+    let tokens = state.session_repository.list_camera_tokens(session_id).await?;
+    Ok(Json(tokens))
+}
+
+/// Revoke a specific camera link token.
+async fn revoke_camera_link(
+    State(state): State<Arc<AppState>>,
+    auth: AuthUser,
+    Path((session_id, token_id)): Path<(Uuid, Uuid)>,
+) -> AppResult<StatusCode> {
+    auth.require_role("member")?;
+    // Verify session belongs to user
+    let _session = state.session_repository.get_for_user(session_id, auth.user_id).await?;
+    state.session_repository.revoke_camera_token(token_id, auth.user_id).await?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
+// ── Camera device endpoints (token-authenticated) ───────────────────────
+
+/// Get session status for a camera device.
+async fn camera_status(
+    State(state): State<Arc<AppState>>,
+    Path(token): Path<String>,
+) -> AppResult<Json<CameraSessionStatus>> {
+    let ct = state.session_repository.get_camera_token(&token).await?;
+    let session = state.session_repository.get_session_by_id(ct.session_id).await?;
+
+    Ok(Json(CameraSessionStatus {
+        session_id: session.id,
+        active_container_id: session.active_container_id,
+        active_item_id: session.active_item_id,
+        session_ended: session.ended_at.is_some(),
+    }))
+}
+
+// Allowed MIME types by magic bytes for camera uploads (same as item_routes)
+fn camera_mime_to_extension(mime: &str) -> Option<&'static str> {
+    match mime {
+        "image/jpeg" => Some("jpg"),
+        "image/png" => Some("png"),
+        "image/webp" => Some("webp"),
+        "image/gif" => Some("gif"),
+        _ => None,
+    }
+}
+
+/// Upload an image from a remote camera device. Attaches to the session's active item.
+async fn camera_upload(
+    State(state): State<Arc<AppState>>,
+    Path(token): Path<String>,
+    mut multipart: Multipart,
+) -> AppResult<(StatusCode, Json<CameraUploadResponse>)> {
+    // Validate camera token
+    let ct = state.session_repository.get_camera_token(&token).await?;
+    let session = state.session_repository.get_session_by_id(ct.session_id).await?;
+
+    if session.ended_at.is_some() {
+        return Err(AppError::BadRequest("Session has ended".into()));
+    }
+
+    // Determine target: active_item_id first, then fall back to active_container_id
+    let target_item_id = session.active_item_id
+        .or(session.active_container_id)
+        .ok_or_else(|| AppError::BadRequest(
+            "No active item or container in session. Scan an item first.".into()
+        ))?;
+
+    let mut file_data: Option<(String, Vec<u8>)> = None;
+    let mut caption: Option<String> = None;
+
+    while let Some(field) = multipart
+        .next_field()
+        .await
+        .map_err(|e| AppError::BadRequest(format!("Multipart error: {e}")))?
+    {
+        let name = field.name().unwrap_or_default().to_string();
+        match name.as_str() {
+            "file" => {
+                let data = field
+                    .bytes()
+                    .await
+                    .map_err(|e| AppError::BadRequest(format!("Failed to read file: {e}")))?;
+
+                if data.len() > state.config.max_upload_bytes {
+                    return Err(AppError::BadRequest(format!(
+                        "File size {} exceeds maximum {} bytes",
+                        data.len(),
+                        state.config.max_upload_bytes
+                    )));
+                }
+
+                // SEC-4/SEC-5: Detect MIME type from magic bytes
+                let detected_mime = infer::get(&data)
+                    .map(|t| t.mime_type())
+                    .unwrap_or("application/octet-stream");
+
+                let ext = camera_mime_to_extension(detected_mime).ok_or_else(|| {
+                    AppError::BadRequest(format!(
+                        "Unsupported file type detected from content ('{detected_mime}'). \
+                         Allowed: {}",
+                        state.config.allowed_image_mimes.join(", ")
+                    ))
+                })?;
+
+                if !state.config.allowed_image_mimes.iter().any(|m| m == detected_mime) {
+                    return Err(AppError::BadRequest(format!(
+                        "File content type '{detected_mime}' is not allowed. \
+                         Allowed: {}",
+                        state.config.allowed_image_mimes.join(", ")
+                    )));
+                }
+
+                let file_id = uuid::Uuid::new_v4();
+                let safe_filename = format!("{file_id}.{ext}");
+                file_data = Some((safe_filename, data.to_vec()));
+            }
+            "caption" => {
+                caption = field.text().await.ok();
+            }
+            _ => {}
+        }
+    }
+
+    let (filename, data) = file_data.ok_or_else(|| AppError::BadRequest("No file provided".into()))?;
+
+    let key = state.storage.upload(target_item_id, &filename, &data).await?;
+    let url = state.storage.get_url(&key);
+
+    let metadata = EventMetadata::default();
+    // CONC-2: If appending the domain event fails, roll back the uploaded file
+    let event = match state
+        .item_commands
+        .add_image(target_item_id, url.clone(), caption, 0, ct.user_id, &metadata)
+        .await
+    {
+        Ok(ev) => ev,
+        Err(e) => {
+            if let Err(del_err) = state.storage.delete(&key).await {
+                tracing::warn!(
+                    key = %key,
+                    error = %del_err,
+                    "Failed to clean up orphaned image after event-store error (camera upload)"
+                );
+            }
+            return Err(e);
+        }
+    };
+
+    // Count images on the item to return in response
+    let image_count: i64 = sqlx::query_scalar(
+        "SELECT jsonb_array_length(COALESCE(images, '[]'::jsonb)) FROM items WHERE id = $1",
+    )
+    .bind(target_item_id)
+    .fetch_one(&state.pool)
+    .await
+    .unwrap_or(0);
+
+    tracing::info!(
+        session_id = %ct.session_id,
+        item_id = %target_item_id,
+        event_id = %event.event_id,
+        "Camera image uploaded"
+    );
+
+    Ok((StatusCode::CREATED, Json(CameraUploadResponse {
+        item_id: target_item_id,
+        image_url: url,
+        image_count: image_count as usize,
+    })))
 }

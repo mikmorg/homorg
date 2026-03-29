@@ -5,6 +5,7 @@ import type {
 	AdjustQuantityRequest, AssignBarcodeRequest,
 	BarcodeResolution, GeneratedBarcode,
 	ScanSession, StartSessionRequest, StockerBatchRequest, StockerBatchResponse,
+	CameraToken, CameraLinkResponse, CreateCameraLinkRequest,
 	ChildrenParams, DescendantsParams, SearchParams,
 	Category, Tag, ContainerType,
 	StoredEvent, HealthResponse, StatsResponse,
@@ -207,7 +208,14 @@ export const stocker = {
 			body: JSON.stringify(body),
 			params: { atomic }
 		}),
-	endSession: (id: string) => put$<ScanSession>(`/stocker/sessions/${id}/end`)
+	endSession: (id: string) => put$<ScanSession>(`/stocker/sessions/${id}/end`),
+	// Camera link management
+	createCameraLink: (sessionId: string, body?: CreateCameraLinkRequest) =>
+		post$<CameraLinkResponse>(`/stocker/sessions/${sessionId}/camera-links`, body),
+	listCameraLinks: (sessionId: string) =>
+		get$<CameraToken[]>(`/stocker/sessions/${sessionId}/camera-links`),
+	revokeCameraLink: (sessionId: string, tokenId: string) =>
+		del$<void>(`/stocker/sessions/${sessionId}/camera-links/${tokenId}`)
 };
 
 // ─── Search ──────────────────────────────────────────────────────────────────

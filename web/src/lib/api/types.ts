@@ -233,6 +233,7 @@ export interface ScanSession {
 	items_errored: number;
 	device_id: string | null;
 	notes: string | null;
+	active_item_id: string | null;
 }
 
 export interface StartSessionRequest {
@@ -461,6 +462,44 @@ export interface UpdateUserRequest {
 
 export interface UpdateRoleRequest {
 	role: 'admin' | 'member' | 'readonly';
+}
+
+// ─── Camera ──────────────────────────────────────────────────────────────────
+
+export interface CreateCameraLinkRequest {
+	device_name?: string;
+	expires_in_hours?: number;
+}
+
+export interface CameraLinkResponse {
+	token: string;
+	session_id: string;
+	expires_at: string;
+	device_name: string | null;
+}
+
+export interface CameraToken {
+	id: string;
+	session_id: string;
+	user_id: string;
+	token: string;
+	device_name: string | null;
+	created_at: string;
+	expires_at: string;
+	revoked_at: string | null;
+}
+
+export interface CameraSessionStatus {
+	session_id: string;
+	active_container_id: string | null;
+	active_item_id: string | null;
+	session_ended: boolean;
+}
+
+export interface CameraUploadResponse {
+	item_id: string;
+	image_url: string;
+	image_count: number;
 }
 
 // ─── API Error ───────────────────────────────────────────────────────────────
