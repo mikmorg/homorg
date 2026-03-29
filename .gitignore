@@ -36,6 +36,10 @@ web/.env.*.local
 Thumbs.db
 desktop.ini
 
+# Python
+__pycache__/
+*.pyc
+
 # Docker volumes / local DB data
 pgdata/
 postgres-data/
