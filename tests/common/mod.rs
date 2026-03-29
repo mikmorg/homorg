@@ -144,6 +144,7 @@ fn test_config(database_url: &str) -> AppConfig {
             "image/png".into(),
             "image/webp".into(),
         ],
+        rate_limit_enabled: false,
         rate_limit_rps: 100,
         rate_limit_burst: 200,
         log_format: "text".to_string(),
