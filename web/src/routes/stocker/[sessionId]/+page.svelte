@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { onMount, onDestroy } from 'svelte';
-	import { page } from '$app/stores';
+	import { page } from '$app/state';
 	import { goto, beforeNavigate } from '$app/navigation';
 	import { api } from '$api/client.js';
 	import type { BarcodeResolution, Item, ItemSummary, StockerBatchEvent } from '$api/types.js';
@@ -16,7 +16,7 @@
 		setPendingCount
 	} from '$stores/stocker.js';
 
-	$: sessionId = $page.params.sessionId!;
+	let sessionId = $derived(page.params.sessionId!);
 
 	// ── State ────────────────────────────────────────────────────────────────
 	interface ScanLogEntry {
@@ -28,15 +28,15 @@
 		timestamp: number;
 	}
 
-	let scanLog: ScanLogEntry[] = [];
-	let logIdCounter = 0;
-	let loading = true;
-	let ending = false;
-	let error = '';
+	let scanLog: ScanLogEntry[] = $state([]);
+	let logIdCounter: number = $state(0);
+	let loading: boolean = $state(true);
+	let ending: boolean = $state(false);
+	let error: string = $state('');
 
-	let pendingBatch: StockerBatchEvent[] = [];
-	let flushTimer: ReturnType<typeof setInterval> | null = null;
-	let flushing = false;
+	let pendingBatch: StockerBatchEvent[] = $state([]);
+	let flushTimer: ReturnType<typeof setInterval> | null = $state(null);
+	let flushing: boolean = $state(false);
 	const FLUSH_INTERVAL_MS = 2000;
 
 	// SC-2: Track in-flight barcodes to prevent duplicate processing when the
@@ -44,24 +44,24 @@
 	const inFlight = new Set<string>();
 
 	// Quick-create panel
-	let showQuickCreate = false;
-	let qcName = '';
-	let qcQuantity = 1;
-	let qcBarcode = '';
-	let qcLoading = false;
-	let qcError = '';
+	let showQuickCreate: boolean = $state(false);
+	let qcName: string = $state('');
+	let qcQuantity: number = $state(1);
+	let qcBarcode: string = $state('');
+	let qcLoading: boolean = $state(false);
+	let qcError: string = $state('');
 
 	// Container picker
-	let showContainerPicker = false;
-	let pickerQuery = '';
-	let pickerResults: ItemSummary[] = [];
-	let pickerLoading = false;
+	let showContainerPicker: boolean = $state(false);
+	let pickerQuery: string = $state('');
+	let pickerResults: ItemSummary[] = $state([]);
+	let pickerLoading: boolean = $state(false);
 
 	// Scanner modal
-	let showScannerSettings = false;
+	let showScannerSettings: boolean = $state(false);
 
-	$: context = $stockerStore.context;
-	$: session = $stockerStore.session;
+	let context = $derived($stockerStore.context);
+	let session = $derived($stockerStore.session);
 
 	// ── Lifecycle ────────────────────────────────────────────────────────────
 	onMount(async () => {
@@ -82,7 +82,7 @@
 	// H-11: Flush pending batch before navigation so events aren't lost.
 	// SvelteKit beforeNavigate doesn't await async callbacks, so we cancel
 	// navigation, flush, and re-navigate once complete.
-	let navigationTarget: URL | null = null;
+	let navigationTarget: URL | null = $state(null);
 	beforeNavigate(({ cancel, to }) => {
 		if (pendingBatch.length > 0 && !navigationTarget) {
 			cancel();
@@ -312,7 +312,7 @@
 	}
 
 	// ── Container picker ─────────────────────────────────────────────────────
-	let pickerDebounce: ReturnType<typeof setTimeout> | null = null;
+	let pickerDebounce: ReturnType<typeof setTimeout> | null = $state(null);
 	function onPickerInput() {
 		if (pickerDebounce) clearTimeout(pickerDebounce);
 		pickerDebounce = setTimeout(searchContainers, 300);
@@ -401,14 +401,14 @@
 			</span>
 		{/if}
 
-		<button class="btn btn-icon text-slate-400" on:click={() => (showScannerSettings = !showScannerSettings)} aria-label="Scanner settings">
+		<button class="btn btn-icon text-slate-400" onclick={() => (showScannerSettings = !showScannerSettings)} aria-label="Scanner settings">
 			<svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
 				<circle cx="12" cy="12" r="3" />
 				<path d="M19.07 4.93A10 10 0 0 0 4.93 19.07M4.93 4.93a10 10 0 0 0 14.14 14.14" />
 			</svg>
 		</button>
 
-		<button class="btn btn-danger text-xs px-2 py-1" on:click={endSession} disabled={ending}>
+		<button class="btn btn-danger text-xs px-2 py-1" onclick={endSession} disabled={ending}>
 			{ending ? '…' : 'End'}
 		</button>
 	</header>
@@ -440,7 +440,7 @@
 	<!-- ── Context banner ───────────────────────────────────────────────── -->
 	<button
 		class="flex items-center gap-3 border-b border-slate-800 px-4 py-3 text-left transition-colors hover:bg-slate-800"
-		on:click={() => (showContainerPicker = true)}
+		onclick={() => (showContainerPicker = true)}
 	>
 		<div class="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg bg-indigo-500/20 text-indigo-400">
 			<svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -480,7 +480,7 @@
 
 	<!-- ── Quick action bar ──────────────────────────────────────────────── -->
 	<div class="border-t border-slate-800 px-4 py-2">
-		<button class="btn btn-secondary w-full" on:click={() => (showQuickCreate = true)}>
+		<button class="btn btn-secondary w-full" onclick={() => (showQuickCreate = true)}>
 			+ Quick create item
 		</button>
 	</div>
@@ -489,11 +489,11 @@
 <!-- ── Quick create panel ─────────────────────────────────────────────── -->
 {#if showQuickCreate}
 <!-- svelte-ignore a11y_no_static_element_interactions -->
-<div class="fixed inset-0 z-50 flex flex-col justify-end bg-black/60" on:click|self={() => (showQuickCreate = false)} on:keydown={(e) => e.key === 'Escape' && (showQuickCreate = false)}>
+<div class="fixed inset-0 z-50 flex flex-col justify-end bg-black/60" onclick={(e) => { if (e.target === e.currentTarget) { showQuickCreate = false } }} onkeydown={(e) => e.key === 'Escape' && (showQuickCreate = false)}>
 	<div class="rounded-t-2xl bg-slate-900 p-4 pb-8" role="dialog" aria-modal="true" aria-labelledby="quick-create-title">
 		<div class="mb-4 flex items-center justify-between">
 			<h2 id="quick-create-title" class="text-base font-semibold text-slate-100">Quick create item</h2>
-			<button class="btn btn-icon text-slate-400" on:click={() => (showQuickCreate = false)} aria-label="Close">
+			<button class="btn btn-icon text-slate-400" onclick={() => (showQuickCreate = false)} aria-label="Close">
 				<svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
 					<path d="M18 6L6 18M6 6l12 12" />
 				</svg>
@@ -512,7 +512,7 @@
 			</div>
 		{/if}
 
-		<form class="space-y-3" on:submit={quickCreate}>
+		<form class="space-y-3" onsubmit={quickCreate}>
 			<div>
 				<label class="mb-1 block text-sm font-medium text-slate-300" for="qc-name">Name *</label>
 				<input id="qc-name" class="input" placeholder="e.g. 9V Battery" bind:value={qcName} required disabled={qcLoading} />
@@ -549,7 +549,7 @@
 {#if showContainerPicker}
 <div class="fixed inset-0 z-50 flex flex-col bg-slate-950">
 	<div class="flex items-center gap-2 border-b border-slate-800 px-3 py-2">
-		<button class="btn btn-icon text-slate-400" on:click={() => (showContainerPicker = false)} aria-label="Close">
+		<button class="btn btn-icon text-slate-400" onclick={() => (showContainerPicker = false)} aria-label="Close">
 			<svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
 				<path d="M18 6L6 18M6 6l12 12" />
 			</svg>
@@ -558,7 +558,7 @@
 			class="input flex-1"
 			placeholder="Search containers…"
 			bind:value={pickerQuery}
-			on:input={onPickerInput}
+			oninput={onPickerInput}
 		/>
 	</div>
 
@@ -574,7 +574,7 @@
 				{#each pickerResults as item (item.id)}
 					<button
 						class="flex w-full items-center gap-3 rounded-lg px-3 py-3 text-left transition-colors hover:bg-slate-800"
-						on:click={() => pickContainer(item)}
+						onclick={() => pickContainer(item)}
 					>
 						<div class="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-md bg-indigo-500/20 text-indigo-400 text-xs">
 							📦
@@ -596,7 +596,7 @@
 <!-- ── Scanner settings ───────────────────────────────────────────────── -->
 {#if showScannerSettings}
 <!-- svelte-ignore a11y_no_static_element_interactions -->
-<div class="fixed inset-0 z-50 flex flex-col justify-end bg-black/60" on:click|self={() => (showScannerSettings = false)} on:keydown={(e) => e.key === 'Escape' && (showScannerSettings = false)}>
+<div class="fixed inset-0 z-50 flex flex-col justify-end bg-black/60" onclick={(e) => { if (e.target === e.currentTarget) { showScannerSettings = false } }} onkeydown={(e) => e.key === 'Escape' && (showScannerSettings = false)}>
 	<div class="rounded-t-2xl bg-slate-900 p-4 pb-8" role="dialog" aria-modal="true" aria-labelledby="scanner-settings-title">
 		<h2 id="scanner-settings-title" class="mb-4 text-base font-semibold text-slate-100">Scanner source</h2>
 		<div class="space-y-2">
@@ -604,7 +604,7 @@
 				class="btn w-full justify-start gap-3"
 				class:btn-primary={$scannerState.source === 'hid'}
 				class:btn-secondary={$scannerState.source !== 'hid'}
-				on:click={() => { startHidScanner(); showScannerSettings = false; }}
+				onclick={() => { startHidScanner(); showScannerSettings = false; }}
 			>
 				<span class="text-lg">⌨️</span>
 				<span>HID keyboard wedge <span class="text-xs opacity-70">(USB/BT HID)</span></span>
@@ -613,7 +613,7 @@
 				class="btn w-full justify-start gap-3"
 				class:btn-primary={$scannerState.source === 'serial'}
 				class:btn-secondary={$scannerState.source !== 'serial'}
-				on:click={() => { startSerialScanner(); showScannerSettings = false; }}
+				onclick={() => { startSerialScanner(); showScannerSettings = false; }}
 			>
 				<span class="text-lg">🔵</span>
 				<span>Bluetooth SPP / USB Serial <span class="text-xs opacity-70">(Chrome 117+)</span></span>
@@ -622,7 +622,7 @@
 				class="btn w-full justify-start gap-3"
 				class:btn-primary={$scannerState.source === 'camera'}
 				class:btn-secondary={$scannerState.source !== 'camera'}
-				on:click={() => { startCameraScanner(); showScannerSettings = false; }}
+				onclick={() => { startCameraScanner(); showScannerSettings = false; }}
 			>
 				<span class="text-lg">📷</span>
 				<span>Camera <span class="text-xs opacity-70">(BarcodeDetector API)</span></span>

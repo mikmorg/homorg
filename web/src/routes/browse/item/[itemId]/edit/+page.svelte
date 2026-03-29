@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { page } from '$app/stores';
+	import { page } from '$app/state';
 	import { goto } from '$app/navigation';
 	import { api } from '$api/client.js';
 	import type { Item, Category, Tag, Condition, UpdateItemRequest } from '$api/types.js';
@@ -8,46 +8,46 @@
 	import LocationSchemaEditor from '$lib/components/LocationSchemaEditor.svelte';
 	import { toast } from '$stores/toast.js';
 
-	$: itemId = $page.params.itemId!;
+	let itemId = $derived(page.params.itemId!);
 	// H-12: Re-load when itemId changes (client-side navigation between items)
-	$: if (itemId) loadItem(itemId);
+	$effect(() => { if (itemId) loadItem(itemId); });
 
-	let item: Item | null = null;
-	let loading = true;
-	let saving = false;
-	let error = '';
-	let saveError = '';
+	let item: Item | null = $state(null);
+	let loading: boolean = $state(true);
+	let saving: boolean = $state(false);
+	let error: string = $state('');
+	let saveError: string = $state('');
 
 	// Form state
-	let name = '';
-	let description = '';
-	let categoryId: string | null = null;
-	let condition: Condition | '' = '';
-	let selectedTagIds: Set<string> = new Set();
-	let acquisitionDate = '';
-	let acquisitionCost = '';
-	let currentValue = '';
-	let currency = '';
-	let warrantyExpiry = '';
-	let coordinateValue: unknown | null = null;
-	let weightGrams = '';
-	let isFungible = false;
-	let fungibleUnit = '';
-	let fungibleQuantity = '';
-	let locationSchemaValue: unknown | null = null;
-	let schemaLabelRenames: Record<string, string> = {};
-	let isContainer = false;
+	let name: string = $state('');
+	let description: string = $state('');
+	let categoryId: string | null = $state(null);
+	let condition: Condition | '' = $state('');
+	let selectedTagIds: Set<string> = $state(new Set());
+	let acquisitionDate: string = $state('');
+	let acquisitionCost: string = $state('');
+	let currentValue: string = $state('');
+	let currency: string = $state('');
+	let warrantyExpiry: string = $state('');
+	let coordinateValue: unknown | null = $state(null);
+	let weightGrams: string = $state('');
+	let isFungible: boolean = $state(false);
+	let fungibleUnit: string = $state('');
+	let fungibleQuantity: string = $state('');
+	let locationSchemaValue: unknown | null = $state(null);
+	let schemaLabelRenames: Record<string, string> = $state({});
+	let isContainer: boolean = $state(false);
 
 	// Taxonomy data
-	let categories: Category[] = [];
-	let allTags: Tag[] = [];
-	let parentItem: Item | null = null;
+	let categories: Category[] = $state([]);
+	let allTags: Tag[] = $state([]);
+	let parentItem: Item | null = $state(null);
 
 	// Image upload
-	let uploading = false;
-	let uploadError = '';
+	let uploading: boolean = $state(false);
+	let uploadError: string = $state('');
 
-	let loadedItemId = '';
+	let loadedItemId: string = $state('');
 
 	async function loadItem(id: string) {
 		if (id === loadedItemId) return;
@@ -263,7 +263,7 @@
 
 <div class="flex h-full flex-col">
 	<header class="flex items-center gap-2 border-b border-slate-800 px-3 py-2">
-		<button class="btn btn-icon text-slate-400" on:click={() => goto(`/browse/item/${itemId}`)} aria-label="Back">
+		<button class="btn btn-icon text-slate-400" onclick={() => goto(`/browse/item/${itemId}`)} aria-label="Back">
 			<svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
 				<path d="M15 18l-6-6 6-6" />
 			</svg>
@@ -271,7 +271,7 @@
 		<h1 class="flex-1 text-base font-semibold text-slate-100 truncate">
 			Edit {item?.name ?? 'Item'}
 		</h1>
-		<button class="btn btn-primary text-xs" on:click={save} disabled={saving || loading}>
+		<button class="btn btn-primary text-xs" onclick={save} disabled={saving || loading}>
 			{saving ? 'Saving…' : 'Save'}
 		</button>
 	</header>
@@ -333,7 +333,7 @@
 									type="button"
 									class="rounded-full px-3 py-1 text-xs font-medium transition-colors
 										{selectedTagIds.has(tag.id) ? 'bg-indigo-600 text-white' : 'bg-slate-700 text-slate-300 hover:bg-slate-600'}"
-									on:click={() => toggleTag(tag.id)}
+									onclick={() => toggleTag(tag.id)}
 								>
 									{tag.name}
 								</button>
@@ -425,7 +425,7 @@
 									<img src="/files/{img.path}" alt={img.caption ?? 'Image'} class="w-full h-24 rounded-lg object-cover" />
 									<button
 										class="absolute top-1 right-1 flex h-6 w-6 items-center justify-center rounded-full bg-red-600 text-white text-xs shadow"
-										on:click={() => removeImage(idx)}
+										onclick={() => removeImage(idx)}
 									>
 										&times;
 									</button>
@@ -435,7 +435,7 @@
 					{/if}
 					<label class="btn btn-secondary w-full cursor-pointer text-sm">
 						{uploading ? 'Uploading…' : 'Add image'}
-						<input type="file" accept="image/*" class="hidden" on:change={handleImageUpload} disabled={uploading} />
+						<input type="file" accept="image/*" class="hidden" onchange={handleImageUpload} disabled={uploading} />
 					</label>
 					{#if uploadError}
 						<p class="mt-1 text-xs text-red-400">{uploadError}</p>
@@ -466,7 +466,7 @@
 				</div>
 
 				<!-- Save button (bottom) -->
-				<button class="btn btn-primary w-full" on:click={save} disabled={saving}>
+				<button class="btn btn-primary w-full" onclick={save} disabled={saving}>
 					{saving ? 'Saving…' : 'Save changes'}
 				</button>
 			</div>

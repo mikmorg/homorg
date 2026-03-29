@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
-	import { page } from '$app/stores';
+	import { page } from '$app/state';
 	import { api } from '$api/client.js';
 	import type { Item, AncestorEntry, ItemSummary, StoredEvent, ContainerStats } from '$api/types.js';
 	import { CONDITION_LABELS } from '$api/types.js';
@@ -10,56 +10,56 @@
 	import LocationSchemaDisplay from '$lib/components/LocationSchemaDisplay.svelte';
 	import { toast } from '$stores/toast.js';
 
-	$: itemId = $page.params.itemId!;
-	let item: Item | null = null;
-	let parentItem: Item | null = null;
-	let ancestors: AncestorEntry[] = [];
-	let loading = true;
-	let error = '';
+	let itemId = $derived(page.params.itemId!);
+	let item: Item | null = $state(null);
+	let parentItem: Item | null = $state(null);
+	let ancestors: AncestorEntry[] = $state([]);
+	let loading = $state(true);
+	let error = $state('');
 
 	// Delete state
-	let showDeleteConfirm = false;
-	let deleting = false;
-	let actionError = '';
+	let showDeleteConfirm = $state(false);
+	let deleting = $state(false);
+	let actionError = $state('');
 
 	// Convert state
-	let showDownconvertConfirm = false;
-	let converting = false;
+	let showDownconvertConfirm = $state(false);
+	let converting = $state(false);
 
 	// Move state
-	let showMovePicker = false;
-	let moveQuery = '';
-	let moveResults: ItemSummary[] = [];
-	let moveSearching = false;
-	let moving = false;
-	let moveDebounce: ReturnType<typeof setTimeout> | null = null;
-	let moveTargetItem: Item | null = null;
-	let moveCoordinate: unknown | null = null;
+	let showMovePicker = $state(false);
+	let moveQuery = $state('');
+	let moveResults: ItemSummary[] = $state([]);
+	let moveSearching = $state(false);
+	let moving = $state(false);
+	let moveDebounce: ReturnType<typeof setTimeout> | null = $state(null);
+	let moveTargetItem: Item | null = $state(null);
+	let moveCoordinate: unknown | null = $state(null);
 
 	// Container stats
-	let containerStats: ContainerStats | null = null;
+	let containerStats: ContainerStats | null = $state(null);
 
 	// History state
-	let showHistory = false;
-	let historyEvents: StoredEvent[] = [];
-	let historyLoading = false;
+	let showHistory = $state(false);
+	let historyEvents: StoredEvent[] = $state([]);
+	let historyLoading = $state(false);
 
 	// Quantity adjustment state
-	let showQuantityAdjust = false;
-	let newQuantity = 0;
-	let quantityReason = '';
-	let adjustingQuantity = false;
+	let showQuantityAdjust = $state(false);
+	let newQuantity = $state(0);
+	let quantityReason = $state('');
+	let adjustingQuantity = $state(false);
 
 	// Barcode assignment state
-	let showBarcodeAssign = false;
-	let barcodeValue = '';
-	let assigningBarcode = false;
+	let showBarcodeAssign = $state(false);
+	let barcodeValue = $state('');
+	let assigningBarcode = $state(false);
 
 	// External code state
-	let showAddCode = false;
-	let newCodeType = '';
-	let newCodeValue = '';
-	let addingCode = false;
+	let showAddCode = $state(false);
+	let newCodeType = $state('');
+	let newCodeValue = $state('');
+	let addingCode = $state(false);
 
 	async function loadItem(id: string) {
 		loading = true;
@@ -112,7 +112,7 @@
 	}
 
 	// Reactive: re-load when itemId changes (handles same-layout navigation).
-	$: loadItem(itemId);
+	$effect(() => { loadItem(itemId); });
 
 	async function deleteItem() {
 		deleting = true;
@@ -313,7 +313,7 @@
 	}
 </script>
 
-<svelte:window on:keydown={(e) => { if (e.key === "Escape") { if (showMovePicker) showMovePicker = false; } }} />
+<svelte:window onkeydown={(e) => { if (e.key === "Escape") { if (showMovePicker) showMovePicker = false; } }} />
 
 <svelte:head>
 	<title>{item?.name ?? 'Item'} — Homorg</title>
@@ -321,7 +321,7 @@
 
 <div class="flex h-full flex-col">
 	<header class="flex items-center gap-2 border-b border-slate-800 px-3 py-2">
-		<button class="btn btn-icon text-slate-400" on:click={() => goto(item?.parent_id ? `/browse?id=${item.parent_id}` : "/browse")} aria-label="Back">
+		<button class="btn btn-icon text-slate-400" onclick={() => goto(item?.parent_id ? `/browse?id=${item.parent_id}` : "/browse")} aria-label="Back">
 			<svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
 				<path d="M15 18l-6-6 6-6" />
 			</svg>
@@ -430,7 +430,7 @@
 								<span class="text-sm text-slate-400">Quantity</span>
 								<div class="flex items-center gap-2">
 									<span class="text-sm font-medium text-slate-100">{item.fungible_quantity ?? 0}{#if item.fungible_unit} {item.fungible_unit}{/if}</span>
-									<button class="text-xs text-indigo-400 hover:text-indigo-300" on:click={() => { showQuantityAdjust = !showQuantityAdjust; if (showQuantityAdjust) newQuantity = item?.fungible_quantity ?? 0; }}>
+									<button class="text-xs text-indigo-400 hover:text-indigo-300" onclick={() => { showQuantityAdjust = !showQuantityAdjust; if (showQuantityAdjust) newQuantity = item?.fungible_quantity ?? 0; }}>
 										{showQuantityAdjust ? 'Cancel' : 'Adjust'}
 									</button>
 								</div>
@@ -439,7 +439,7 @@
 								<div class="mt-2 flex gap-2">
 									<input type="number" class="input text-sm w-24" bind:value={newQuantity} min="0" step="1" aria-label="New quantity" />
 									<input type="text" class="input text-sm flex-1" bind:value={quantityReason} placeholder="Reason (optional)" aria-label="Reason for adjustment" />
-									<button class="btn btn-primary text-xs px-3" on:click={adjustQuantity} disabled={adjustingQuantity}>Save</button>
+									<button class="btn btn-primary text-xs px-3" onclick={adjustQuantity} disabled={adjustingQuantity}>Save</button>
 								</div>
 							{/if}
 						</div>
@@ -451,7 +451,7 @@
 								{#if item.system_barcode}
 									<span class="text-xs font-mono text-slate-300">{item.system_barcode}</span>
 								{/if}
-								<button class="text-xs text-indigo-400 hover:text-indigo-300" on:click={() => { showBarcodeAssign = !showBarcodeAssign; if (showBarcodeAssign) barcodeValue = item?.system_barcode ?? ''; }}>
+								<button class="text-xs text-indigo-400 hover:text-indigo-300" onclick={() => { showBarcodeAssign = !showBarcodeAssign; if (showBarcodeAssign) barcodeValue = item?.system_barcode ?? ''; }}>
 									{showBarcodeAssign ? 'Cancel' : item.system_barcode ? 'Change' : 'Assign'}
 								</button>
 							</div>
@@ -459,7 +459,7 @@
 						{#if showBarcodeAssign}
 							<div class="mt-2 flex gap-2">
 								<input type="text" class="input text-sm flex-1 font-mono" bind:value={barcodeValue} placeholder="Barcode value" aria-label="Barcode value" />
-								<button class="btn btn-primary text-xs px-3" on:click={assignBarcode} disabled={assigningBarcode || !barcodeValue.trim()}>Save</button>
+								<button class="btn btn-primary text-xs px-3" onclick={assignBarcode} disabled={assigningBarcode || !barcodeValue.trim()}>Save</button>
 							</div>
 						{/if}
 					</div>
@@ -532,7 +532,7 @@
 				<div>
 					<div class="flex items-center justify-between mb-2">
 						<p class="text-xs text-slate-400 uppercase tracking-wide">External codes</p>
-						<button class="text-xs text-indigo-400 hover:text-indigo-300" on:click={() => { showAddCode = !showAddCode; }}>
+						<button class="text-xs text-indigo-400 hover:text-indigo-300" onclick={() => { showAddCode = !showAddCode; }}>
 							{showAddCode ? 'Cancel' : 'Add'}
 						</button>
 					</div>
@@ -540,7 +540,7 @@
 						<div class="mb-2 flex gap-2">
 							<input type="text" class="input text-sm flex-1" bind:value={newCodeType} placeholder="Type (e.g. UPC)" aria-label="Code type" />
 							<input type="text" class="input text-sm flex-1 font-mono" bind:value={newCodeValue} placeholder="Value" aria-label="Code value" />
-							<button class="btn btn-primary text-xs px-3" on:click={addExternalCode} disabled={addingCode || !newCodeValue.trim()}>Add</button>
+							<button class="btn btn-primary text-xs px-3" onclick={addExternalCode} disabled={addingCode || !newCodeValue.trim()}>Add</button>
 						</div>
 					{/if}
 					{#if item.external_codes && item.external_codes.length > 0}
@@ -548,7 +548,7 @@
 							{#each item.external_codes as code}
 								<div class="flex items-center justify-between">
 									<span class="text-xs font-mono text-slate-300">{#if code.type}{code.type}: {/if}{code.value}</span>
-									<button class="text-xs text-red-400 hover:text-red-300" on:click={() => removeExternalCode(code.type, code.value)}>&times;</button>
+									<button class="text-xs text-red-400 hover:text-red-300" onclick={() => removeExternalCode(code.type, code.value)}>&times;</button>
 								</div>
 							{/each}
 						</div>
@@ -561,7 +561,7 @@
 				<div>
 					<button
 						class="flex w-full items-center justify-between py-2 text-xs text-slate-400 uppercase tracking-wide"
-						on:click={loadHistory}
+						onclick={loadHistory}
 					>
 						<span>History</span>
 						<svg class="h-4 w-4 transition-transform" class:rotate-180={showHistory} viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -591,7 +591,7 @@
 				<!-- Actions -->
 				<div class="space-y-2 pt-2">
 					{#if !item.is_fungible}
-						<button class="btn btn-secondary w-full" on:click={onConvertClick} disabled={converting}>
+						<button class="btn btn-secondary w-full" onclick={onConvertClick} disabled={converting}>
 							{#if converting}
 								Converting…
 							{:else if item.is_container}
@@ -601,10 +601,10 @@
 							{/if}
 						</button>
 					{/if}
-					<button class="btn btn-secondary w-full" on:click={() => { showMovePicker = true; moveQuery = ''; moveResults = []; moveTargetItem = null; moveCoordinate = null; }}>
+					<button class="btn btn-secondary w-full" onclick={() => { showMovePicker = true; moveQuery = ''; moveResults = []; moveTargetItem = null; moveCoordinate = null; }}>
 						Move to another container
 					</button>
-					<button class="btn btn-danger w-full" on:click={() => (showDeleteConfirm = true)} disabled={deleting}>
+					<button class="btn btn-danger w-full" onclick={() => (showDeleteConfirm = true)} disabled={deleting}>
 						Delete item
 					</button>
 				</div>
@@ -643,7 +643,7 @@
 {#if showMovePicker}
 <div class="fixed inset-0 z-50 flex flex-col bg-slate-950">
 	<div class="flex items-center gap-2 border-b border-slate-800 px-3 py-2">
-		<button class="btn btn-icon text-slate-400" on:click={() => { showMovePicker = false; moveTargetItem = null; }} aria-label="Close">
+		<button class="btn btn-icon text-slate-400" onclick={() => { showMovePicker = false; moveTargetItem = null; }} aria-label="Close">
 			<svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
 				<path d="M18 6L6 18M6 6l12 12" />
 			</svg>
@@ -652,7 +652,7 @@
 			class="input flex-1"
 			placeholder="Search containers…"
 			bind:value={moveQuery}
-			on:input={onMoveSearch}
+			oninput={onMoveSearch}
 		/>
 	</div>
 
@@ -666,8 +666,8 @@
 				</div>
 				<CoordinateInput schema={moveTargetItem.location_schema} bind:value={moveCoordinate} />
 				<div class="flex gap-2">
-					<button class="btn btn-secondary flex-1" on:click={() => (moveTargetItem = null)}>Back</button>
-					<button class="btn btn-primary flex-1" on:click={() => moveToContainer(moveTargetItem?.id ?? '')} disabled={moving}>
+					<button class="btn btn-secondary flex-1" onclick={() => (moveTargetItem = null)}>Back</button>
+					<button class="btn btn-primary flex-1" onclick={() => moveToContainer(moveTargetItem?.id ?? '')} disabled={moving}>
 						{moving ? 'Moving…' : 'Move here'}
 					</button>
 				</div>
@@ -689,7 +689,7 @@
 				{#each moveResults as container (container.id)}
 					<button
 						class="flex w-full items-center gap-3 px-4 py-3 text-left hover:bg-slate-800/50"
-						on:click={() => selectMoveTarget(container.id)}
+						onclick={() => selectMoveTarget(container.id)}
 						disabled={moving}
 					>
 						<div class="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg bg-indigo-500/20 text-indigo-400">

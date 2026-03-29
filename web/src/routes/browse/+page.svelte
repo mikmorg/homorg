@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { page } from '$app/stores';
+	import { page } from '$app/state';
 	import { goto } from '$app/navigation';
 	import { api } from '$api/client.js';
 	import type { Item, ItemSummary, CreateItemRequest, Condition, Category, Tag, ContainerType } from '$api/types.js';
@@ -11,56 +11,56 @@
 	const ROOT_ID = '00000000-0000-0000-0000-000000000001';
 
 	// Navigation state — current container id (null = root)
-	let containerId: string = ROOT_ID;
-	let breadcrumb: { id: string; name: string }[] = [];
-	let children: ItemSummary[] = [];
-	let containerItem: Item | null = null;
-	let loading = true;
-	let error = '';
+	let containerId: string = $derived(page.url.searchParams.get('id') ?? ROOT_ID);
+	let breadcrumb: { id: string; name: string }[] = $state([]);
+	let children: ItemSummary[] = $state([]);
+	let containerItem: Item | null = $state(null);
+	let loading = $state(true);
+	let error = $state('');
 
 	// Create form state
-	let showCreate = false;
-	let createType: 'item' | 'container' = 'item';
-	let createName = '';
-	let createDescription = '';
-	let createCondition: Condition | '' = '';
-	let createCoordinate: unknown | null = null;
-	let createCategoryId: string | null = null;
-	let createSelectedTagIds: Set<string> = new Set();
-	let createContainerTypeId: string | null = null;
-	let createLocationSchema: unknown | null = null;
-	let createImages: File[] = [];
-	let createImagePreviews: string[] = [];
-	let createIsFungible = false;
-	let createFungibleUnit = '';
-	let createFungibleQty = '';
-	let createAcqCost = '';
-	let createCurrency = '';
-	let showCreateAdvanced = false;
-	let creating = false;
-	let createError = '';
+	let showCreate = $state(false);
+	let createType: 'item' | 'container' = $state('item');
+	let createName = $state('');
+	let createDescription = $state('');
+	let createCondition: Condition | '' = $state('');
+	let createCoordinate: unknown | null = $state(null);
+	let createCategoryId: string | null = $state(null);
+	let createSelectedTagIds: Set<string> = $state(new Set());
+	let createContainerTypeId: string | null = $state(null);
+	let createLocationSchema: unknown | null = $state(null);
+	let createImages: File[] = $state([]);
+	let createImagePreviews: string[] = $state([]);
+	let createIsFungible = $state(false);
+	let createFungibleUnit = $state('');
+	let createFungibleQty = $state('');
+	let createAcqCost = $state('');
+	let createCurrency = $state('');
+	let showCreateAdvanced = $state(false);
+	let creating = $state(false);
+	let createError = $state('');
 
 	// Taxonomy data (loaded once for the create form)
-	let categories: Category[] = [];
-	let allTags: Tag[] = [];
-	let containerTypes: ContainerType[] = [];
-	let taxonomyLoaded = false;
+	let categories: Category[] = $state([]);
+	let allTags: Tag[] = $state([]);
+	let containerTypes: ContainerType[] = $state([]);
+	let taxonomyLoaded = $state(false);
 
 	// Sort state
-	let sortBy: 'name' | 'created_at' | 'category' = 'name';
-	let sortDir: 'asc' | 'desc' = 'asc';
+	let sortBy: 'name' | 'created_at' | 'category' = $state('name');
+	let sortDir: 'asc' | 'desc' = $state('asc');
 
 	// Pagination
 	const PAGE_SIZE = 50;
-	let cursor: string | undefined = undefined;
-	let hasMore = false;
-	let loadingMore = false;
+	let cursor: string | undefined = $state(undefined);
+	let hasMore = $state(false);
+	let loadingMore = $state(false);
 
-	$: containerId = $page.url.searchParams.get('id') ?? ROOT_ID;
-
-	$: if (containerId) {
-		load(containerId);
-	}
+	$effect(() => {
+		if (containerId) {
+			load(containerId);
+		}
+	});
 
 	async function load(targetId?: string) {
 		const id = targetId ?? containerId;
@@ -107,8 +107,8 @@
 				sort_dir: sortDir
 			});
 			hasMore = res.length > PAGE_SIZE;
-			const page = hasMore ? res.slice(0, PAGE_SIZE) : res;
-			children = [...children, ...page];
+			const pageSlice = hasMore ? res.slice(0, PAGE_SIZE) : res;
+			children = [...children, ...pageSlice];
 			cursor = children.length > 0 ? children[children.length - 1].id : undefined;
 		} catch (err) {
 			toast(err instanceof Error ? err.message : 'Failed to load more', 'error');
@@ -281,7 +281,7 @@
 	}
 </script>
 
-<svelte:window on:keydown={(e) => { if (e.key === "Escape") { if (showCreate) { showCreate = false; createImagePreviews.forEach((u) => URL.revokeObjectURL(u)); createImagePreviews = []; } } }} />
+<svelte:window onkeydown={(e) => { if (e.key === "Escape") { if (showCreate) { showCreate = false; createImagePreviews.forEach((u) => URL.revokeObjectURL(u)); createImagePreviews = []; } } }} />
 
 <svelte:head>
 	<title>Browse — Homorg</title>
@@ -291,7 +291,7 @@
 	<!-- Header -->
 	<header class="flex items-center gap-2 border-b border-slate-800 px-3 py-2">
 		{#if containerId !== ROOT_ID}
-			<button class="btn btn-icon text-slate-400" on:click={() => { const parent = breadcrumb.length > 1 ? breadcrumb[breadcrumb.length - 2].id : ROOT_ID; goto(`/browse?id=${parent}`); }} aria-label="Back">
+			<button class="btn btn-icon text-slate-400" onclick={() => { const parent = breadcrumb.length > 1 ? breadcrumb[breadcrumb.length - 2].id : ROOT_ID; goto(`/browse?id=${parent}`); }} aria-label="Back">
 				<svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
 					<path d="M15 18l-6-6 6-6" />
 				</svg>
@@ -312,13 +312,13 @@
 				</svg>
 			</a>
 		{/if}
-		<button class="btn btn-icon text-indigo-400" on:click={() => openCreate('container')} aria-label="New container">
+		<button class="btn btn-icon text-indigo-400" onclick={() => openCreate('container')} aria-label="New container">
 			<svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
 				<rect x="2" y="7" width="20" height="14" rx="2" />
 				<path d="M12 11v6M9 14h6" />
 			</svg>
 		</button>
-		<button class="btn btn-icon text-indigo-400" on:click={() => openCreate('item')} aria-label="New item">
+		<button class="btn btn-icon text-indigo-400" onclick={() => openCreate('item')} aria-label="New item">
 			<svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
 				<line x1="12" y1="5" x2="12" y2="19" />
 				<line x1="5" y1="12" x2="19" y2="12" />
@@ -347,12 +347,12 @@
 	{#if children.length > 1}
 		<div class="flex items-center gap-2 border-b border-slate-800 px-3 py-1.5">
 			<span class="text-xs text-slate-500">Sort:</span>
-			<select class="bg-transparent text-xs text-slate-300 border-0 py-0 pr-6 pl-0 focus:ring-0" bind:value={sortBy} on:change={() => load()}>
+			<select class="bg-transparent text-xs text-slate-300 border-0 py-0 pr-6 pl-0 focus:ring-0" bind:value={sortBy} onchange={() => load()}>
 				<option value="name">Name</option>
 				<option value="created_at">Created</option>
 				<option value="category">Category</option>
 			</select>
-			<button class="text-xs text-slate-400 hover:text-slate-200" on:click={() => { sortDir = sortDir === 'asc' ? 'desc' : 'asc'; load(); }}>
+			<button class="text-xs text-slate-400 hover:text-slate-200" onclick={() => { sortDir = sortDir === 'asc' ? 'desc' : 'asc'; load(); }}>
 				{sortDir === 'asc' ? '↑' : '↓'}
 			</button>
 		</div>
@@ -376,8 +376,8 @@
 				</svg>
 				<p class="text-sm">This container is empty</p>
 				<div class="flex gap-2">
-					<button class="btn btn-secondary text-xs" on:click={() => openCreate('container')}>Add container</button>
-					<button class="btn btn-primary text-xs" on:click={() => openCreate('item')}>Add item</button>
+					<button class="btn btn-secondary text-xs" onclick={() => openCreate('container')}>Add container</button>
+					<button class="btn btn-primary text-xs" onclick={() => openCreate('item')}>Add item</button>
 				</div>
 			</div>
 		{:else}
@@ -385,7 +385,7 @@
 				{#each children as item (item.id)}
 					<button
 						class="flex w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-slate-800/50"
-						on:click={() => {
+						onclick={() => {
 							if (item.is_container) {
 								navigate(item.id);
 							} else {
@@ -424,7 +424,7 @@
 			</div>
 			{#if hasMore}
 				<div class="px-4 py-3">
-					<button class="btn btn-secondary w-full text-sm" on:click={loadMore} disabled={loadingMore}>
+					<button class="btn btn-secondary w-full text-sm" onclick={loadMore} disabled={loadingMore}>
 						{#if loadingMore}
 							<span class="h-4 w-4 animate-spin rounded-full border-2 border-slate-600 border-t-indigo-500 inline-block"></span>
 						{:else}
@@ -442,7 +442,7 @@
 {#if showCreate}
 <div class="fixed inset-0 z-50 flex flex-col bg-slate-950">
 	<header class="flex items-center gap-2 border-b border-slate-800 px-3 py-2">
-		<button class="btn btn-icon text-slate-400" on:click={() => { showCreate = false; createImagePreviews.forEach((u) => URL.revokeObjectURL(u)); }} aria-label="Cancel">
+		<button class="btn btn-icon text-slate-400" onclick={() => { showCreate = false; createImagePreviews.forEach((u) => URL.revokeObjectURL(u)); }} aria-label="Cancel">
 			<svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
 				<path d="M18 6L6 18M6 6l12 12" />
 			</svg>
@@ -450,7 +450,7 @@
 		<h2 class="flex-1 text-base font-semibold text-slate-100">
 			New {createType === 'container' ? 'container' : 'item'}
 		</h2>
-		<button class="btn btn-primary text-xs" on:click={submitCreate} disabled={creating}>
+		<button class="btn btn-primary text-xs" onclick={submitCreate} disabled={creating}>
 			{creating ? 'Creating…' : 'Create'}
 		</button>
 	</header>
@@ -471,7 +471,7 @@
 								<img src={preview} alt="Preview {idx + 1}" class="h-20 w-20 rounded-lg object-cover" />
 								<button
 									class="absolute -top-1.5 -right-1.5 flex h-5 w-5 items-center justify-center rounded-full bg-red-600 text-white text-xs"
-									on:click={() => removeCreateImage(idx)}
+									onclick={() => removeCreateImage(idx)}
 								>
 									&times;
 								</button>
@@ -485,7 +485,7 @@
 						<circle cx="12" cy="13" r="4" />
 					</svg>
 					Add photos
-					<input type="file" accept="image/*" multiple class="hidden" on:change={handleImageAdd} />
+					<input type="file" accept="image/*" multiple class="hidden" onchange={handleImageAdd} />
 				</label>
 			</div>
 
@@ -532,7 +532,7 @@
 				</div>
 			{/if}
 
-			
+
 					<!-- Fungible (items only) -->
 					{#if createType === 'item'}
 						<label class="flex items-center justify-between card p-3 cursor-pointer">
@@ -557,7 +557,7 @@
 					{/if}
 
 					<!-- Valuation -->
-					<button type="button" class="text-xs text-slate-500 hover:text-slate-300" on:click={() => { showCreateAdvanced = !showCreateAdvanced; }}>
+					<button type="button" class="text-xs text-slate-500 hover:text-slate-300" onclick={() => { showCreateAdvanced = !showCreateAdvanced; }}>
 						{showCreateAdvanced ? 'Hide' : 'Show'} valuation fields
 					</button>
 					{#if showCreateAdvanced}
@@ -583,7 +583,7 @@
 								type="button"
 								class="rounded-full px-3 py-1 text-xs font-medium transition-colors
 									{createSelectedTagIds.has(tag.id) ? 'bg-indigo-600 text-white' : 'bg-slate-700 text-slate-300 hover:bg-slate-600'}"
-								on:click={() => toggleCreateTag(tag.id)}
+								onclick={() => toggleCreateTag(tag.id)}
 							>
 								{tag.name}
 							</button>
@@ -596,7 +596,7 @@
 			{#if createType === 'container' && containerTypes.length > 0}
 				<div>
 					<label class="mb-1 block text-sm font-medium text-slate-300" for="create-ctype">Container type</label>
-					<select id="create-ctype" class="input" bind:value={createContainerTypeId} on:change={applyContainerType}>
+					<select id="create-ctype" class="input" bind:value={createContainerTypeId} onchange={applyContainerType}>
 						<option value={null}>None</option>
 						{#each containerTypes as ct (ct.id)}
 							<option value={ct.id}>{ct.icon ?? ''} {ct.name}</option>
@@ -616,7 +616,7 @@
 			{/if}
 
 			<!-- Create button (bottom) -->
-			<button class="btn btn-primary w-full" on:click={submitCreate} disabled={creating}>
+			<button class="btn btn-primary w-full" onclick={submitCreate} disabled={creating}>
 				{creating ? 'Creating…' : `Create ${createType}`}
 			</button>
 		</div>
