@@ -9,10 +9,12 @@ import {
 	setError,
 	setPendingCount,
 	markSynced,
+	setActiveItemId,
 	hasActiveSession,
 	activeSession,
 	activeContext,
-	recentItems
+	recentItems,
+	activeItemId
 } from './stocker';
 import type { ScanSession, Item } from '$api/types';
 
@@ -29,6 +31,7 @@ function makeSession(overrides: Partial<ScanSession> = {}): ScanSession {
 		items_errored: 0,
 		device_id: null,
 		notes: null,
+		active_item_id: null,
 		...overrides
 	};
 }
@@ -143,5 +146,29 @@ describe('stockerStore', () => {
 		expect(get(stockerStore).error).toBe('Something went wrong');
 		setError(null);
 		expect(get(stockerStore).error).toBeNull();
+	});
+
+	it('setSession sets activeItemId from session', () => {
+		const session = makeSession({ active_item_id: 'item-42' });
+		setSession(session);
+		expect(get(activeItemId)).toBe('item-42');
+	});
+
+	it('setActiveItemId updates active item', () => {
+		setActiveItemId('item-99');
+		expect(get(activeItemId)).toBe('item-99');
+		setActiveItemId(null);
+		expect(get(activeItemId)).toBeNull();
+	});
+
+	it('addRecentItem also updates activeItemId', () => {
+		addRecentItem(makeItem({ id: 'item-7', name: 'Camera Target' }));
+		expect(get(activeItemId)).toBe('item-7');
+	});
+
+	it('clearSession resets activeItemId', () => {
+		setActiveItemId('item-5');
+		clearSession();
+		expect(get(activeItemId)).toBeNull();
 	});
 });

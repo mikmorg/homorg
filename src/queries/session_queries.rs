@@ -2,6 +2,7 @@ use sqlx::PgPool;
 use uuid::Uuid;
 
 use crate::errors::{AppError, AppResult};
+use crate::models::camera::CameraToken;
 use crate::models::session::ScanSession;
 
 /// Repository for scan-session CRUD operations.
@@ -89,11 +90,12 @@ impl SessionRepository {
         .ok_or_else(|| AppError::NotFound("Active session not found".into()))
     }
 
-    /// Update session stats and active container (non-transactional).
+    /// Update session stats, active container, and active item (non-transactional).
     pub async fn update_stats(
         &self,
         session_id: Uuid,
         active_container_id: Option<Uuid>,
+        active_item_id: Option<Uuid>,
         items_scanned: i32,
         items_created: i32,
         items_moved: i32,
@@ -103,14 +105,16 @@ impl SessionRepository {
             r#"
             UPDATE scan_sessions
             SET active_container_id = $1,
-                items_scanned = items_scanned + $2,
-                items_created = items_created + $3,
-                items_moved = items_moved + $4,
-                items_errored = items_errored + $5
-            WHERE id = $6
+                active_item_id = $2,
+                items_scanned = items_scanned + $3,
+                items_created = items_created + $4,
+                items_moved = items_moved + $5,
+                items_errored = items_errored + $6
+            WHERE id = $7
             "#,
         )
         .bind(active_container_id)
+        .bind(active_item_id)
         .bind(items_scanned)
         .bind(items_created)
         .bind(items_moved)
@@ -127,6 +131,7 @@ impl SessionRepository {
         tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
         session_id: Uuid,
         active_container_id: Option<Uuid>,
+        active_item_id: Option<Uuid>,
         items_scanned: i32,
         items_created: i32,
         items_moved: i32,
@@ -136,14 +141,16 @@ impl SessionRepository {
             r#"
             UPDATE scan_sessions
             SET active_container_id = $1,
-                items_scanned = items_scanned + $2,
-                items_created = items_created + $3,
-                items_moved = items_moved + $4,
-                items_errored = items_errored + $5
-            WHERE id = $6
+                active_item_id = $2,
+                items_scanned = items_scanned + $3,
+                items_created = items_created + $4,
+                items_moved = items_moved + $5,
+                items_errored = items_errored + $6
+            WHERE id = $7
             "#,
         )
         .bind(active_container_id)
+        .bind(active_item_id)
         .bind(items_scanned)
         .bind(items_created)
         .bind(items_moved)
@@ -209,5 +216,122 @@ impl SessionRepository {
         .execute(&mut **tx)
         .await?;
         Ok(())
+    }
+
+    // ── Camera token operations ─────────────────────────────────────────
+
+    /// Create a camera token for a session.
+    pub async fn create_camera_token(
+        &self,
+        session_id: Uuid,
+        user_id: Uuid,
+        token: &str,
+        device_name: Option<&str>,
+        expires_at: chrono::DateTime<chrono::Utc>,
+    ) -> AppResult<CameraToken> {
+        let ct = sqlx::query_as::<_, CameraToken>(
+            r#"
+            INSERT INTO camera_tokens (session_id, user_id, token, device_name, expires_at)
+            VALUES ($1, $2, $3, $4, $5)
+            RETURNING *
+            "#,
+        )
+        .bind(session_id)
+        .bind(user_id)
+        .bind(token)
+        .bind(device_name)
+        .bind(expires_at)
+        .fetch_one(&self.pool)
+        .await?;
+        Ok(ct)
+    }
+
+    /// Look up a valid (non-expired, non-revoked) camera token.
+    pub async fn get_camera_token(&self, token: &str) -> AppResult<CameraToken> {
+        sqlx::query_as::<_, CameraToken>(
+            r#"
+            SELECT * FROM camera_tokens
+            WHERE token = $1
+              AND revoked_at IS NULL
+              AND expires_at > NOW()
+            "#,
+        )
+        .bind(token)
+        .fetch_optional(&self.pool)
+        .await?
+        .ok_or_else(|| AppError::Unauthorized)
+    }
+
+    /// List active camera tokens for a session.
+    pub async fn list_camera_tokens(&self, session_id: Uuid) -> AppResult<Vec<CameraToken>> {
+        let tokens = sqlx::query_as::<_, CameraToken>(
+            r#"
+            SELECT * FROM camera_tokens
+            WHERE session_id = $1
+              AND revoked_at IS NULL
+              AND expires_at > NOW()
+            ORDER BY created_at DESC
+            "#,
+        )
+        .bind(session_id)
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(tokens)
+    }
+
+    /// Revoke a camera token.
+    pub async fn revoke_camera_token(
+        &self,
+        token_id: Uuid,
+        user_id: Uuid,
+    ) -> AppResult<()> {
+        let rows = sqlx::query(
+            r#"
+            UPDATE camera_tokens
+            SET revoked_at = NOW()
+            WHERE id = $1 AND user_id = $2 AND revoked_at IS NULL
+            "#,
+        )
+        .bind(token_id)
+        .bind(user_id)
+        .execute(&self.pool)
+        .await?
+        .rows_affected();
+        if rows == 0 {
+            return Err(AppError::NotFound("Camera token not found".into()));
+        }
+        Ok(())
+    }
+
+    /// Revoke all camera tokens for a session.
+    pub async fn revoke_all_camera_tokens(
+        &self,
+        session_id: Uuid,
+        user_id: Uuid,
+    ) -> AppResult<u64> {
+        let rows = sqlx::query(
+            r#"
+            UPDATE camera_tokens
+            SET revoked_at = NOW()
+            WHERE session_id = $1 AND user_id = $2 AND revoked_at IS NULL
+            "#,
+        )
+        .bind(session_id)
+        .bind(user_id)
+        .execute(&self.pool)
+        .await?
+        .rows_affected();
+        Ok(rows)
+    }
+
+    /// Get an active session by ID (for camera token validation — no user check).
+    pub async fn get_session_by_id(&self, session_id: Uuid) -> AppResult<ScanSession> {
+        sqlx::query_as::<_, ScanSession>(
+            "SELECT * FROM scan_sessions WHERE id = $1",
+        )
+        .bind(session_id)
+        .fetch_optional(&self.pool)
+        .await?
+        .ok_or_else(|| AppError::NotFound(format!("Session {session_id} not found")))
     }
 }

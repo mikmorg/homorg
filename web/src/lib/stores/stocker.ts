@@ -19,6 +19,8 @@ export interface StockerState {
 	pendingCount: number;
 	lastSyncAt: number | null;
 	error: string | null;
+	/** ID of the most recently created/scanned item (camera target). */
+	activeItemId: string | null;
 }
 
 const initial: StockerState = {
@@ -27,7 +29,8 @@ const initial: StockerState = {
 	recentItems: [],
 	pendingCount: 0,
 	lastSyncAt: null,
-	error: null
+	error: null,
+	activeItemId: null
 };
 
 export const stockerStore = writable<StockerState>(initial);
@@ -36,9 +39,15 @@ export const hasActiveSession = derived(stockerStore, (s) => s.session !== null)
 export const activeSession = derived(stockerStore, (s) => s.session);
 export const activeContext = derived(stockerStore, (s) => s.context);
 export const recentItems = derived(stockerStore, (s) => s.recentItems);
+export const activeItemId = derived(stockerStore, (s) => s.activeItemId);
 
 export function setSession(session: ScanSession) {
-	stockerStore.update((s) => ({ ...s, session, error: null }));
+	stockerStore.update((s) => ({
+		...s,
+		session,
+		error: null,
+		activeItemId: session.active_item_id ?? s.activeItemId
+	}));
 }
 
 export function clearSession() {
@@ -52,8 +61,13 @@ export function setContext(ctx: SessionContext) {
 export function addRecentItem(item: Item) {
 	stockerStore.update((s) => ({
 		...s,
-		recentItems: [item, ...s.recentItems].slice(0, 50)
+		recentItems: [item, ...s.recentItems].slice(0, 50),
+		activeItemId: item.id
 	}));
+}
+
+export function setActiveItemId(itemId: string | null) {
+	stockerStore.update((s) => ({ ...s, activeItemId: itemId }));
 }
 
 export function setError(error: string | null) {

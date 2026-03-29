@@ -16,6 +16,7 @@ pub struct ScanSession {
     pub device_id: Option<String>,
     pub items_errored: i32,
     pub notes: Option<String>,
+    pub active_item_id: Option<Uuid>,
 }
 
 /// Optional body for starting a new scan session.
