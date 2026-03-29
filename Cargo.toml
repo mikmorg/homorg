@@ -48,7 +48,6 @@ tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 
 # Utilities
 thiserror = "2"
-anyhow = "1"
 hex = "0.4"
 async-trait = "0.1"
 rust_decimal = { version = "1", features = ["serde-with-str"] }
@@ -62,6 +61,6 @@ testcontainers-modules = { version = "0.11", features = ["postgres"] }
 tempfile = "3"
 
 [profile.release]
-opt-level = 1 # change to 3 later
-lto = false # change to true later
-strip = false # change to true later
+opt-level = 3
+lto = true
+strip = true
