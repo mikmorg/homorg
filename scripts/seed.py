@@ -124,19 +124,18 @@ class Api:
         return self._retry("GET", f"{self.base}{path}", params=params)
 
     def authenticate(self):
-        """Try setup first, fall back to login."""
+        """Try setup first, fall back to login. Bypasses retry — auth is one-shot."""
         username = getattr(self, "username", ADMIN_USER)
         password = getattr(self, "password", ADMIN_PASS)
         body = {"username": username, "password": password}
-        r = self._post("/auth/setup", json=body)
+        r = self.s.post(f"{self.base}/auth/setup", json=body)
         if r.status_code in (200, 201):
             self.token = r.json()["access_token"]
             print(f"  Created admin user '{username}'")
             return
         if r.status_code == 409:
             print("  Setup already done, logging in...")
-        # Setup already done — try login
-        r = self._post("/auth/login", json=body)
+        r = self.s.post(f"{self.base}/auth/login", json=body)
         if r.status_code == 200:
             self.token = r.json()["access_token"]
             print(f"  Logged in as '{username}'")
