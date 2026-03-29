@@ -437,8 +437,8 @@
 							</div>
 							{#if showQuantityAdjust}
 								<div class="mt-2 flex gap-2">
-									<input type="number" class="input text-sm w-24" bind:value={newQuantity} min="0" step="1" />
-									<input type="text" class="input text-sm flex-1" bind:value={quantityReason} placeholder="Reason (optional)" />
+									<input type="number" class="input text-sm w-24" bind:value={newQuantity} min="0" step="1" aria-label="New quantity" />
+									<input type="text" class="input text-sm flex-1" bind:value={quantityReason} placeholder="Reason (optional)" aria-label="Reason for adjustment" />
 									<button class="btn btn-primary text-xs px-3" on:click={adjustQuantity} disabled={adjustingQuantity}>Save</button>
 								</div>
 							{/if}
@@ -458,7 +458,7 @@
 						</div>
 						{#if showBarcodeAssign}
 							<div class="mt-2 flex gap-2">
-								<input type="text" class="input text-sm flex-1 font-mono" bind:value={barcodeValue} placeholder="Barcode value" />
+								<input type="text" class="input text-sm flex-1 font-mono" bind:value={barcodeValue} placeholder="Barcode value" aria-label="Barcode value" />
 								<button class="btn btn-primary text-xs px-3" on:click={assignBarcode} disabled={assigningBarcode || !barcodeValue.trim()}>Save</button>
 							</div>
 						{/if}
@@ -538,8 +538,8 @@
 					</div>
 					{#if showAddCode}
 						<div class="mb-2 flex gap-2">
-							<input type="text" class="input text-sm flex-1" bind:value={newCodeType} placeholder="Type (e.g. UPC)" />
-							<input type="text" class="input text-sm flex-1 font-mono" bind:value={newCodeValue} placeholder="Value" />
+							<input type="text" class="input text-sm flex-1" bind:value={newCodeType} placeholder="Type (e.g. UPC)" aria-label="Code type" />
+							<input type="text" class="input text-sm flex-1 font-mono" bind:value={newCodeValue} placeholder="Value" aria-label="Code value" />
 							<button class="btn btn-primary text-xs px-3" on:click={addExternalCode} disabled={addingCode || !newCodeValue.trim()}>Add</button>
 						</div>
 					{/if}

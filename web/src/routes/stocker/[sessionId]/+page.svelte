@@ -491,9 +491,9 @@
 {#if showQuickCreate}
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div class="fixed inset-0 z-50 flex flex-col justify-end bg-black/60" on:click|self={() => (showQuickCreate = false)} on:keydown={(e) => e.key === 'Escape' && (showQuickCreate = false)}>
-	<div class="rounded-t-2xl bg-slate-900 p-4 pb-8">
+	<div class="rounded-t-2xl bg-slate-900 p-4 pb-8" role="dialog" aria-modal="true" aria-labelledby="quick-create-title">
 		<div class="mb-4 flex items-center justify-between">
-			<h2 class="text-base font-semibold text-slate-100">Quick create item</h2>
+			<h2 id="quick-create-title" class="text-base font-semibold text-slate-100">Quick create item</h2>
 			<button class="btn btn-icon text-slate-400" on:click={() => (showQuickCreate = false)} aria-label="Close">
 				<svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
 					<path d="M18 6L6 18M6 6l12 12" />
@@ -598,8 +598,8 @@
 {#if showScannerSettings}
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div class="fixed inset-0 z-50 flex flex-col justify-end bg-black/60" on:click|self={() => (showScannerSettings = false)} on:keydown={(e) => e.key === 'Escape' && (showScannerSettings = false)}>
-	<div class="rounded-t-2xl bg-slate-900 p-4 pb-8">
-		<h2 class="mb-4 text-base font-semibold text-slate-100">Scanner source</h2>
+	<div class="rounded-t-2xl bg-slate-900 p-4 pb-8" role="dialog" aria-modal="true" aria-labelledby="scanner-settings-title">
+		<h2 id="scanner-settings-title" class="mb-4 text-base font-semibold text-slate-100">Scanner source</h2>
 		<div class="space-y-2">
 			<button
 				class="btn w-full justify-start gap-3"

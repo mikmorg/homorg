@@ -22,8 +22,8 @@
 {#if open}
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div class="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4" on:click|self={handleCancel} on:keydown={(e) => e.key === 'Escape' && handleCancel()}>
-	<div class="w-full max-w-sm rounded-2xl bg-slate-900 border border-slate-800 p-5">
-		<h3 class="text-base font-semibold text-slate-100">{title}</h3>
+	<div class="w-full max-w-sm rounded-2xl bg-slate-900 border border-slate-800 p-5" role="dialog" aria-modal="true" aria-labelledby="confirm-dialog-title">
+		<h3 id="confirm-dialog-title" class="text-base font-semibold text-slate-100">{title}</h3>
 		{#if message}
 			<p class="mt-2 text-sm text-slate-400">{message}</p>
 		{/if}
