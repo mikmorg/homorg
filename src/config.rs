@@ -21,7 +21,8 @@ pub struct AppConfig {
     // Upload limits
     pub max_upload_bytes: usize,
     pub allowed_image_mimes: Vec<String>,
-    // Rate limiting (requests per second per IP)
+    // Rate limiting (requests per second per IP); disabled unless RATE_LIMIT_RPS is set
+    pub rate_limit_enabled: bool,
     pub rate_limit_rps: u64,
     pub rate_limit_burst: u32,
     // Logging
@@ -98,7 +99,8 @@ impl AppConfig {
                 .map(|s| s.trim().to_string())
                 .filter(|s| !s.is_empty())
                 .collect(),
-            // Rate limiting
+            // Rate limiting — disabled by default; only active when RATE_LIMIT_RPS is set.
+            rate_limit_enabled: env::var("RATE_LIMIT_RPS").is_ok(),
             rate_limit_rps: parse_env("RATE_LIMIT_RPS", 50u64),
             rate_limit_burst: parse_env("RATE_LIMIT_BURST", 200u32),
             // Logging
@@ -154,6 +156,7 @@ mod tests {
         assert_eq!(config.db_min_connections, 2);
         assert_eq!(config.max_upload_bytes, 10_485_760);
         assert_eq!(config.rate_limit_rps, 50);
+        assert!(!config.rate_limit_enabled);
         assert_eq!(config.log_format, "text");
     }
 

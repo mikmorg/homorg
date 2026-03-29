@@ -19,6 +19,7 @@ use axum::{
 };
 use std::{net::IpAddr, sync::Arc};
 use tower::ServiceBuilder;
+use tower::util::option_layer;
 use tower_governor::{
     governor::GovernorConfigBuilder, key_extractor::KeyExtractor, GovernorError, GovernorLayer,
 };
@@ -121,48 +122,51 @@ async fn require_file_auth(
 
 /// Build the complete API router with all v1 routes.
 pub fn build_router(state: Arc<AppState>, config: &AppConfig) -> Router {
-    // Rate limiter for auth endpoints (brute-force protection)
-    // SEC-6: Use ClientIpKeyExtractor so traffic behind a reverse proxy is rate-limited
-    // per originating IP rather than per proxy IP.
-    let auth_governor_conf = Arc::new(
-        GovernorConfigBuilder::default()
-            .per_second(state.config.rate_limit_rps)
-            .burst_size(state.config.rate_limit_burst)
-            .key_extractor(ClientIpKeyExtractor)
-            .finish()
-            .expect("Failed to build rate limiter config"),
-    );
-
-    // General API rate limiter (higher limits)
-    let api_governor_conf = Arc::new(
-        GovernorConfigBuilder::default()
-            .per_second(state.config.rate_limit_rps * 10)
-            .burst_size(state.config.rate_limit_burst * 5)
-            .key_extractor(ClientIpKeyExtractor)
-            .finish()
-            .expect("Failed to build API rate limiter config"),
-    );
-
-    // M-8: Rate limiter for /files static serving (bandwidth exhaustion guard)
-    let files_governor_conf = Arc::new(
-        GovernorConfigBuilder::default()
-            .per_second(state.config.rate_limit_rps * 5)
-            .burst_size(state.config.rate_limit_burst * 10)
-            .key_extractor(ClientIpKeyExtractor)
-            .finish()
-            .expect("Failed to build files rate limiter config"),
-    );
+    // Rate limiting is opt-in: disabled unless RATE_LIMIT_RPS is explicitly set.
+    let (auth_layer, api_layer, files_layer) = if config.rate_limit_enabled {
+        let auth_conf = Arc::new(
+            GovernorConfigBuilder::default()
+                .per_second(config.rate_limit_rps)
+                .burst_size(config.rate_limit_burst)
+                .key_extractor(ClientIpKeyExtractor)
+                .finish()
+                .expect("Failed to build auth rate limiter config"),
+        );
+        let api_conf = Arc::new(
+            GovernorConfigBuilder::default()
+                .per_second(config.rate_limit_rps * 10)
+                .burst_size(config.rate_limit_burst * 5)
+                .key_extractor(ClientIpKeyExtractor)
+                .finish()
+                .expect("Failed to build API rate limiter config"),
+        );
+        let files_conf = Arc::new(
+            GovernorConfigBuilder::default()
+                .per_second(config.rate_limit_rps * 5)
+                .burst_size(config.rate_limit_burst * 10)
+                .key_extractor(ClientIpKeyExtractor)
+                .finish()
+                .expect("Failed to build files rate limiter config"),
+        );
+        (
+            Some(GovernorLayer::new(auth_conf)),
+            Some(GovernorLayer::new(api_conf)),
+            Some(GovernorLayer::new(files_conf)),
+        )
+    } else {
+        (None, None, None)
+    };
 
     // SEC-3: Wrap ServeDir with a lightweight JWT auth check.
     let files_service = ServiceBuilder::new()
-        .layer(GovernorLayer::new(files_governor_conf))
+        .option_layer(files_layer)
         .layer(middleware::from_fn_with_state(state.clone(), require_file_auth))
         .service(ServeDir::new(&config.storage_path));
 
     let api_v1 = Router::new()
         .nest(
             "/auth",
-            auth_routes::router().layer(GovernorLayer::new(auth_governor_conf)),
+            auth_routes::router().layer(option_layer(auth_layer)),
         )
         .nest("/items", item_routes::router())
         .nest("/containers", container_routes::router())
@@ -175,7 +179,7 @@ pub fn build_router(state: Arc<AppState>, config: &AppConfig) -> Router {
         .nest("/tags", tag_routes::router())
         .nest("/categories", category_routes::router())
         .merge(system_routes::router())
-        .layer(GovernorLayer::new(api_governor_conf));
+        .layer(option_layer(api_layer));
 
     Router::new()
         .nest("/api/v1", api_v1)
