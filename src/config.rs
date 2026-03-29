@@ -99,8 +99,8 @@ impl AppConfig {
                 .filter(|s| !s.is_empty())
                 .collect(),
             // Rate limiting
-            rate_limit_rps: parse_env("RATE_LIMIT_RPS", 10u64),
-            rate_limit_burst: parse_env("RATE_LIMIT_BURST", 30u32),
+            rate_limit_rps: parse_env("RATE_LIMIT_RPS", 50u64),
+            rate_limit_burst: parse_env("RATE_LIMIT_BURST", 200u32),
             // Logging
             log_format: env::var("LOG_FORMAT").unwrap_or_else(|_| "text".into()),
         })
@@ -153,7 +153,7 @@ mod tests {
         assert_eq!(config.db_max_connections, 20);
         assert_eq!(config.db_min_connections, 2);
         assert_eq!(config.max_upload_bytes, 10_485_760);
-        assert_eq!(config.rate_limit_rps, 10);
+        assert_eq!(config.rate_limit_rps, 50);
         assert_eq!(config.log_format, "text");
     }
 
