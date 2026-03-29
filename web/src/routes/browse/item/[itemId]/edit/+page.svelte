@@ -3,7 +3,7 @@
 	import { goto } from '$app/navigation';
 	import { api } from '$api/client.js';
 	import type { Item, Category, Tag, Condition, UpdateItemRequest } from '$api/types.js';
-	import { CONDITIONS } from '$api/types.js';
+	import { CONDITIONS, CONDITION_LABELS } from '$api/types.js';
 	import CoordinateInput from '$lib/components/CoordinateInput.svelte';
 	import LocationSchemaEditor from '$lib/components/LocationSchemaEditor.svelte';
 	import { toast } from '$stores/toast.js';
@@ -255,11 +255,6 @@
 			uploadError = err instanceof Error ? err.message : 'Remove failed';
 		}
 	}
-
-	const CONDITION_LABELS: Record<string, string> = {
-		new: 'New', like_new: 'Like new', good: 'Good',
-		fair: 'Fair', poor: 'Poor', broken: 'Broken'
-	};
 </script>
 
 <svelte:head>

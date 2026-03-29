@@ -45,6 +45,13 @@ export interface InviteResponse {
 
 export type Condition = 'new' | 'like_new' | 'good' | 'fair' | 'poor' | 'broken';
 export const CONDITIONS: Condition[] = ['new', 'like_new', 'good', 'fair', 'poor', 'broken'];
+export const CONDITION_LABELS: Record<Condition, string> = {
+	new: 'New', like_new: 'Like new', good: 'Good',
+	fair: 'Fair', poor: 'Poor', broken: 'Broken'
+};
+export function conditionClass(condition: string | null): string {
+	return condition ? `badge badge-${condition}` : 'badge';
+}
 
 export interface ExternalCode {
 	type: string; // code_type (serialized as "type")

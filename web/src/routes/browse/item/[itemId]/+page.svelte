@@ -3,6 +3,7 @@
 	import { page } from '$app/stores';
 	import { api } from '$api/client.js';
 	import type { Item, AncestorEntry, ItemSummary, StoredEvent, ContainerStats } from '$api/types.js';
+	import { CONDITION_LABELS } from '$api/types.js';
 	import ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
 	import CoordinateDisplay from '$lib/components/CoordinateDisplay.svelte';
 	import CoordinateInput from '$lib/components/CoordinateInput.svelte';
@@ -310,11 +311,6 @@
 			actionError = err instanceof Error ? err.message : 'Failed to remove code';
 		}
 	}
-
-	const CONDITION_LABELS: Record<string, string> = {
-		new: 'New', like_new: 'Like new', good: 'Good',
-		fair: 'Fair', poor: 'Poor', broken: 'Broken'
-	};
 </script>
 
 <svelte:window on:keydown={(e) => { if (e.key === "Escape") { if (showMovePicker) showMovePicker = false; } }} />

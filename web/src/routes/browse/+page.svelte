@@ -3,7 +3,7 @@
 	import { goto } from '$app/navigation';
 	import { api } from '$api/client.js';
 	import type { Item, ItemSummary, CreateItemRequest, Condition, Category, Tag, ContainerType } from '$api/types.js';
-	import { CONDITIONS } from '$api/types.js';
+	import { CONDITIONS, CONDITION_LABELS, conditionClass } from '$api/types.js';
 	import CoordinateInput from '$lib/components/CoordinateInput.svelte';
 	import LocationSchemaEditor from '$lib/components/LocationSchemaEditor.svelte';
 	import { toast } from '$stores/toast.js';
@@ -279,16 +279,6 @@
 			creating = false;
 		}
 	}
-
-	function conditionClass(condition: string | null) {
-		if (!condition) return 'badge';
-		return `badge badge-${condition}`;
-	}
-
-	const CONDITION_LABELS: Record<string, string> = {
-		new: 'New', like_new: 'Like new', good: 'Good',
-		fair: 'Fair', poor: 'Poor', broken: 'Broken'
-	};
 </script>
 
 <svelte:window on:keydown={(e) => { if (e.key === "Escape") { if (showCreate) { showCreate = false; createImagePreviews.forEach((u) => URL.revokeObjectURL(u)); createImagePreviews = []; } } }} />

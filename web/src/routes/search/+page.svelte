@@ -4,7 +4,7 @@
 	import { api } from '$api/client.js';
 	import { toast } from '$stores/toast.js';
 	import type { ItemSummary, Category, Condition } from '$api/types.js';
-	import { CONDITIONS } from '$api/types.js';
+	import { CONDITIONS, CONDITION_LABELS } from '$api/types.js';
 
 	let query = '';
 	let results: ItemSummary[] = [];
@@ -80,11 +80,6 @@
 			toast(err instanceof Error ? err.message : 'Restore failed', 'error');
 		}
 	}
-
-	const CONDITION_LABELS: Record<string, string> = {
-		new: 'New', like_new: 'Like new', good: 'Good',
-		fair: 'Fair', poor: 'Poor', broken: 'Broken'
-	};
 </script>
 
 <svelte:head>
