@@ -4,7 +4,7 @@
 	import { goto, beforeNavigate } from '$app/navigation';
 	import { api } from '$api/client.js';
 	import type { BarcodeResolution, Item, ItemSummary, StockerBatchEvent } from '$api/types.js';
-	import { onScan, scannerState, startSerialScanner, startCameraScanner, stopScanner, startHidScanner } from '$scanner/index.js';
+	import { onScan, scannerState, startSerialScanner, startCameraScanner, startHidScanner } from '$scanner/index.js';
 	import { scanSuccess, scanError, contextSet, newItem as newItemSound } from '$audio/feedback.js';
 	import { init as initAudio } from '$audio/feedback.js';
 	import {
@@ -12,7 +12,6 @@
 		setSession,
 		setContext,
 		addRecentItem,
-		setError,
 		markSynced,
 		setPendingCount
 	} from '$stores/stocker.js';
