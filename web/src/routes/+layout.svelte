@@ -1,40 +1,32 @@
 <script lang="ts">
 	import '../app.css';
-	import { page } from '$app/stores';
+	import { page } from '$app/state';
 	import { goto } from '$app/navigation';
 	import { onMount } from 'svelte';
 	import { isAuthenticated, isAdmin } from '$stores/auth.js';
 	import { pendingCount } from '$offline/queue.js';
-	import { scannerState, startHidScanner } from '$scanner/index.js';
-	import { init as initAudio } from '$audio/feedback.js';
+	import { startHidScanner } from '$scanner/index.js';
 	import { registerSyncListeners } from '$offline/queue.js';
 	import { getAccessToken } from '$stores/auth.js';
 	import Toast from '$lib/components/Toast.svelte';
 
+	let { children } = $props();
+
 	const PUBLIC_PATHS = ['/', '/login', '/setup', '/register'];
 
 	onMount(() => {
-		// Start HID scanner immediately — no permissions needed
 		startHidScanner().catch(console.error);
-
-		// Register offline sync
 		registerSyncListeners(getAccessToken);
-
-		// Auth guard
-		const unsubAuth = isAuthenticated.subscribe((auth) => {
-			const path = $page.url.pathname;
-			if (!auth && !PUBLIC_PATHS.some((p) => path === p || (p !== '/' && path.startsWith(p)))) {
-				goto('/login');
-			}
-		});
-
-		return () => {
-			unsubAuth();
-		};
 	});
 
-	// Bottom nav active state
-	$: navPath = $page.url.pathname;
+	$effect(() => {
+		const path = page.url.pathname;
+		if (!$isAuthenticated && !PUBLIC_PATHS.some((p) => path === p || (p !== '/' && path.startsWith(p)))) {
+			goto('/login');
+		}
+	});
+
+	let navPath = $derived(page.url.pathname);
 	function isActive(prefix: string) {
 		return navPath === prefix || navPath.startsWith(prefix + '/');
 	}
@@ -43,7 +35,7 @@
 <div class="flex h-dvh flex-col bg-slate-950 text-slate-100">
 	<!-- Main content area -->
 	<main class="flex-1 overflow-y-auto">
-		<slot />
+		{@render children()}
 	</main>
 
 	<!-- Bottom navigation — only show when authenticated -->

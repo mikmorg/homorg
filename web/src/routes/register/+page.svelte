@@ -1,22 +1,22 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
-	import { page } from '$app/stores';
+	import { page } from '$app/state';
 	import { api } from '$api/client.js';
 	import { authStore } from '$stores/auth.js';
 
-	let username = '';
-	let password = '';
-	let displayName = '';
-	let inviteCode = '';
-	let confirmPassword = '';
-	let loading = false;
-	let error = '';
+	let username = $state('');
+	let password = $state('');
+	let displayName = $state('');
+	let inviteCode = $state('');
+	let confirmPassword = $state('');
+	let loading = $state(false);
+	let error = $state('');
 
 	// Pre-fill invite code from URL if provided
-	$: {
-		const code = $page.url.searchParams.get('code');
+	$effect(() => {
+		const code = page.url.searchParams.get('code');
 		if (code && !inviteCode) inviteCode = code;
-	}
+	});
 
 	async function register(e: SubmitEvent) {
 		e.preventDefault();
@@ -51,7 +51,7 @@
 			<p class="mt-1 text-sm text-slate-400">Create your account</p>
 		</div>
 
-		<form class="space-y-4" on:submit={register}>
+		<form class="space-y-4" onsubmit={register}>
 			{#if error}
 				<div class="rounded-lg bg-red-950 px-4 py-3 text-sm text-red-300 border border-red-800">
 					{error}
