@@ -503,6 +503,11 @@ async fn create_camera_link(
                 "device_name exceeds maximum length of {MAX_CAMERA_DEVICE_NAME_LEN} characters"
             )));
         }
+        if name.chars().any(|c| c.is_control()) {
+            return Err(AppError::BadRequest(
+                "device_name contains invalid control characters".into(),
+            ));
+        }
     }
 
     let hours = req.expires_in_hours
@@ -510,20 +515,21 @@ async fn create_camera_link(
         .clamp(1, MAX_CAMERA_TOKEN_HOURS);
     let expires_at = chrono::Utc::now() + chrono::Duration::hours(i64::from(hours));
 
-    // Generate a cryptographically random token
+    // Generate a cryptographically random token; store only the hash.
     let token_bytes: [u8; 32] = rand::random();
-    let token = hex::encode(token_bytes);
+    let plain_token = hex::encode(token_bytes);
+    let token_hash = crate::auth::jwt::hash_refresh_token(&plain_token);
 
     let ct = state.session_repository.create_camera_token(
         session_id,
         auth.user_id,
-        &token,
+        &token_hash,
         req.device_name.as_deref(),
         expires_at,
     ).await?;
 
     Ok((StatusCode::CREATED, Json(CameraLinkResponse {
-        token: ct.token,
+        token: plain_token,
         session_id: ct.session_id,
         expires_at: ct.expires_at,
         device_name: ct.device_name,
@@ -557,12 +563,22 @@ async fn revoke_camera_link(
 
 // ── Camera device endpoints (token-authenticated) ───────────────────────
 
+/// Validate camera token format (64 hex characters).
+fn validate_camera_token_format(token: &str) -> AppResult<()> {
+    if token.len() != 64 || !token.chars().all(|c| c.is_ascii_hexdigit()) {
+        return Err(AppError::Unauthorized);
+    }
+    Ok(())
+}
+
 /// Get session status for a camera device.
 async fn camera_status(
     State(state): State<Arc<AppState>>,
     Path(token): Path<String>,
 ) -> AppResult<Json<CameraSessionStatus>> {
-    let ct = state.session_repository.get_camera_token(&token).await?;
+    validate_camera_token_format(&token)?;
+    let token_hash = crate::auth::jwt::hash_refresh_token(&token);
+    let ct = state.session_repository.get_camera_token(&token_hash).await?;
     let session = state.session_repository.get_session_by_id(ct.session_id).await?;
 
     Ok(Json(CameraSessionStatus {
@@ -590,8 +606,10 @@ async fn camera_upload(
     Path(token): Path<String>,
     mut multipart: Multipart,
 ) -> AppResult<(StatusCode, Json<CameraUploadResponse>)> {
-    // Validate camera token
-    let ct = state.session_repository.get_camera_token(&token).await?;
+    // Validate and hash camera token
+    validate_camera_token_format(&token)?;
+    let token_hash = crate::auth::jwt::hash_refresh_token(&token);
+    let ct = state.session_repository.get_camera_token(&token_hash).await?;
     let session = state.session_repository.get_session_by_id(ct.session_id).await?;
 
     if session.ended_at.is_some() {
