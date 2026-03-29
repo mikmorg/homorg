@@ -1,8 +1,7 @@
 <script lang="ts">
 	import type { AncestorEntry } from '$api/types.js';
 
-	export let ancestors: AncestorEntry[] = [];
-	export let rootLabel = 'Root';
+	let { ancestors = [], rootLabel = 'Root' }: { ancestors?: AncestorEntry[]; rootLabel?: string } = $props();
 </script>
 
 {#if ancestors.length > 0}

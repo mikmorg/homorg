@@ -6,24 +6,24 @@
 	import type { ItemSummary, Category, Condition } from '$api/types.js';
 	import { CONDITIONS, CONDITION_LABELS } from '$api/types.js';
 
-	let query = '';
-	let results: ItemSummary[] = [];
-	let loading = false;
-	let searched = false;
-	let searchError = '';
+	let query = $state('');
+	let results: ItemSummary[] = $state([]);
+	let loading = $state(false);
+	let searched = $state(false);
+	let searchError = $state('');
 	let debounceTimer: ReturnType<typeof setTimeout> | null = null;
 
 	// H-9: Generation counter to discard stale search responses
 	let searchGeneration = 0;
 
 	// Filters
-	let showFilters = false;
-	let filterCategory = '';
-	let filterCondition: Condition | '' = '';
-	let filterContainersOnly = false;
+	let showFilters = $state(false);
+	let filterCategory = $state('');
+	let filterCondition: Condition | '' = $state('');
+	let filterContainersOnly = $state(false);
 
 	// Taxonomy
-	let categories: Category[] = [];
+	let categories: Category[] = $state([]);
 
 	onMount(async () => {
 		try {
@@ -98,7 +98,7 @@
 				class="input pl-9"
 				placeholder="Search items and containers…"
 				bind:value={query}
-				on:input={onInput}
+				oninput={onInput}
 			/>
 		</div>
 
@@ -106,13 +106,13 @@
 		<div class="flex items-center gap-2">
 			<button
 				class="text-xs {showFilters ? 'text-indigo-400' : 'text-slate-500'} hover:text-indigo-300"
-				on:click={() => { showFilters = !showFilters; }}
+				onclick={() => { showFilters = !showFilters; }}
 			>
 				Filters {showFilters ? '▲' : '▼'}
 			</button>
 
 			{#if filterCategory || filterCondition || filterContainersOnly}
-				<button class="text-xs text-red-400 hover:text-red-300" on:click={() => { filterCategory = ''; filterCondition = ''; filterContainersOnly = false; applyFilter(); }}>
+				<button class="text-xs text-red-400 hover:text-red-300" onclick={() => { filterCategory = ''; filterCondition = ''; filterContainersOnly = false; applyFilter(); }}>
 					Clear
 				</button>
 			{/if}
@@ -124,7 +124,7 @@
 				<div class="grid grid-cols-2 gap-2">
 					<div>
 						<label class="mb-1 block text-xs text-slate-400" for="s-cat">Category</label>
-						<select id="s-cat" class="input text-sm" bind:value={filterCategory} on:change={applyFilter}>
+						<select id="s-cat" class="input text-sm" bind:value={filterCategory} onchange={applyFilter}>
 							<option value="">Any</option>
 							{#each categories as cat (cat.id)}
 								<option value={cat.name}>{cat.name}</option>
@@ -133,7 +133,7 @@
 					</div>
 					<div>
 						<label class="mb-1 block text-xs text-slate-400" for="s-cond">Condition</label>
-						<select id="s-cond" class="input text-sm" bind:value={filterCondition} on:change={applyFilter}>
+						<select id="s-cond" class="input text-sm" bind:value={filterCondition} onchange={applyFilter}>
 							<option value="">Any</option>
 							{#each CONDITIONS as c}
 								<option value={c}>{CONDITION_LABELS[c] ?? c}</option>
@@ -143,7 +143,7 @@
 				</div>
 				<div class="flex items-center gap-3">
 					<label class="flex items-center gap-2 text-sm text-slate-300 cursor-pointer" for="s-containers">
-						<input id="s-containers" type="checkbox" class="h-4 w-4 rounded border-slate-600 bg-slate-800" bind:checked={filterContainersOnly} on:change={applyFilter} />
+						<input id="s-containers" type="checkbox" class="h-4 w-4 rounded border-slate-600 bg-slate-800" bind:checked={filterContainersOnly} onchange={applyFilter} />
 						Containers only
 					</label>
 				</div>
@@ -179,11 +179,11 @@
 						class="flex w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-slate-800/50 cursor-pointer"
 						role="button"
 						tabindex="0"
-						on:click={() => {
+						onclick={() => {
 							if (item.is_container) goto(`/browse?id=${item.id}`);
 							else goto(`/browse/item/${item.id}`);
 						}}
-						on:keydown={(e) => { if (e.key === "Enter") { if (item.is_container) goto(`/browse?id=${item.id}`); else goto(`/browse/item/${item.id}`); } }}
+						onkeydown={(e) => { if (e.key === "Enter") { if (item.is_container) goto(`/browse?id=${item.id}`); else goto(`/browse/item/${item.id}`); } }}
 					>
 					<div class="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg text-base {item.is_container ? 'bg-indigo-500/20 text-indigo-400' : 'bg-slate-800'}">
 							{item.is_container ? '📦' : '🔧'}
@@ -202,7 +202,9 @@
 							</div>
 						</div>
 						{#if item.is_deleted}
-							<span class="text-xs text-emerald-400 hover:text-emerald-300 flex-shrink-0 px-2 cursor-pointer" role="button" tabindex="0" on:click|stopPropagation={() => restoreItem(item.id)} on:keydown|stopPropagation={(e) => { if (e.key === "Enter") restoreItem(item.id); }}>
+							<span class="text-xs text-emerald-400 hover:text-emerald-300 flex-shrink-0 px-2 cursor-pointer" role="button" tabindex="0"
+								onclick={(e) => { e.stopPropagation(); restoreItem(item.id); }}
+								onkeydown={(e) => { e.stopPropagation(); if (e.key === "Enter") restoreItem(item.id); }}>
 								Restore
 							</span>
 						{:else}

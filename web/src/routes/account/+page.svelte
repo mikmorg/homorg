@@ -6,15 +6,15 @@
 	import { toast } from '$stores/toast.js';
 	import { get } from 'svelte/store';
 
-	let loggingOut = false;
+	let loggingOut = $state(false);
 
 	// Profile editing
-	let editingProfile = false;
-	let displayName = '';
-	let newPassword = '';
-	let confirmPassword = '';
-	let currentPassword = '';
-	let savingProfile = false;
+	let editingProfile = $state(false);
+	let displayName = $state('');
+	let newPassword = $state('');
+	let confirmPassword = $state('');
+	let currentPassword = $state('');
+	let savingProfile = $state(false);
 
 	function startEdit() {
 		const user = get(currentUser);
@@ -94,7 +94,7 @@
 							<p class="text-xs text-slate-500 capitalize">{$currentUser.role}</p>
 						</div>
 						{#if !editingProfile}
-							<button class="text-xs text-indigo-400 hover:text-indigo-300" on:click={startEdit}>Edit</button>
+							<button class="text-xs text-indigo-400 hover:text-indigo-300" onclick={startEdit}>Edit</button>
 						{/if}
 					</div>
 				</div>
@@ -120,10 +120,10 @@
 							</div>
 						{/if}
 						<div class="flex gap-2">
-							<button class="btn btn-primary flex-1" on:click={saveProfile} disabled={savingProfile}>
+							<button class="btn btn-primary flex-1" onclick={saveProfile} disabled={savingProfile}>
 								{savingProfile ? 'Saving…' : 'Save'}
 							</button>
-							<button class="btn btn-secondary flex-1" on:click={() => { editingProfile = false; }}>Cancel</button>
+							<button class="btn btn-secondary flex-1" onclick={() => { editingProfile = false; }}>Cancel</button>
 						</div>
 					</div>
 				{/if}
@@ -131,7 +131,7 @@
 
 			<button
 				class="btn btn-danger w-full"
-				on:click={logout}
+				onclick={logout}
 				disabled={loggingOut}
 			>
 				{loggingOut ? 'Signing out…' : 'Sign out'}

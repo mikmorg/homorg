@@ -1,10 +1,10 @@
 <script lang="ts">
 	import { parseLocationSchema, schemaTypeLabel } from '$lib/coordinate-helpers.js';
 
-	export let schema: unknown | null = null;
+	let { schema = null }: { schema?: unknown | null } = $props();
 
-	$: parsed = parseLocationSchema(schema);
-	$: typeLabel = schemaTypeLabel(schema);
+	let parsed = $derived(parseLocationSchema(schema));
+	let typeLabel = $derived(schemaTypeLabel(schema));
 </script>
 
 {#if schema != null}

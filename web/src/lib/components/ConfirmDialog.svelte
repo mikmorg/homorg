@@ -1,13 +1,25 @@
 <script lang="ts">
-	export let open = false;
-	export let title = 'Are you sure?';
-	export let message = '';
-	export let confirmLabel = 'Confirm';
-	export let cancelLabel = 'Cancel';
-	export let destructive = false;
-	export let loading = false;
-	export let onConfirm: () => void;
-	export let onCancel: (() => void) | undefined = undefined;
+	let {
+		open = $bindable(false),
+		title = 'Are you sure?',
+		message = '',
+		confirmLabel = 'Confirm',
+		cancelLabel = 'Cancel',
+		destructive = false,
+		loading = false,
+		onConfirm,
+		onCancel = undefined
+	}: {
+		open: boolean;
+		title?: string;
+		message?: string;
+		confirmLabel?: string;
+		cancelLabel?: string;
+		destructive?: boolean;
+		loading?: boolean;
+		onConfirm: () => void;
+		onCancel?: () => void;
+	} = $props();
 
 	function handleCancel() {
 		open = false;
@@ -21,19 +33,23 @@
 
 {#if open}
 <!-- svelte-ignore a11y_no_static_element_interactions -->
-<div class="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4" on:click|self={handleCancel} on:keydown={(e) => e.key === 'Escape' && handleCancel()}>
+<div
+	class="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4"
+	onclick={(e) => { if (e.target === e.currentTarget) handleCancel(); }}
+	onkeydown={(e) => e.key === 'Escape' && handleCancel()}
+>
 	<div class="w-full max-w-sm rounded-2xl bg-slate-900 border border-slate-800 p-5" role="dialog" aria-modal="true" aria-labelledby="confirm-dialog-title">
 		<h3 id="confirm-dialog-title" class="text-base font-semibold text-slate-100">{title}</h3>
 		{#if message}
 			<p class="mt-2 text-sm text-slate-400">{message}</p>
 		{/if}
 		<div class="mt-4 flex gap-3">
-			<button class="btn btn-secondary flex-1" on:click={handleCancel} disabled={loading}>
+			<button class="btn btn-secondary flex-1" onclick={handleCancel} disabled={loading}>
 				{cancelLabel}
 			</button>
 			<button
 				class="btn flex-1 {destructive ? 'btn-danger' : 'btn-primary'}"
-				on:click={handleConfirm}
+				onclick={handleConfirm}
 				disabled={loading}
 			>
 				{#if loading}

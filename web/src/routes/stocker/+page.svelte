@@ -4,12 +4,12 @@
 	import { api } from '$api/client.js';
 	import type { ScanSession } from '$api/types.js';
 
-	let sessions: ScanSession[] = [];
-	let loading = true;
-	let error = '';
-	let creating = false;
-	let showNewSession = false;
-	let sessionNotes = '';
+	let sessions: ScanSession[] = $state([]);
+	let loading = $state(true);
+	let error = $state('');
+	let creating = $state(false);
+	let showNewSession = $state(false);
+	let sessionNotes = $state('');
 
 	onMount(async () => {
 		await loadSessions();
@@ -57,7 +57,7 @@
 	<!-- Header -->
 	<header class="flex items-center justify-between border-b border-slate-800 px-4 py-3">
 		<h1 class="text-lg font-semibold text-slate-100">Stocker</h1>
-		<button class="btn btn-primary" on:click={() => { showNewSession ? startSession() : (showNewSession = true); }} disabled={creating}>
+		<button class="btn btn-primary" onclick={() => { showNewSession ? startSession() : (showNewSession = true); }} disabled={creating}>
 			{#if creating}
 				<span class="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white"></span>
 			{:else}
@@ -70,10 +70,10 @@
 		<div class="border-b border-slate-800 px-4 py-3 space-y-2">
 			<input class="input text-sm" bind:value={sessionNotes} placeholder="Session notes (optional)" />
 			<div class="flex gap-2">
-				<button class="btn btn-primary flex-1 text-sm" on:click={startSession} disabled={creating}>
+				<button class="btn btn-primary flex-1 text-sm" onclick={startSession} disabled={creating}>
 					{creating ? 'Starting…' : 'Start session'}
 				</button>
-				<button class="btn btn-secondary text-sm" on:click={() => { showNewSession = false; sessionNotes = ''; }}>Cancel</button>
+				<button class="btn btn-secondary text-sm" onclick={() => { showNewSession = false; sessionNotes = ''; }}>Cancel</button>
 			</div>
 		</div>
 	{/if}
@@ -96,7 +96,7 @@
 					<path d="M16 7V5a2 2 0 0 0-4 0v2" />
 				</svg>
 				<p class="text-sm">No sessions yet</p>
-				<button class="btn btn-secondary mt-2" on:click={startSession}>
+				<button class="btn btn-secondary mt-2" onclick={startSession}>
 					Start your first session
 				</button>
 			</div>

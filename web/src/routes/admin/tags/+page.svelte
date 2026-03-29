@@ -6,18 +6,18 @@
 	import { toast } from '$stores/toast.js';
 	import type { Tag } from '$api/types.js';
 
-	let tags: Tag[] = [];
-	let loading = true;
-	let error = '';
+	let tags: Tag[] = $state([]);
+	let loading = $state(true);
+	let error = $state('');
 
 	// Create
-	let newTagName = '';
-	let creating = false;
+	let newTagName = $state('');
+	let creating = $state(false);
 
 	// Rename
-	let renamingId: string | null = null;
-	let renameValue = '';
-	let renaming = false;
+	let renamingId: string | null = $state(null);
+	let renameValue = $state('');
+	let renaming = $state(false);
 
 	onMount(async () => {
 		if (!$isAdmin) { goto('/'); return; }
@@ -97,7 +97,7 @@
 	</header>
 
 	<!-- Inline create -->
-	<form class="flex items-center gap-2 border-b border-slate-800 px-4 py-2" on:submit|preventDefault={createTag}>
+	<form class="flex items-center gap-2 border-b border-slate-800 px-4 py-2" onsubmit={(e) => { e.preventDefault(); createTag(); }}>
 		<input class="input flex-1" placeholder="New tag name" bind:value={newTagName} disabled={creating} />
 		<button type="submit" class="btn btn-primary text-xs" disabled={creating || !newTagName.trim()}>
 			{creating ? '…' : 'Add'}
@@ -121,13 +121,13 @@
 							<input
 								class="input flex-1 text-sm"
 								bind:value={renameValue}
-								on:keydown={(e) => e.key === 'Enter' && saveRename()}
+								onkeydown={(e) => e.key === 'Enter' && saveRename()}
 								disabled={renaming}
 							/>
-							<button class="btn btn-primary text-xs px-2 py-1" on:click={saveRename} disabled={renaming}>
+							<button class="btn btn-primary text-xs px-2 py-1" onclick={saveRename} disabled={renaming}>
 								Save
 							</button>
-							<button class="btn btn-ghost text-xs px-2 py-1" on:click={() => (renamingId = null)}>
+							<button class="btn btn-ghost text-xs px-2 py-1" onclick={() => (renamingId = null)}>
 								Cancel
 							</button>
 						{:else}
@@ -139,10 +139,10 @@
 									{/if}
 								</div>
 							</div>
-							<button class="btn btn-ghost text-xs text-slate-400 px-2 py-1" on:click={() => startRename(tag)}>
+							<button class="btn btn-ghost text-xs text-slate-400 px-2 py-1" onclick={() => startRename(tag)}>
 								Rename
 							</button>
-							<button class="btn btn-ghost text-xs text-red-400 px-2 py-1" on:click={() => deleteTag(tag)}>
+							<button class="btn btn-ghost text-xs text-red-400 px-2 py-1" onclick={() => deleteTag(tag)}>
 								Delete
 							</button>
 						{/if}

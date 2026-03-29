@@ -2,16 +2,15 @@
 	import { parseLocationSchema, computeLabelRenames } from '$lib/coordinate-helpers.js';
 	import { onMount } from 'svelte';
 
-	export let value: unknown | null = null;
-	export let labelRenames: Record<string, string> = {};
+	let { value = $bindable(null), labelRenames = $bindable({}) }: { value?: unknown | null; labelRenames?: Record<string, string> } = $props();
 
-	let schemaType: '' | 'abstract' | 'grid' | 'geo' = '';
-	let labels = '';
-	let rows = 3;
-	let columns = 3;
-	let rowLabels = '';
-	let columnLabels = '';
-	let originalLabels: string[] = [];
+	let schemaType: '' | 'abstract' | 'grid' | 'geo' = $state('');
+	let labels = $state('');
+	let rows = $state(3);
+	let columns = $state(3);
+	let rowLabels = $state('');
+	let columnLabels = $state('');
+	let originalLabels: string[] = $state([]);
 
 	// Initialize form state from prop once on mount
 	onMount(() => {
@@ -69,7 +68,7 @@
 <div class="space-y-3">
 	<div>
 		<label class="mb-1 block text-sm font-medium text-slate-300" for="schema-type">Location schema</label>
-		<select id="schema-type" class="input" value={schemaType} on:change={onTypeChange}>
+		<select id="schema-type" class="input" value={schemaType} onchange={onTypeChange}>
 			<option value="">None</option>
 			<option value="abstract">Labels</option>
 			<option value="grid">Grid</option>
@@ -87,7 +86,7 @@
 				class="input text-sm"
 				placeholder="e.g. top shelf, middle shelf, bottom shelf"
 				bind:value={labels}
-				on:input={emit}
+				oninput={emit}
 			/>
 		</div>
 
@@ -95,24 +94,24 @@
 		<div class="grid grid-cols-2 gap-3">
 			<div>
 				<label class="mb-1 block text-xs text-slate-400" for="schema-rows">Rows</label>
-				<input id="schema-rows" class="input text-sm" type="number" min="1" max="100" bind:value={rows} on:input={emit} />
+				<input id="schema-rows" class="input text-sm" type="number" min="1" max="100" bind:value={rows} oninput={emit} />
 			</div>
 			<div>
 				<label class="mb-1 block text-xs text-slate-400" for="schema-cols">Columns</label>
-				<input id="schema-cols" class="input text-sm" type="number" min="1" max="100" bind:value={columns} on:input={emit} />
+				<input id="schema-cols" class="input text-sm" type="number" min="1" max="100" bind:value={columns} oninput={emit} />
 			</div>
 		</div>
 		<div>
 			<label class="mb-1 block text-xs text-slate-400" for="schema-row-labels">
 				Row labels <span class="text-slate-500">(comma-separated, optional)</span>
 			</label>
-			<input id="schema-row-labels" class="input text-sm" placeholder="e.g. A, B, C" bind:value={rowLabels} on:input={emit} />
+			<input id="schema-row-labels" class="input text-sm" placeholder="e.g. A, B, C" bind:value={rowLabels} oninput={emit} />
 		</div>
 		<div>
 			<label class="mb-1 block text-xs text-slate-400" for="schema-col-labels">
 				Column labels <span class="text-slate-500">(comma-separated, optional)</span>
 			</label>
-			<input id="schema-col-labels" class="input text-sm" placeholder="e.g. 1, 2, 3" bind:value={columnLabels} on:input={emit} />
+			<input id="schema-col-labels" class="input text-sm" placeholder="e.g. 1, 2, 3" bind:value={columnLabels} oninput={emit} />
 		</div>
 	{/if}
 </div>

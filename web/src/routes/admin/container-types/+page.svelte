@@ -8,22 +8,22 @@
 	import { schemaTypeLabel } from '$lib/coordinate-helpers.js';
 	import LocationSchemaEditor from '$lib/components/LocationSchemaEditor.svelte';
 
-	let types: ContainerType[] = [];
-	let loading = true;
-	let error = '';
+	let types: ContainerType[] = $state([]);
+	let loading = $state(true);
+	let error = $state('');
 
 	// Form
-	let showForm = false;
-	let editingId: string | null = null;
-	let formName = '';
-	let formDescription = '';
-	let formIcon = '';
-	let formPurpose = '';
-	let formCapacity = '';
-	let formWeight = '';
-	let formLocationSchema: unknown | null = null;
-	let formLoading = false;
-	let formError = '';
+	let showForm = $state(false);
+	let editingId: string | null = $state(null);
+	let formName = $state('');
+	let formDescription = $state('');
+	let formIcon = $state('');
+	let formPurpose = $state('');
+	let formCapacity = $state('');
+	let formWeight = $state('');
+	let formLocationSchema: unknown | null = $state(null);
+	let formLoading = $state(false);
+	let formError = $state('');
 
 	onMount(async () => {
 		if (!$isAdmin) { goto('/'); return; }
@@ -121,7 +121,7 @@
 			</svg>
 		</a>
 		<h1 class="flex-1 text-base font-semibold text-slate-100">Container Types</h1>
-		<button class="btn btn-primary text-xs" on:click={openCreate}>Add</button>
+		<button class="btn btn-primary text-xs" onclick={openCreate}>Add</button>
 	</header>
 
 	<div class="flex-1 overflow-y-auto">
@@ -134,7 +134,7 @@
 		{:else if types.length === 0}
 			<div class="flex h-32 flex-col items-center justify-center gap-2 text-slate-500">
 				<p class="text-sm">No container types yet</p>
-				<button class="btn btn-secondary text-xs" on:click={openCreate}>Create first type</button>
+				<button class="btn btn-secondary text-xs" onclick={openCreate}>Create first type</button>
 			</div>
 		{:else}
 			<div class="divide-y divide-slate-800">
@@ -170,10 +170,10 @@
 									{/if}
 								</div>
 							</div>
-							<button class="btn btn-ghost text-xs text-slate-400 px-2 py-1" on:click={() => openEdit(ct)}>
+							<button class="btn btn-ghost text-xs text-slate-400 px-2 py-1" onclick={() => openEdit(ct)}>
 								Edit
 							</button>
-							<button class="btn btn-ghost text-xs text-red-400 px-2 py-1" on:click={() => deleteType(ct)}>
+							<button class="btn btn-ghost text-xs text-red-400 px-2 py-1" onclick={() => deleteType(ct)}>
 								Delete
 							</button>
 						</div>
@@ -187,11 +187,15 @@
 <!-- Create/Edit form modal -->
 {#if showForm}
 <!-- svelte-ignore a11y_no_static_element_interactions -->
-<div class="fixed inset-0 z-50 flex flex-col justify-end bg-black/60" on:click|self={() => (showForm = false)} on:keydown={(e) => e.key === 'Escape' && (showForm = false)}>
+<div
+	class="fixed inset-0 z-50 flex flex-col justify-end bg-black/60"
+	onclick={(e) => { if (e.target === e.currentTarget) showForm = false; }}
+	onkeydown={(e) => e.key === 'Escape' && (showForm = false)}
+>
 	<div class="rounded-t-2xl bg-slate-900 p-4 pb-8" role="dialog" aria-modal="true" aria-labelledby="ctype-form-title">
 		<div class="mb-4 flex items-center justify-between">
 			<h2 id="ctype-form-title" class="text-base font-semibold text-slate-100">{editingId ? 'Edit' : 'New'} container type</h2>
-			<button class="btn btn-icon text-slate-400" on:click={() => (showForm = false)} aria-label="Close">
+			<button class="btn btn-icon text-slate-400" onclick={() => (showForm = false)} aria-label="Close">
 				<svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
 					<path d="M18 6L6 18M6 6l12 12" />
 				</svg>
@@ -233,7 +237,7 @@
 			</div>
 			<LocationSchemaEditor bind:value={formLocationSchema} />
 			<p class="text-xs text-slate-500">This schema is applied to new containers of this type. Existing containers are not affected when you change it here.</p>
-			<button class="btn btn-primary w-full" on:click={saveType} disabled={formLoading}>
+			<button class="btn btn-primary w-full" onclick={saveType} disabled={formLoading}>
 				{formLoading ? 'Saving…' : editingId ? 'Update' : 'Create'}
 			</button>
 		</div>

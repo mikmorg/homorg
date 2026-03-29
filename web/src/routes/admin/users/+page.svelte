@@ -6,18 +6,18 @@
 	import { toast } from '$stores/toast.js';
 	import type { UserPublic, InviteResponse } from '$api/types.js';
 
-	let users: UserPublic[] = [];
-	let loading = true;
-	let error = '';
+	let users: UserPublic[] = $state([]);
+	let loading = $state(true);
+	let error = $state('');
 
 	// Invite
-	let inviteCode: string | null = null;
-	let inviteExpiresAt: string | null = null;
-	let inviteLoading = false;
+	let inviteCode: string | null = $state(null);
+	let inviteExpiresAt: string | null = $state(null);
+	let inviteLoading = $state(false);
 
 	// Role change
-	let changingRole: string | null = null;
-	let deactivatingId: string | null = null;
+	let changingRole: string | null = $state(null);
+	let deactivatingId: string | null = $state(null);
 
 	const ROLE_LABELS: Record<string, string> = {
 		admin: 'Admin',
@@ -114,7 +114,7 @@
 			</svg>
 		</a>
 		<h1 class="flex-1 text-base font-semibold text-slate-100">Users</h1>
-		<button class="btn btn-primary text-xs" on:click={createInvite} disabled={inviteLoading}>
+		<button class="btn btn-primary text-xs" onclick={createInvite} disabled={inviteLoading}>
 			{inviteLoading ? '…' : 'Invite'}
 		</button>
 	</header>
@@ -125,8 +125,8 @@
 			<p class="text-xs text-indigo-300 mb-1">Share this invite code{inviteExpiresAt ? ` (expires ${formatDate(inviteExpiresAt)})` : ''}:</p>
 			<div class="flex items-center gap-2">
 				<code class="flex-1 rounded bg-slate-800 px-3 py-1.5 font-mono text-sm text-slate-100">{inviteCode}</code>
-				<button class="btn btn-secondary text-xs px-2 py-1" on:click={copyInvite}>Copy</button>
-				<button class="btn btn-ghost text-xs px-2 py-1 text-slate-400" on:click={() => (inviteCode = null)}>Dismiss</button>
+				<button class="btn btn-secondary text-xs px-2 py-1" onclick={copyInvite}>Copy</button>
+				<button class="btn btn-ghost text-xs px-2 py-1 text-slate-400" onclick={() => (inviteCode = null)}>Dismiss</button>
 			</div>
 		</div>
 	{/if}
@@ -164,14 +164,14 @@
 								<select
 									class="input text-xs py-1"
 									value={user.role}
-									on:change={(e) => changeRole(user.id, e.currentTarget.value as 'admin' | 'member' | 'readonly')}
+									onchange={(e) => changeRole(user.id, (e.currentTarget as HTMLSelectElement).value as 'admin' | 'member' | 'readonly')}
 									disabled={changingRole === user.id}
 								>
 									<option value="admin">Admin</option>
 									<option value="member">Member</option>
 									<option value="readonly">Read-only</option>
 								</select>
-								<button class="btn btn-ghost text-xs text-red-400 px-2 py-1" on:click={() => deactivateUser(user)} disabled={deactivatingId === user.id}>
+								<button class="btn btn-ghost text-xs text-red-400 px-2 py-1" onclick={() => deactivateUser(user)} disabled={deactivatingId === user.id}>
 									{deactivatingId === user.id ? "Deactivating…" : "Deactivate"}
 								</button>
 							</div>

@@ -3,11 +3,11 @@
 	import { api } from '$api/client.js';
 	import { authStore } from '$stores/auth.js';
 
-	let username = '';
-	let password = '';
-	let passwordConfirm = '';
-	let loading = false;
-	let error = '';
+	let username = $state('');
+	let password = $state('');
+	let passwordConfirm = $state('');
+	let loading = $state(false);
+	let error = $state('');
 
 	async function setup(e: SubmitEvent) {
 		e.preventDefault();
@@ -40,7 +40,7 @@
 			<p class="mt-1 text-sm text-slate-400">Create your administrator account to get started.</p>
 		</div>
 
-		<form class="space-y-4" on:submit={setup}>
+		<form class="space-y-4" onsubmit={setup}>
 			{#if error}
 				<div class="rounded-lg bg-red-950 px-4 py-3 text-sm text-red-300 border border-red-800">
 					{error}

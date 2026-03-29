@@ -1,15 +1,14 @@
 <script lang="ts">
 	import { parseCoordinate, parseLocationSchema, formatCoordinate } from '$lib/coordinate-helpers.js';
 
-	export let coordinate: unknown | null = null;
-	export let schema: unknown | null = null;
+	let { coordinate = null, schema = null }: { coordinate?: unknown | null; schema?: unknown | null } = $props();
 
-	$: parsed = parseCoordinate(coordinate);
-	$: parsedSchema = parseLocationSchema(schema);
-	$: label = formatCoordinate(coordinate, schema);
+	let parsed = $derived(parseCoordinate(coordinate));
+	let parsedSchema = $derived(parseLocationSchema(schema));
+	let label = $derived(formatCoordinate(coordinate, schema));
 
 	// Detect stale/out-of-bounds coordinates so callers get a visible hint.
-	$: isStale = (() => {
+	let isStale = $derived((() => {
 		if (!parsed || !parsedSchema) return false;
 		if (parsed.type !== parsedSchema.type) return true;
 		if (parsed.type === 'abstract' && parsedSchema.type === 'abstract') {
@@ -19,7 +18,7 @@
 			return parsed.row >= parsedSchema.rows || parsed.column >= parsedSchema.columns;
 		}
 		return false;
-	})();
+	})());
 </script>
 
 {#if coordinate != null}

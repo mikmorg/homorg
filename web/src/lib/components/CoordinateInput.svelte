@@ -2,22 +2,21 @@
 	import { parseLocationSchema, parseCoordinate } from '$lib/coordinate-helpers.js';
 	import { onMount } from 'svelte';
 
-	export let schema: unknown | null = null;
-	export let value: unknown | null = null;
+	let { schema = null, value = $bindable(null) }: { schema?: unknown | null; value?: unknown | null } = $props();
 
-	$: parsed = parseLocationSchema(schema);
+	let parsed = $derived(parseLocationSchema(schema));
 
 	// Internal form state, synced from value
-	let abstractText = '';
-	let gridRow = 0;
-	let gridCol = 0;
-	let geoLat = '';
-	let geoLng = '';
-	let geoLoading = false;
-	let geoError = '';
+	let abstractText = $state('');
+	let gridRow = $state(0);
+	let gridCol = $state(0);
+	let geoLat = $state('');
+	let geoLng = $state('');
+	let geoLoading = $state(false);
+	let geoError = $state('');
 
 	// Initialize from existing value once on mount.
-	// Using onMount (not a reactive $: block) prevents the feedback loop where
+	// Using onMount (not a reactive $effect) prevents the feedback loop where
 	// setAbstract writes value → reactive fires → abstractText gets trimmed mid-keystroke.
 	onMount(() => {
 		const coord = parseCoordinate(value);
@@ -75,7 +74,7 @@
 		{#if abstractText && !parsed.labels.includes(abstractText)}
 			<p class="text-xs text-amber-400 mb-1">Position "{abstractText}" no longer exists in this container's schema — select a new position or leave blank.</p>
 		{/if}
-		<select class="input" value={abstractText} on:change={(e) => setAbstract(e.currentTarget.value)}>
+		<select class="input" value={abstractText} onchange={(e) => setAbstract((e.currentTarget as HTMLSelectElement).value)}>
 			<option value="">None</option>
 			{#each parsed.labels as lbl}
 				<option value={lbl}>{lbl}</option>
@@ -90,7 +89,7 @@
 		<div class="grid grid-cols-2 gap-2">
 			<div>
 				<label class="mb-1 block text-xs text-slate-400" for="coord-row">Row</label>
-				<select id="coord-row" class="input" value={gridRow} on:change={(e) => setGrid(parseInt(e.currentTarget.value), gridCol)}>
+				<select id="coord-row" class="input" value={gridRow} onchange={(e) => setGrid(parseInt((e.currentTarget as HTMLSelectElement).value), gridCol)}>
 					{#each Array(parsed.rows) as _, i}
 						<option value={i}>{parsed.row_labels?.[i] ?? i + 1}</option>
 					{/each}
@@ -98,7 +97,7 @@
 			</div>
 			<div>
 				<label class="mb-1 block text-xs text-slate-400" for="coord-col">Column</label>
-				<select id="coord-col" class="input" value={gridCol} on:change={(e) => setGrid(gridRow, parseInt(e.currentTarget.value))}>
+				<select id="coord-col" class="input" value={gridCol} onchange={(e) => setGrid(gridRow, parseInt((e.currentTarget as HTMLSelectElement).value))}>
 					{#each Array(parsed.columns) as _, i}
 						<option value={i}>{parsed.column_labels?.[i] ?? i + 1}</option>
 					{/each}
@@ -111,14 +110,14 @@
 		<div class="grid grid-cols-2 gap-2">
 			<div>
 				<label class="mb-1 block text-xs text-slate-400" for="coord-lat">Latitude</label>
-				<input id="coord-lat" class="input text-sm" type="number" step="any" min="-90" max="90" bind:value={geoLat} on:input={setGeo} placeholder="0.000000" />
+				<input id="coord-lat" class="input text-sm" type="number" step="any" min="-90" max="90" bind:value={geoLat} oninput={setGeo} placeholder="0.000000" />
 			</div>
 			<div>
 				<label class="mb-1 block text-xs text-slate-400" for="coord-lng">Longitude</label>
-				<input id="coord-lng" class="input text-sm" type="number" step="any" min="-180" max="180" bind:value={geoLng} on:input={setGeo} placeholder="0.000000" />
+				<input id="coord-lng" class="input text-sm" type="number" step="any" min="-180" max="180" bind:value={geoLng} oninput={setGeo} placeholder="0.000000" />
 			</div>
 		</div>
-		<button class="btn btn-secondary text-xs w-full" type="button" on:click={useCurrentLocation} disabled={geoLoading}>
+		<button class="btn btn-secondary text-xs w-full" type="button" onclick={useCurrentLocation} disabled={geoLoading}>
 			{geoLoading ? 'Getting location…' : 'Use current location'}
 		</button>
 		{#if geoError}
@@ -131,7 +130,7 @@
 			class="input"
 			placeholder="e.g. top shelf, drawer 3"
 			value={abstractText}
-			on:input={(e) => setAbstract(e.currentTarget.value)}
+			oninput={(e) => setAbstract((e.currentTarget as HTMLInputElement).value)}
 		/>
 	{/if}
 </div>
