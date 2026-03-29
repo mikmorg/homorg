@@ -255,7 +255,7 @@ impl ItemCommands {
                         Some(new_f64) => {
                             let old_r = old_f64.map(|f| (f * 1_000_000.0).round() / 1_000_000.0);
                             let new_r = (*new_f64 * 1_000_000.0).round() / 1_000_000.0;
-                            if old_r.map_or(true, |o| (o - new_r).abs() > 1e-9) {
+                            if old_r.is_none_or(|o| (o - new_r).abs() > 1e-9) {
                                 changes.push(FieldChange {
                                     field: stringify!($field).to_string(),
                                     old: serde_json::to_value(&old_f64).unwrap_or(serde_json::Value::Null),
@@ -738,7 +738,7 @@ impl ItemCommands {
         // the old_qty recorded in each event reflects the true prior state, preventing
         // incorrect undo behavior when two callers write simultaneously.
         let current = sqlx::query_as::<_, (bool, Option<i32>)>(
-            "SELECT i.is_fungible, fp.quantity FROM items i LEFT JOIN fungible_properties fp ON fp.item_id = i.id WHERE i.id = $1 AND i.is_deleted = FALSE FOR UPDATE",
+            "SELECT i.is_fungible, fp.quantity FROM items i LEFT JOIN fungible_properties fp ON fp.item_id = i.id WHERE i.id = $1 AND i.is_deleted = FALSE FOR UPDATE OF i",
         )
         .bind(item_id)
         .fetch_optional(&mut *tx)

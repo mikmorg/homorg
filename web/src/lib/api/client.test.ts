@@ -8,7 +8,8 @@ import type { AuthResponse } from './types.js';
 
 const TEST_USER = {
 	id: 'user-1', username: 'tester', role: 'member' as const,
-	display_name: null, created_at: '2024-01-01T00:00:00Z', deactivated_at: null
+	display_name: null, created_at: '2024-01-01T00:00:00Z',
+	is_active: true, container_id: null
 };
 
 const AUTH_RESP: AuthResponse = {

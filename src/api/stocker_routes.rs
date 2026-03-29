@@ -420,7 +420,7 @@ async fn process_batch_event_in_tx(
                 .create_item_in_tx(tx, item_id, &create_req, actor_id, &metadata)
                 .await?;
 
-            let needs_details = name.as_deref().map_or(true, |n| n.is_empty());
+            let needs_details = name.as_deref().is_none_or(|n| n.is_empty());
 
             Ok(StockerBatchResult::Created {
                 index,
