@@ -36,7 +36,7 @@ def _make_jpeg(r: int, g: int, b: int) -> bytes:
     return _make_png(r, g, b)
 
 
-def _make_png(r: int, g: int, b: int, size: int = 8) -> bytes:
+def _make_png(r: int, g: int, b: int, size: int = 32) -> bytes:
     """Generate a minimal valid PNG file with a solid color (size×size pixels)."""
     import zlib
 
@@ -95,17 +95,33 @@ class Api:
             h["Authorization"] = f"Bearer {self.token}"
         return h
 
-    def _post(self, path: str, json: Any = None, files: Any = None) -> requests.Response:
-        r = self.s.post(f"{self.base}{path}", json=json, files=files, headers=self._headers())
-        return r
+    def _retry(self, method: str, url: str, max_retries: int = 5, **kwargs) -> requests.Response:
+        """Execute an HTTP request with automatic 429 retry + backoff."""
+        for attempt in range(max_retries):
+            r = self.s.request(method, url, headers=self._headers(), **kwargs)
+            if r.status_code != 429:
+                return r
+            # Parse wait time from "Wait for Ns" or default to exponential backoff
+            wait = 2 ** attempt
+            body = r.text
+            if "Wait for" in body:
+                try:
+                    wait = int(body.split("Wait for")[1].strip().rstrip("s "))
+                except (ValueError, IndexError):
+                    pass
+            wait = min(wait + 1, 120)
+            print(f"    [rate-limited, waiting {wait}s...]")
+            time.sleep(wait)
+        return r  # return last response even if still 429
+
+    def _post(self, path: str, json: Any = None, files: Any = None, data: Any = None) -> requests.Response:
+        return self._retry("POST", f"{self.base}{path}", json=json, files=files, data=data)
 
     def _put(self, path: str, json: Any = None) -> requests.Response:
-        r = self.s.put(f"{self.base}{path}", json=json, headers=self._headers())
-        return r
+        return self._retry("PUT", f"{self.base}{path}", json=json)
 
     def _get(self, path: str, params: Any = None) -> requests.Response:
-        r = self.s.get(f"{self.base}{path}", params=params, headers=self._headers())
-        return r
+        return self._retry("GET", f"{self.base}{path}", params=params)
 
     def authenticate(self):
         """Try setup first, fall back to login."""
@@ -178,18 +194,29 @@ class Api:
         return r.json()
 
     def upload_image(self, item_id: str, png_data: bytes, caption: str, order: int = 0):
-        files = {"file": ("image.png", io.BytesIO(png_data), "image/png")}
-        data = {"caption": caption, "order": str(order)}
-        r = self.s.post(
-            f"{self.base}/items/{item_id}/images",
-            files=files,
-            data=data,
-            headers=self._headers(),
-        )
-        if r.status_code in (200, 201):
-            _counts["images"] += 1
-        else:
-            print(f"  WARN: image upload for {item_id}: {r.status_code} {r.text}")
+        if not item_id:
+            return
+        url = f"{self.base}/items/{item_id}/images"
+        for attempt in range(5):
+            files = {"file": ("image.png", io.BytesIO(png_data), "image/png")}
+            form = {"caption": caption, "order": str(order)}
+            r = self.s.post(url, files=files, data=form, headers=self._headers())
+            if r.status_code in (200, 201):
+                _counts["images"] += 1
+                return
+            if r.status_code != 429:
+                print(f"  WARN: image upload for {item_id}: {r.status_code} {r.text}")
+                return
+            wait = 2 ** attempt
+            body = r.text
+            if "Wait for" in body:
+                try:
+                    wait = int(body.split("Wait for")[1].strip().rstrip("s "))
+                except (ValueError, IndexError):
+                    pass
+            wait = min(wait + 1, 120)
+            print(f"    [rate-limited, waiting {wait}s...]")
+            time.sleep(wait)
 
     def item_id_from_event(self, event: dict) -> str:
         return event.get("aggregate_id", "")
