@@ -1,0 +1,19 @@
+\documentclass[letter,12pt]{article}
+\usepackage[newdimens]{labels}
+\usepackage{barracuda}
+\usepackage{anyfontsize}
+\LabelCols=3
+\LabelRows=10
+\LeftPageMargin=5.0mm
+\RightPageMargin=4.5mm
+\TopPageMargin=13.5mm
+\BottomPageMargin=12.5mm
+\InterLabelColumn=3mm
+\InterLabelRow=0mm
+\LeftLabelBorder=0mm
+\RightLabelBorder=0mm
+\TopLabelBorder=0mm
+\BottomLabelBorder=0mm
+\begin{document}
+{% for barcode in barcodes %}\genericlabel{\begin{tabular}{c}\barracuda[module=tex.sp("0.38mm"), height=tex.sp("10mm")]{code128}{ {{- barcode -}} }\\[1pt]{\fontsize{6}{7}\selectfont\ttfamily {{ barcode }}}\end{tabular}}
+{% endfor %}\end{document}

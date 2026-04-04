@@ -6,6 +6,7 @@ pub mod constants;
 pub mod db;
 pub mod errors;
 pub mod events;
+pub mod label_gen;
 pub mod models;
 pub mod queries;
 pub mod storage;

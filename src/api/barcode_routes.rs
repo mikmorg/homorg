@@ -1,9 +1,12 @@
 use axum::{
+    body::Body,
     extract::{Json, Path, State},
-    http::StatusCode,
+    http::{header, StatusCode},
+    response::Response,
     routing::{get, post},
     Router,
 };
+use serde::Deserialize;
 use std::sync::Arc;
 
 use crate::auth::middleware::AuthUser;
@@ -17,6 +20,7 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/generate", post(generate))
         .route("/generate-batch", post(generate_batch))
         .route("/resolve/{code}", get(resolve))
+        .route("/labels", post(labels_pdf))
 }
 
 /// Generate a single new system barcode.
@@ -56,4 +60,76 @@ async fn resolve(
     }
     let resolution = state.barcode_commands.resolve_barcode(&code).await?;
     Ok(Json(resolution))
+}
+
+#[derive(Debug, Deserialize)]
+struct LabelsPdfRequest {
+    /// Generate this many new barcodes and print a label sheet for them.
+    count: Option<u32>,
+    /// Print a label sheet for these already-generated barcode strings.
+    barcodes: Option<Vec<String>>,
+}
+
+/// Generate a PDF label sheet (3×10, OL25WX) with a Code128 barcode and barcode
+/// number on each label.  Provide either `count` (reserves new barcodes in the
+/// sequence) or `barcodes` (re-prints existing ones).
+async fn labels_pdf(
+    State(state): State<Arc<AppState>>,
+    auth: AuthUser,
+    Json(req): Json<LabelsPdfRequest>,
+) -> AppResult<Response> {
+    auth.require_role("member")?;
+
+    let barcodes: Vec<String> = match (req.count, req.barcodes) {
+        (Some(count), None) => {
+            if count == 0 || count > MAX_BARCODE_BATCH {
+                return Err(AppError::BadRequest(format!(
+                    "count must be between 1 and {MAX_BARCODE_BATCH}"
+                )));
+            }
+            state
+                .barcode_commands
+                .generate_batch(count)
+                .await?
+                .into_iter()
+                .map(|b| b.barcode)
+                .collect()
+        }
+        (None, Some(barcodes)) => {
+            if barcodes.is_empty() || barcodes.len() > MAX_BARCODE_BATCH as usize {
+                return Err(AppError::BadRequest(format!(
+                    "barcodes list must have 1 to {MAX_BARCODE_BATCH} entries"
+                )));
+            }
+            // Only allow characters that are safe for both Code128 and LaTeX text.
+            for b in &barcodes {
+                if b.is_empty()
+                    || b.len() > 32
+                    || !b.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '.')
+                {
+                    return Err(AppError::BadRequest(format!(
+                        "barcode \"{b}\" contains invalid characters or exceeds 32 chars"
+                    )));
+                }
+            }
+            barcodes
+        }
+        _ => {
+            return Err(AppError::BadRequest(
+                "provide either `count` or `barcodes`, not both".into(),
+            ))
+        }
+    };
+
+    let pdf = crate::label_gen::generate_label_pdf(&barcodes).await?;
+
+    Ok(Response::builder()
+        .status(StatusCode::OK)
+        .header(header::CONTENT_TYPE, "application/pdf")
+        .header(
+            header::CONTENT_DISPOSITION,
+            "attachment; filename=\"labels.pdf\"",
+        )
+        .body(Body::from(pdf))
+        .unwrap())
 }
