@@ -193,7 +193,23 @@ export const barcodes = {
 	generateBatch: (count: number) =>
 		post$<GeneratedBarcode[]>('/barcodes/generate-batch', { count }),
 	resolve: (code: string) =>
-		get$<BarcodeResolution>(`/barcodes/resolve/${encodeURIComponent(code)}`)
+		get$<BarcodeResolution>(`/barcodes/resolve/${encodeURIComponent(code)}`),
+	/** Generate new barcodes and return a PDF label sheet as a Blob. */
+	downloadLabels: async (count: number): Promise<Blob> => {
+		const auth = get(authStore);
+		const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+		if (auth?.access_token) headers['Authorization'] = `Bearer ${auth.access_token}`;
+		const resp = await fetch(`${BASE}/barcodes/labels`, {
+			method: 'POST',
+			headers,
+			body: JSON.stringify({ count })
+		});
+		if (!resp.ok) {
+			const err = await resp.json().catch(() => ({ message: resp.statusText }));
+			throw new ApiClientError({ status: resp.status, message: err.message ?? resp.statusText });
+		}
+		return resp.blob();
+	}
 };
 
 // ─── Stocker ─────────────────────────────────────────────────────────────────

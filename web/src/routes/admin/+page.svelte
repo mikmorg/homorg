@@ -11,6 +11,30 @@
 	let statsError = '';
 	let rebuilding = false;
 
+	let labelCount = 30;
+	let generatingLabels = false;
+
+	async function downloadLabels() {
+		if (labelCount < 1 || labelCount > 1000) {
+			toast('Count must be between 1 and 1000', 'error');
+			return;
+		}
+		generatingLabels = true;
+		try {
+			const blob = await api.barcodes.downloadLabels(labelCount);
+			const url = URL.createObjectURL(blob);
+			const a = document.createElement('a');
+			a.href = url;
+			a.download = `labels-${labelCount}.pdf`;
+			a.click();
+			URL.revokeObjectURL(url);
+		} catch (err) {
+			toast(err instanceof Error ? err.message : 'Label generation failed', 'error');
+		} finally {
+			generatingLabels = false;
+		}
+	}
+
 	onMount(async () => {
 		if (!$isAdmin) { goto('/'); return; }
 		try {
@@ -94,11 +118,46 @@
 			</a>
 		</div>
 
+		<!-- Print Labels -->
+		<div class="card p-4 space-y-3">
+			<p class="text-xs font-medium text-slate-400 uppercase tracking-wide">Print Labels</p>
+			<p class="text-xs text-slate-500">Generates new barcodes and downloads a PDF (OL25WX, 3×10 per page).</p>
+			<div class="flex items-center gap-3">
+				<label class="text-sm text-slate-300 shrink-0" for="label-count">Labels</label>
+				<input
+					id="label-count"
+					type="number"
+					min="1"
+					max="1000"
+					step="30"
+					bind:value={labelCount}
+					class="w-24 rounded-md bg-slate-700 border border-slate-600 px-3 py-1.5 text-sm text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+				/>
+				<button
+					class="btn-primary flex items-center gap-2 disabled:opacity-50"
+					onclick={downloadLabels}
+					disabled={generatingLabels}
+				>
+					{#if generatingLabels}
+						<div class="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white"></div>
+						Generating…
+					{:else}
+						<svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+							<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+							<polyline points="7 10 12 15 17 10"/>
+							<line x1="12" y1="15" x2="12" y2="3"/>
+						</svg>
+						Download PDF
+					{/if}
+				</button>
+			</div>
+		</div>
+
 		<!-- System -->
 		<div class="card divide-y divide-slate-700">
 			<button
 				class="flex w-full items-center justify-between px-4 py-3 hover:bg-slate-700 transition-colors"
-				on:click={rebuildProjections}
+				onclick={rebuildProjections}
 				disabled={rebuilding}
 			>
 				<span class="text-sm font-medium text-slate-100">{rebuilding ? 'Rebuilding…' : 'Rebuild projections'}</span>
