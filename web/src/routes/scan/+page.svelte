@@ -18,6 +18,18 @@
 	// Camera
 	let usingCamera = $state(false);
 	let videoEl: HTMLVideoElement | null = $state(null);
+	let cameraContainer: HTMLDivElement | null = $state(null);
+
+	// Mount the scanner's video element (which has the stream) into the container div.
+	// bind:this on a <video> tag would replace videoEl with a new empty element, losing the stream.
+	$effect(() => {
+		if (!cameraContainer || !videoEl) return;
+		videoEl.className = 'w-full max-h-56 object-cover';
+		cameraContainer.appendChild(videoEl);
+		return () => {
+			if (videoEl?.parentNode === cameraContainer) cameraContainer?.removeChild(videoEl);
+		};
+	});
 
 	// Move sub-flow
 	let showMovePicker = $state(false);
@@ -199,17 +211,10 @@
 
 	<div class="flex-1 overflow-y-auto">
 
-		<!-- Camera preview -->
-		{#if usingCamera && videoEl}
-			<div class="relative bg-black">
-				<!-- svelte-ignore element_invalid_self_closing_tag -->
-				<video
-					bind:this={videoEl}
-					autoplay
-					playsinline
-					muted
-					class="w-full max-h-56 object-cover"
-				></video>
+		<!-- Camera preview — videoEl is the scanner's element (stream already attached).
+		     We append it via $effect rather than bind:this to avoid replacing it with a new empty element. -->
+		{#if usingCamera}
+			<div class="relative bg-black" bind:this={cameraContainer}>
 				<div class="absolute inset-0 flex items-center justify-center pointer-events-none">
 					<div class="h-32 w-64 rounded-lg border-2 border-indigo-400 opacity-70"></div>
 				</div>
