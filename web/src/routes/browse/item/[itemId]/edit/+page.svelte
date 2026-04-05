@@ -292,6 +292,7 @@
 	}
 
 	function removeExternalCode(idx: number) {
+		if (!confirm('Remove this external code?')) return;
 		externalCodes = externalCodes.filter((_, i) => i !== idx);
 	}
 </script>
