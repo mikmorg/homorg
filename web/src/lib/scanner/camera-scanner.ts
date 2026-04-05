@@ -1,8 +1,8 @@
 /**
- * Camera-based barcode scanner using the BarcodeDetector API (Chrome 83+).
+ * Camera-based barcode scanner.
  *
- * Provides a <video> element that callers should mount in the DOM, and emits
- * scan events via the BaseScanner interface.
+ * Tries the native BarcodeDetector API (Chrome 83+, requires HTTPS) first,
+ * then falls back to jsQR (pure-JS QR decoder, works over plain HTTP).
  *
  * Usage:
  *   const cam = new CameraScanner();
@@ -34,6 +34,9 @@ export class CameraScanner extends BaseScanner {
 	readonly videoElement: HTMLVideoElement;
 	private stream: MediaStream | null = null;
 	private detector: BarcodeDetector | null = null;
+	private canvas: HTMLCanvasElement | null = null;
+	private ctx: CanvasRenderingContext2D | null = null;
+	private useJsQr = false;
 	private intervalId: ReturnType<typeof setInterval> | null = null;
 	private lastSeen = new Map<string, number>();
 
@@ -47,12 +50,16 @@ export class CameraScanner extends BaseScanner {
 	}
 
 	override async start(): Promise<void> {
-		if (!isBarcodeDetectorSupported()) {
-			throw new Error('BarcodeDetector API not supported in this browser.');
+		if (isBarcodeDetectorSupported()) {
+			const formats = await BarcodeDetector.getSupportedFormats();
+			this.detector = new BarcodeDetector({ formats });
+			this.useJsQr = false;
+		} else {
+			// Fall back to jsQR — works over HTTP and on all browsers with getUserMedia
+			this.useJsQr = true;
+			this.canvas = document.createElement('canvas');
+			this.ctx = this.canvas.getContext('2d');
 		}
-
-		const formats = await BarcodeDetector.getSupportedFormats();
-		this.detector = new BarcodeDetector({ formats });
 
 		this.stream = await navigator.mediaDevices.getUserMedia({
 			video: { facingMode: 'environment' }
@@ -67,18 +74,40 @@ export class CameraScanner extends BaseScanner {
 	}
 
 	private async detect() {
-		if (!this.detector || this.videoElement.readyState < 2) return;
-		const results = await this.detector.detect(this.videoElement);
+		if (this.videoElement.readyState < 2) return;
 		const now = Date.now();
 
-		for (const result of results) {
-			const barcode = result.rawValue.trim();
-			if (!barcode) continue;
-			const last = this.lastSeen.get(barcode) ?? 0;
-			if (now - last < DEBOUNCE_MS) continue;
-			this.lastSeen.set(barcode, now);
-			this.emit(barcode, 'camera');
+		if (!this.useJsQr && this.detector) {
+			const results = await this.detector.detect(this.videoElement);
+			for (const result of results) {
+				this.maybeEmit(result.rawValue.trim(), now);
+			}
+			return;
 		}
+
+		// jsQR path
+		if (!this.canvas || !this.ctx) return;
+		const { videoWidth: w, videoHeight: h } = this.videoElement;
+		if (w === 0 || h === 0) return;
+
+		this.canvas.width = w;
+		this.canvas.height = h;
+		this.ctx.drawImage(this.videoElement, 0, 0, w, h);
+		const imageData = this.ctx.getImageData(0, 0, w, h);
+
+		const jsQR = (await import('jsqr')).default;
+		const result = jsQR(imageData.data, w, h);
+		if (result?.data) {
+			this.maybeEmit(result.data.trim(), now);
+		}
+	}
+
+	private maybeEmit(barcode: string, now: number) {
+		if (!barcode) return;
+		const last = this.lastSeen.get(barcode) ?? 0;
+		if (now - last < DEBOUNCE_MS) return;
+		this.lastSeen.set(barcode, now);
+		this.emit(barcode, 'camera');
 	}
 
 	override stop() {
@@ -91,5 +120,7 @@ export class CameraScanner extends BaseScanner {
 		this.stream = null;
 		this.videoElement.srcObject = null;
 		this.lastSeen.clear();
+		this.canvas = null;
+		this.ctx = null;
 	}
 }

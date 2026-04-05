@@ -84,13 +84,18 @@
 			usingCamera = false;
 			videoEl = null;
 		} else {
+			// getUserMedia requires a secure context (HTTPS or localhost)
+			if (!navigator.mediaDevices?.getUserMedia) {
+				toast('Camera requires HTTPS — open the app via https:// or on the same device', 'error');
+				return;
+			}
 			try {
 				const vid = await startCameraScanner();
 				if (vid) {
 					videoEl = vid;
 					usingCamera = true;
 				} else {
-					toast('Camera scanner unavailable on this device', 'error');
+					toast('Camera access failed — check that permission was granted', 'error');
 				}
 			} catch {
 				toast('Camera permission denied', 'error');
