@@ -75,6 +75,23 @@
 			</a>
 
 			<a
+				href="/scan"
+				class="nav-tab"
+				class:nav-tab-active={isActive('/scan')}
+				aria-label="Scan"
+			>
+				<svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+					<path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2" />
+					<line x1="7" y1="12" x2="7" y2="12.01" />
+					<line x1="12" y1="12" x2="17" y2="12" />
+					<line x1="12" y1="16" x2="17" y2="16" />
+					<line x1="7" y1="16" x2="7" y2="16.01" />
+					<line x1="7" y1="8" x2="17" y2="8" />
+				</svg>
+				<span class="text-xs">Scan</span>
+			</a>
+
+			<a
 				href="/search"
 				class="nav-tab"
 				class:nav-tab-active={isActive('/search')}
