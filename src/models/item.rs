@@ -223,6 +223,12 @@ pub struct UpdateItemRequest {
     #[serde(default, deserialize_with = "deserialize_nullable")]
     pub warranty_expiry: Option<Option<NaiveDate>>,
     pub metadata: Option<serde_json::Value>,
+    // Barcodes
+    /// Replace system barcode. `null` clears it.
+    #[serde(default, deserialize_with = "deserialize_nullable")]
+    pub system_barcode: Option<Option<String>>,
+    /// Replace all external codes atomically (full replacement).
+    pub external_codes: Option<Vec<ExternalCode>>,
 }
 
 /// Deserialize a field that distinguishes absent (`None`) from explicit null (`Some(None)`).

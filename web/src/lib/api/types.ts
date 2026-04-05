@@ -191,6 +191,8 @@ export interface UpdateItemRequest {
 	container_type_id?: string | null;
 	max_capacity_cc?: number | null;
 	max_weight_grams?: number | null;
+	system_barcode?: string | null;
+	external_codes?: ExternalCode[];
 }
 
 export interface MoveItemRequest {

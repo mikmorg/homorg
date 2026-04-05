@@ -448,6 +448,28 @@ impl Projector {
                         .await?;
                 }
 
+            } else if field == "system_barcode" {
+                let value = change.new.as_str().map(|s| s.to_string());
+                sqlx::query("UPDATE items SET system_barcode = $1, updated_by = $2 WHERE id = $3")
+                    .bind(&value)
+                    .bind(actor_id)
+                    .bind(id)
+                    .execute(&mut **tx)
+                    .await?;
+
+            } else if field == "external_codes" {
+                let jsonb_value: Option<&serde_json::Value> = if change.new.is_null() {
+                    None
+                } else {
+                    Some(&change.new)
+                };
+                sqlx::query("UPDATE items SET external_codes = $1, updated_by = $2 WHERE id = $3")
+                    .bind(jsonb_value)
+                    .bind(actor_id)
+                    .bind(id)
+                    .execute(&mut **tx)
+                    .await?;
+
             } else if field == "acquisition_date" || field == "warranty_expiry" {
                 let value = change.new.as_str().map(|s| s.to_string());
                 let query = format!("UPDATE items SET {field} = $1::date, updated_by = $2 WHERE id = $3");

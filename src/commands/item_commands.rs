@@ -286,6 +286,8 @@ impl ItemCommands {
         diff_nullable_numeric!(depreciation_rate, current.depreciation_rate);
         diff_nullable_field!(warranty_expiry, current.warranty_expiry);
         diff_field!(metadata, current.metadata);
+        diff_nullable_field!(system_barcode, current.system_barcode);
+        diff_field!(external_codes, current.external_codes);
         diff_field!(is_fungible, current.is_fungible);
         diff_nullable_field!(fungible_unit, current.fungible_unit);
         diff_nullable_field!(container_type_id, current.container_type_id);

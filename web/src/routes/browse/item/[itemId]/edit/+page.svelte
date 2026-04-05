@@ -2,7 +2,7 @@
 	import { page } from '$app/state';
 	import { goto } from '$app/navigation';
 	import { api } from '$api/client.js';
-	import type { Item, Category, Tag, Condition, UpdateItemRequest } from '$api/types.js';
+	import type { Item, Category, Tag, Condition, UpdateItemRequest, ExternalCode } from '$api/types.js';
 	import { CONDITIONS, CONDITION_LABELS } from '$api/types.js';
 	import CoordinateInput from '$lib/components/CoordinateInput.svelte';
 	import LocationSchemaEditor from '$lib/components/LocationSchemaEditor.svelte';
@@ -37,6 +37,9 @@
 	let locationSchemaValue: unknown | null = $state(null);
 	let schemaLabelRenames: Record<string, string> = $state({});
 	let isContainer: boolean = $state(false);
+	let systemBarcode: string = $state('');
+	let externalCodes: ExternalCode[] = $state([]);
+	let generatingBarcode: boolean = $state(false);
 
 	// Taxonomy data
 	let categories: Category[] = $state([]);
@@ -90,6 +93,8 @@
 			fungibleQuantity = item.fungible_quantity != null ? String(item.fungible_quantity) : '';
 			locationSchemaValue = item.location_schema;
 			isContainer = item.is_container;
+			systemBarcode = item.system_barcode ?? '';
+			externalCodes = item.external_codes ? [...item.external_codes] : [];
 			if (item.parent_id) {
 				parentItem = await api.items.get(item.parent_id);
 			}
@@ -185,6 +190,16 @@
 			updates.is_container = isContainer;
 		}
 
+		const newSystemBarcode: string | null = systemBarcode.trim() || null;
+		if (newSystemBarcode !== (item.system_barcode ?? null)) {
+			updates.system_barcode = newSystemBarcode;
+		}
+
+		const newExternalCodes = externalCodes.filter(c => c.type.trim() && c.value.trim());
+		if (JSON.stringify(newExternalCodes) !== JSON.stringify(item.external_codes ?? [])) {
+			updates.external_codes = newExternalCodes;
+		}
+
 		const schemaChanged = isContainer &&
 			JSON.stringify(locationSchemaValue) !== JSON.stringify(item.location_schema);
 
@@ -258,6 +273,26 @@
 		} catch (err) {
 			uploadError = err instanceof Error ? err.message : 'Remove failed';
 		}
+	}
+
+	async function generateBarcode() {
+		generatingBarcode = true;
+		try {
+			const result = await api.barcodes.generate();
+			systemBarcode = result.barcode;
+		} catch (err) {
+			saveError = err instanceof Error ? err.message : 'Failed to generate barcode';
+		} finally {
+			generatingBarcode = false;
+		}
+	}
+
+	function addExternalCode() {
+		externalCodes = [...externalCodes, { type: '', value: '' }];
+	}
+
+	function removeExternalCode(idx: number) {
+		externalCodes = externalCodes.filter((_, i) => i !== idx);
 	}
 </script>
 
@@ -418,6 +453,72 @@
 						{/key}
 					</div>
 				{/if}
+
+				<!-- Barcodes -->
+				<div class="card p-3 space-y-3">
+					<p class="text-xs text-slate-400 uppercase tracking-wide">Barcodes</p>
+
+					<!-- System barcode -->
+					<div>
+						<label class="mb-1 block text-xs text-slate-400" for="edit-sys-barcode">System barcode</label>
+						<div class="flex gap-2">
+							<input
+								id="edit-sys-barcode"
+								class="input flex-1 font-mono text-sm"
+								bind:value={systemBarcode}
+								placeholder="None assigned"
+							/>
+							{#if !systemBarcode.trim()}
+								<button
+									type="button"
+									class="btn btn-secondary text-xs flex-shrink-0"
+									onclick={generateBarcode}
+									disabled={generatingBarcode}
+								>
+									{generatingBarcode ? '…' : 'Generate'}
+								</button>
+							{/if}
+						</div>
+					</div>
+
+					<!-- External codes -->
+					<div>
+						<div class="flex items-center justify-between mb-1">
+							<span class="text-xs text-slate-400">External codes (UPC, ISBN, EAN…)</span>
+							<button type="button" class="text-xs text-indigo-400 hover:text-indigo-300" onclick={addExternalCode}>+ Add</button>
+						</div>
+						{#if externalCodes.length === 0}
+							<p class="text-xs text-slate-600 italic">No external codes</p>
+						{:else}
+							<div class="space-y-2">
+								{#each externalCodes as code, idx}
+									<div class="flex gap-2 items-center">
+										<input
+											class="input w-24 text-xs flex-shrink-0"
+											bind:value={code.type}
+											placeholder="Type"
+											aria-label="Code type"
+										/>
+										<input
+											class="input flex-1 font-mono text-xs"
+											bind:value={code.value}
+											placeholder="Value"
+											aria-label="Code value"
+										/>
+										<button
+											type="button"
+											class="text-red-400 hover:text-red-300 flex-shrink-0 px-1"
+											onclick={() => removeExternalCode(idx)}
+											aria-label="Remove code"
+										>
+											&times;
+										</button>
+									</div>
+								{/each}
+							</div>
+						{/if}
+					</div>
+				</div>
 
 				<!-- Images -->
 				<div>
