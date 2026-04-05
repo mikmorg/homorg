@@ -8,11 +8,12 @@
 	import type { Item, ItemSummary } from '$api/types.js';
 	import { CONDITION_LABELS } from '$api/types.js';
 
-	type PageState = 'idle' | 'resolving' | 'found' | 'not_found' | 'error';
+	type PageState = 'idle' | 'resolving' | 'found' | 'multiple' | 'not_found' | 'error';
 
 	let pageState: PageState = $state('idle');
 	let lastBarcode = $state('');
 	let resolvedItem: Item | null = $state(null);
+	let resolvedItems: Item[] = $state([]);   // for multi-match disambiguation
 	let pageError = $state('');
 
 	// Camera
@@ -70,16 +71,22 @@
 		try {
 			const resolution = await api.barcodes.resolve(barcode);
 
-			if (resolution.type === 'system' || resolution.type === 'external') {
-				const itemId = resolution.type === 'system'
-					? resolution.item_id
-					: resolution.item_ids[0];
-
-				if (!itemId) { pageState = 'not_found'; return; }
-
-				resolvedItem = await api.items.get(itemId);
+			if (resolution.type === 'system') {
+				resolvedItem = await api.items.get(resolution.item_id);
 				recentContainers = getRecentContainers();
 				pageState = 'found';
+			} else if (resolution.type === 'external') {
+				if (resolution.item_ids.length === 0) {
+					pageState = 'not_found';
+				} else if (resolution.item_ids.length === 1) {
+					resolvedItem = await api.items.get(resolution.item_ids[0]);
+					recentContainers = getRecentContainers();
+					pageState = 'found';
+				} else {
+					// Multiple items share this barcode — let the user pick
+					resolvedItems = await Promise.all(resolution.item_ids.map(id => api.items.get(id)));
+					pageState = 'multiple';
+				}
 			} else {
 				// preset, unknown_system, unknown
 				pageState = 'not_found';
@@ -119,6 +126,7 @@
 		pageState = 'idle';
 		lastBarcode = '';
 		resolvedItem = null;
+		resolvedItems = [];
 		pageError = '';
 		showMovePicker = false;
 		moveQuery = '';
@@ -260,6 +268,45 @@
 					<p class="mt-1 font-mono text-xs text-slate-500">{lastBarcode}</p>
 				</div>
 				<button class="btn btn-secondary w-full" onclick={scanAnother}>Scan another</button>
+			</div>
+
+		<!-- Multiple items share this barcode — disambiguation list -->
+		{:else if pageState === 'multiple'}
+			<div class="p-4 space-y-3">
+				<div class="rounded-lg bg-slate-800/60 px-4 py-3 text-center">
+					<p class="font-medium text-slate-200">{resolvedItems.length} items share this barcode</p>
+					<p class="mt-0.5 font-mono text-xs text-slate-500">{lastBarcode}</p>
+				</div>
+				<div class="divide-y divide-slate-800 rounded-xl overflow-hidden">
+					{#each resolvedItems as item (item.id)}
+						<button
+							class="flex w-full items-center gap-3 bg-slate-800/40 px-4 py-3 text-left hover:bg-slate-800 active:bg-slate-700 transition-colors"
+							onclick={() => { resolvedItem = item; recentContainers = getRecentContainers(); pageState = 'found'; }}
+						>
+							<div class="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg text-base {item.is_container ? 'bg-indigo-500/20' : 'bg-slate-700'}">
+								{item.is_container ? '📦' : '🔧'}
+							</div>
+							<div class="min-w-0 flex-1">
+								<p class="truncate font-medium text-slate-100">{item.name ?? lastBarcode}</p>
+								<div class="flex items-center gap-2 mt-0.5 text-xs text-slate-400">
+									{#if item.category}<span>{item.category}</span>{/if}
+									{#if item.condition}
+										<span class="badge badge-{item.condition}" style="font-size:0.6rem">{CONDITION_LABELS[item.condition]}</span>
+									{/if}
+								</div>
+								{#if item.container_path}
+									<p class="text-xs text-slate-500 truncate mt-0.5">📍 {item.container_path}</p>
+								{/if}
+							</div>
+							<svg class="h-4 w-4 flex-shrink-0 text-slate-600" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+								<path d="M9 18l6-6-6-6"/>
+							</svg>
+						</button>
+					{/each}
+				</div>
+				<button class="btn btn-ghost w-full text-sm text-slate-500" onclick={scanAnother}>
+					Scan another
+				</button>
 			</div>
 
 		<!-- Found — action sheet -->

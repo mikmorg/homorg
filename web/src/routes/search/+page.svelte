@@ -6,6 +6,9 @@
 	import type { ItemSummary, Category, Tag, Condition } from '$api/types.js';
 	import { CONDITIONS, CONDITION_LABELS } from '$api/types.js';
 
+	// IDs of results that came from a barcode resolve (shown with a badge)
+	let barcodeMatchIds: Set<string> = $state(new Set());
+
 	let query = $state('');
 	let results: ItemSummary[] = $state([]);
 	let loading = $state(false);
@@ -65,6 +68,29 @@
 		debounceTimer = setTimeout(doSearch, 300);
 	}
 
+	async function resolveBarcodeItems(q: string): Promise<ItemSummary[]> {
+		if (!q.trim()) return [];
+		try {
+			const res = await api.barcodes.resolve(q.trim());
+			if (res.type !== 'external' || res.item_ids.length === 0) return [];
+			const items = await Promise.all(res.item_ids.map(id => api.items.get(id)));
+			return items.map(item => ({
+				id: item.id,
+				system_barcode: item.system_barcode ?? null,
+				name: item.name,
+				is_container: item.is_container,
+				category: item.category ?? null,
+				condition: item.condition ?? null,
+				container_path: item.container_path ?? null,
+				parent_id: item.parent_id ?? null,
+				tags: item.tags ?? [],
+				is_deleted: item.is_deleted ?? false,
+				created_at: item.created_at,
+				updated_at: item.updated_at,
+			} satisfies ItemSummary));
+		} catch { return []; }
+	}
+
 	async function doSearch() {
 		const gen = ++searchGeneration;
 		loading = true;
@@ -73,21 +99,34 @@
 		cursor = undefined;
 		hasMore = false;
 		try {
-			const res = await api.search.query({
-				q: query || undefined,
-				category: filterCategory || undefined,
-				condition: (filterCondition as Condition) || undefined,
-				is_container: filterContainersOnly || undefined,
-				tags: filterTags.size > 0 ? [...filterTags].join(',') : undefined,
-				limit: 51
-			});
+			const [res, barcodeItems] = await Promise.all([
+				api.search.query({
+					q: query || undefined,
+					category: filterCategory || undefined,
+					condition: (filterCondition as Condition) || undefined,
+					is_container: filterContainersOnly || undefined,
+					tags: filterTags.size > 0 ? [...filterTags].join(',') : undefined,
+					limit: 51
+				}),
+				query.trim() ? resolveBarcodeItems(query) : Promise.resolve([] as ItemSummary[])
+			]);
 			if (gen !== searchGeneration) return;
-			hasMore = res.length > 50;
-			results = hasMore ? res.slice(0, 50) : res;
-			cursor = results.length > 0 ? results[results.length - 1].id : undefined;
+
+			// Prepend barcode matches (deduped), track their ids for badge display
+			const barcodeIds = new Set(barcodeItems.map(i => i.id));
+			const deduped = barcodeItems.concat(res.filter(r => !barcodeIds.has(r.id)));
+			barcodeMatchIds = barcodeIds;
+
+			hasMore = deduped.length > 50 + barcodeItems.length
+				? true
+				: res.length > 50;
+			const page = res.length > 50 ? res.slice(0, 50) : res;
+			results = barcodeItems.concat(page.filter(r => !barcodeIds.has(r.id)));
+			cursor = page.length > 0 ? page[page.length - 1].id : undefined;
 		} catch (err) {
 			if (gen !== searchGeneration) return;
 			results = [];
+			barcodeMatchIds = new Set();
 			searchError = err instanceof Error ? err.message : 'Search failed';
 		} finally {
 			if (gen === searchGeneration) loading = false;
@@ -130,6 +169,7 @@
 		filterCondition = '';
 		filterContainersOnly = false;
 		filterTags = new Set();
+		barcodeMatchIds = new Set();
 		applyFilter();
 	}
 
@@ -284,6 +324,9 @@
 									<span class="badge badge-{item.condition}" style="font-size:0.6rem">
 										{CONDITION_LABELS[item.condition] ?? item.condition}
 									</span>
+								{/if}
+								{#if barcodeMatchIds.has(item.id)}
+									<span class="rounded-full bg-amber-900/60 px-1.5 py-0.5 text-[10px] font-medium text-amber-400">barcode</span>
 								{/if}
 							</div>
 							{#if item.container_path}
