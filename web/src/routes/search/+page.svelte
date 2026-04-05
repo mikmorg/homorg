@@ -3,7 +3,7 @@
 	import { goto } from '$app/navigation';
 	import { api } from '$api/client.js';
 	import { toast } from '$stores/toast.js';
-	import type { ItemSummary, Category, Condition } from '$api/types.js';
+	import type { ItemSummary, Category, Tag, Condition } from '$api/types.js';
 	import { CONDITIONS, CONDITION_LABELS } from '$api/types.js';
 
 	let query = $state('');
@@ -21,19 +21,43 @@
 	let filterCategory = $state('');
 	let filterCondition: Condition | '' = $state('');
 	let filterContainersOnly = $state(false);
+	let filterTags: Set<string> = $state(new Set());
+
+	// Pagination
+	let cursor: string | undefined = $state(undefined);
+	let hasMore = $state(false);
+	let loadingMore = $state(false);
 
 	// Taxonomy
 	let categories: Category[] = $state([]);
+	let tags: Tag[] = $state([]);
+
+	let activeFilterCount = $derived(
+		(filterCategory ? 1 : 0) +
+		(filterCondition ? 1 : 0) +
+		(filterContainersOnly ? 1 : 0) +
+		filterTags.size
+	);
 
 	onMount(async () => {
 		try {
-			categories = await api.categories.list();
+			[categories, tags] = await Promise.all([
+				api.categories.list(),
+				api.tags.list()
+			]);
 		} catch { /* ignore */ }
 	});
 
+	function toggleFilterTag(name: string) {
+		if (filterTags.has(name)) filterTags.delete(name);
+		else filterTags.add(name);
+		filterTags = new Set(filterTags);
+		applyFilter();
+	}
+
 	function onInput() {
 		if (debounceTimer) clearTimeout(debounceTimer);
-		if (!query.trim() && !filterCategory && !filterCondition && !filterContainersOnly) {
+		if (!query.trim() && !filterCategory && !filterCondition && !filterContainersOnly && filterTags.size === 0) {
 			results = [];
 			searched = false;
 			return;
@@ -46,17 +70,21 @@
 		loading = true;
 		searched = true;
 		searchError = '';
+		cursor = undefined;
+		hasMore = false;
 		try {
 			const res = await api.search.query({
 				q: query || undefined,
 				category: filterCategory || undefined,
 				condition: (filterCondition as Condition) || undefined,
 				is_container: filterContainersOnly || undefined,
-				limit: 50
+				tags: filterTags.size > 0 ? [...filterTags].join(',') : undefined,
+				limit: 51
 			});
-			// H-9: Discard stale results from previous searches
 			if (gen !== searchGeneration) return;
-			results = res;
+			hasMore = res.length > 50;
+			results = hasMore ? res.slice(0, 50) : res;
+			cursor = results.length > 0 ? results[results.length - 1].id : undefined;
 		} catch (err) {
 			if (gen !== searchGeneration) return;
 			results = [];
@@ -66,9 +94,43 @@
 		}
 	}
 
+	async function loadMore() {
+		if (!cursor) return;
+		loadingMore = true;
+		const gen = searchGeneration;
+		try {
+			const res = await api.search.query({
+				q: query || undefined,
+				category: filterCategory || undefined,
+				condition: (filterCondition as Condition) || undefined,
+				is_container: filterContainersOnly || undefined,
+				tags: filterTags.size > 0 ? [...filterTags].join(',') : undefined,
+				limit: 51,
+				cursor
+			});
+			if (gen !== searchGeneration) return;
+			hasMore = res.length > 50;
+			const page = hasMore ? res.slice(0, 50) : res;
+			results = [...results, ...page];
+			cursor = page.length > 0 ? page[page.length - 1].id : undefined;
+		} catch {
+			// silent — existing results stay visible
+		} finally {
+			if (gen === searchGeneration) loadingMore = false;
+		}
+	}
+
 	function applyFilter() {
 		if (debounceTimer) clearTimeout(debounceTimer);
 		doSearch();
+	}
+
+	function clearFilters() {
+		filterCategory = '';
+		filterCondition = '';
+		filterContainersOnly = false;
+		filterTags = new Set();
+		applyFilter();
 	}
 
 	async function restoreItem(id: string) {
@@ -102,18 +164,42 @@
 			/>
 		</div>
 
+		<!-- Tag chip strip -->
+		{#if tags.length > 0}
+		<div class="overflow-x-auto -mx-3 px-3">
+			<div class="flex flex-nowrap gap-2 pb-1">
+				{#each tags as tag (tag.id)}
+					<button
+						type="button"
+						onclick={() => toggleFilterTag(tag.name)}
+						class="flex-shrink-0 rounded-full px-3 py-1 text-xs font-medium transition-colors
+							{filterTags.has(tag.name)
+								? 'bg-indigo-600 text-white'
+								: 'bg-slate-700 text-slate-300 active:bg-slate-600'}"
+					>
+						{tag.name}{tag.item_count ? ` (${tag.item_count})` : ''}
+					</button>
+				{/each}
+			</div>
+		</div>
+		{/if}
+
 		<!-- Filter toggle -->
 		<div class="flex items-center gap-2">
 			<button
-				class="text-xs {showFilters ? 'text-indigo-400' : 'text-slate-500'} hover:text-indigo-300"
+				class="flex items-center gap-1 text-xs {showFilters ? 'text-indigo-400' : 'text-slate-500'} hover:text-indigo-300"
 				onclick={() => { showFilters = !showFilters; }}
 			>
-				Filters {showFilters ? '▲' : '▼'}
+				Filters
+				{#if activeFilterCount > 0}
+					<span class="rounded-full bg-indigo-600 px-1.5 py-0.5 text-[10px] leading-none text-white">{activeFilterCount}</span>
+				{/if}
+				{showFilters ? '▲' : '▼'}
 			</button>
 
-			{#if filterCategory || filterCondition || filterContainersOnly}
-				<button class="text-xs text-red-400 hover:text-red-300" onclick={() => { filterCategory = ''; filterCondition = ''; filterContainersOnly = false; applyFilter(); }}>
-					Clear
+			{#if activeFilterCount > 0}
+				<button class="text-xs text-red-400 hover:text-red-300" onclick={clearFilters}>
+					Clear all
 				</button>
 			{/if}
 		</div>
@@ -127,7 +213,7 @@
 						<select id="s-cat" class="input text-sm" bind:value={filterCategory} onchange={applyFilter}>
 							<option value="">Any</option>
 							{#each categories as cat (cat.id)}
-								<option value={cat.name}>{cat.name}</option>
+								<option value={cat.name}>{cat.name}{cat.item_count ? ` (${cat.item_count})` : ''}</option>
 							{/each}
 						</select>
 					</div>
@@ -200,6 +286,19 @@
 									</span>
 								{/if}
 							</div>
+							{#if item.container_path}
+								<p class="text-xs text-slate-500 truncate mt-0.5">📍 {item.container_path}</p>
+							{/if}
+							{#if item.tags.length > 0}
+								<div class="mt-1 flex flex-wrap gap-1">
+									{#each item.tags.slice(0, 3) as tag}
+										<span class="rounded-full bg-slate-700/60 px-2 py-0.5 text-[10px] text-slate-400">{tag}</span>
+									{/each}
+									{#if item.tags.length > 3}
+										<span class="text-[10px] text-slate-500">+{item.tags.length - 3}</span>
+									{/if}
+								</div>
+							{/if}
 						</div>
 						{#if item.is_deleted}
 							<span class="text-xs text-emerald-400 hover:text-emerald-300 flex-shrink-0 px-2 cursor-pointer" role="button" tabindex="0"
@@ -215,7 +314,20 @@
 					</div>
 				{/each}
 			</div>
-			<p class="px-4 py-2 text-xs text-slate-500">{results.length} result{results.length !== 1 ? 's' : ''}</p>
+
+			{#if hasMore}
+				<div class="flex justify-center py-4">
+					<button class="btn btn-secondary text-sm" onclick={loadMore} disabled={loadingMore}>
+						{#if loadingMore}
+							<span class="h-4 w-4 animate-spin rounded-full border-2 border-slate-600 border-t-indigo-400 inline-block"></span>
+						{:else}
+							Load more
+						{/if}
+					</button>
+				</div>
+			{/if}
+
+			<p class="px-4 py-2 text-xs text-slate-500">{results.length} result{results.length !== 1 ? 's' : ''}{hasMore ? '+' : ''}</p>
 		{/if}
 	</div>
 </div>
