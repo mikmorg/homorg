@@ -7,6 +7,8 @@
 	import CoordinateInput from '$lib/components/CoordinateInput.svelte';
 	import LocationSchemaEditor from '$lib/components/LocationSchemaEditor.svelte';
 	import { toast } from '$stores/toast.js';
+	import { detectBarcodeType } from '$lib/barcode-type.js';
+	import type { CameraScanner } from '$lib/scanner/camera-scanner.js';
 
 	let itemId = $derived(page.params.itemId!);
 	// H-12: Re-load when itemId changes (client-side navigation between items)
@@ -40,6 +42,47 @@
 	let systemBarcode: string = $state('');
 	let externalCodes: ExternalCode[] = $state([]);
 	let generatingBarcode: boolean = $state(false);
+
+	// Inline camera scanner for adding external codes
+	let scanningForCode: boolean = $state(false);
+	let scanContainer: HTMLDivElement | null = $state(null);
+	let activeScanCam: CameraScanner | null = null;
+
+	$effect(() => {
+		if (!scanningForCode || !scanContainer) return;
+		let cancelled = false;
+		let cam: CameraScanner | null = null;
+
+		(async () => {
+			const { CameraScanner } = await import('$lib/scanner/camera-scanner.js');
+			if (cancelled) return;
+			cam = new CameraScanner();
+			activeScanCam = cam;
+			cam.onScan((e) => {
+				if (cancelled) return;
+				const type = detectBarcodeType(e.barcode, e.format);
+				externalCodes = [...externalCodes, { type, value: e.barcode }];
+				stopCodeScan();
+			});
+			try {
+				await cam.start();
+				if (cancelled) { cam.stop(); return; }
+				if (scanContainer) {
+					cam.videoElement.className = 'w-full rounded-lg object-cover max-h-40';
+					scanContainer.appendChild(cam.videoElement);
+				}
+			} catch {
+				if (!cancelled) saveError = 'Camera unavailable — scan with a physical scanner or type the code manually';
+				stopCodeScan();
+			}
+		})();
+
+		return () => {
+			cancelled = true;
+			cam?.stop();
+			activeScanCam = null;
+		};
+	});
 
 	// Taxonomy data
 	let categories: Category[] = $state([]);
@@ -295,6 +338,19 @@
 		if (!confirm('Remove this external code?')) return;
 		externalCodes = externalCodes.filter((_, i) => i !== idx);
 	}
+
+	function stopCodeScan() {
+		activeScanCam?.stop();
+		activeScanCam = null;
+		scanningForCode = false;
+	}
+
+	function autoDetectType(code: ExternalCode) {
+		if (!code.type.trim() && code.value.trim()) {
+			code.type = detectBarcodeType(code.value);
+			externalCodes = [...externalCodes]; // trigger reactivity
+		}
+	}
 </script>
 
 <svelte:head>
@@ -486,12 +542,27 @@
 					<div>
 						<div class="flex items-center justify-between mb-1">
 							<span class="text-xs text-slate-400">External codes (UPC, ISBN, EAN…)</span>
-							<button type="button" class="text-xs text-indigo-400 hover:text-indigo-300" onclick={addExternalCode}>+ Add</button>
+							<div class="flex gap-2">
+								{#if !scanningForCode}
+									<button type="button" class="text-xs text-indigo-400 hover:text-indigo-300" onclick={() => { scanningForCode = true; }}>Scan</button>
+									<button type="button" class="text-xs text-indigo-400 hover:text-indigo-300" onclick={addExternalCode}>+ Add</button>
+								{:else}
+									<button type="button" class="text-xs text-red-400 hover:text-red-300" onclick={stopCodeScan}>Cancel</button>
+								{/if}
+							</div>
 						</div>
-						{#if externalCodes.length === 0}
+
+						{#if scanningForCode}
+							<div class="rounded-lg overflow-hidden bg-slate-900 border border-slate-700">
+								<div bind:this={scanContainer} class="w-full"></div>
+								<p class="text-center text-xs text-slate-500 py-1">Point camera at barcode — type is detected automatically</p>
+							</div>
+						{/if}
+
+						{#if externalCodes.length === 0 && !scanningForCode}
 							<p class="text-xs text-slate-600 italic">No external codes</p>
-						{:else}
-							<div class="space-y-2">
+						{:else if externalCodes.length > 0}
+							<div class="space-y-2 mt-2">
 								{#each externalCodes as code, idx}
 									<div class="flex gap-2 items-center">
 										<input
@@ -505,6 +576,7 @@
 											bind:value={code.value}
 											placeholder="Value"
 											aria-label="Code value"
+											onblur={() => autoDetectType(code)}
 										/>
 										<button
 											type="button"

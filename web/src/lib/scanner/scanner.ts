@@ -11,6 +11,8 @@
 export interface ScanEvent {
 	barcode: string;
 	source: 'hid' | 'serial' | 'camera';
+	/** Barcode format as reported by BarcodeDetector (e.g. 'ean_13', 'upc_a', 'qr_code'). */
+	format?: string;
 }
 
 type ScanHandler = (event: ScanEvent) => void;
@@ -56,7 +58,7 @@ export class BaseScanner extends EventTarget implements Scanner {
 		return () => this.removeEventListener('scan', listener);
 	}
 
-	protected emit(barcode: string, source: ScanEvent['source']) {
-		this.dispatchEvent(new CustomEvent<ScanEvent>('scan', { detail: { barcode, source } }));
+	protected emit(barcode: string, source: ScanEvent['source'], format?: string) {
+		this.dispatchEvent(new CustomEvent<ScanEvent>('scan', { detail: { barcode, source, format } }));
 	}
 }

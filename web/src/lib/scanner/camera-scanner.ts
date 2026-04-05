@@ -80,7 +80,7 @@ export class CameraScanner extends BaseScanner {
 		if (!this.useJsQr && this.detector) {
 			const results = await this.detector.detect(this.videoElement);
 			for (const result of results) {
-				this.maybeEmit(result.rawValue.trim(), now);
+				this.maybeEmit(result.rawValue.trim(), now, result.format);
 			}
 			return;
 		}
@@ -98,16 +98,16 @@ export class CameraScanner extends BaseScanner {
 		const jsQR = (await import('jsqr')).default;
 		const result = jsQR(imageData.data, w, h);
 		if (result?.data) {
-			this.maybeEmit(result.data.trim(), now);
+			this.maybeEmit(result.data.trim(), now, 'qr_code');
 		}
 	}
 
-	private maybeEmit(barcode: string, now: number) {
+	private maybeEmit(barcode: string, now: number, format?: string) {
 		if (!barcode) return;
 		const last = this.lastSeen.get(barcode) ?? 0;
 		if (now - last < DEBOUNCE_MS) return;
 		this.lastSeen.set(barcode, now);
-		this.emit(barcode, 'camera');
+		this.emit(barcode, 'camera', format);
 	}
 
 	override stop() {
