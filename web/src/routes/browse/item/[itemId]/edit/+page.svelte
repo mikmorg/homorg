@@ -7,7 +7,7 @@
 	import CoordinateInput from '$lib/components/CoordinateInput.svelte';
 	import LocationSchemaEditor from '$lib/components/LocationSchemaEditor.svelte';
 	import { toast } from '$stores/toast.js';
-	import { detectBarcodeType } from '$lib/barcode-type.js';
+	import { detectBarcodeType, STANDARD_CODE_TYPES, STANDARD_CODE_TYPE_VALUES } from '$lib/barcode-type.js';
 	import type { CameraScanner } from '$lib/scanner/camera-scanner.js';
 
 	let itemId = $derived(page.params.itemId!);
@@ -348,8 +348,19 @@
 	function autoDetectType(code: ExternalCode) {
 		if (!code.type.trim() && code.value.trim()) {
 			code.type = detectBarcodeType(code.value);
-			externalCodes = [...externalCodes]; // trigger reactivity
+			externalCodes = [...externalCodes];
 		}
+	}
+
+	function setCodeType(code: ExternalCode, value: string) {
+		if (value === '__custom__') {
+			// Switching to custom — clear only if it was a standard type so the
+			// text input appears ready to accept a new value.
+			if (STANDARD_CODE_TYPE_VALUES.has(code.type)) code.type = '';
+		} else {
+			code.type = value;
+		}
+		externalCodes = [...externalCodes];
 	}
 </script>
 
@@ -564,28 +575,45 @@
 						{:else if externalCodes.length > 0}
 							<div class="space-y-2 mt-2">
 								{#each externalCodes as code, idx}
-									<div class="flex gap-2 items-center">
-										<input
-											class="input w-24 text-xs flex-shrink-0"
-											bind:value={code.type}
-											placeholder="Type"
-											aria-label="Code type"
-										/>
-										<input
-											class="input flex-1 font-mono text-xs"
-											bind:value={code.value}
-											placeholder="Value"
-											aria-label="Code value"
-											onblur={() => autoDetectType(code)}
-										/>
-										<button
-											type="button"
-											class="text-red-400 hover:text-red-300 flex-shrink-0 px-1"
-											onclick={() => removeExternalCode(idx)}
-											aria-label="Remove code"
-										>
-											&times;
-										</button>
+									<div class="space-y-1">
+										<div class="flex gap-2 items-center">
+											<select
+												class="input w-28 text-xs flex-shrink-0"
+												value={STANDARD_CODE_TYPE_VALUES.has(code.type) ? code.type : (code.type ? '__custom__' : '')}
+												onchange={(e) => setCodeType(code, (e.currentTarget as HTMLSelectElement).value)}
+												aria-label="Code type"
+											>
+												<option value="">Type…</option>
+												{#each STANDARD_CODE_TYPES as t}
+													<option value={t.value} title={t.description}>{t.value}</option>
+												{/each}
+												<option disabled>──────</option>
+												<option value="__custom__">Custom…</option>
+											</select>
+											<input
+												class="input flex-1 font-mono text-xs"
+												bind:value={code.value}
+												placeholder="Value"
+												aria-label="Code value"
+												onblur={() => autoDetectType(code)}
+											/>
+											<button
+												type="button"
+												class="text-red-400 hover:text-red-300 flex-shrink-0 px-1"
+												onclick={() => removeExternalCode(idx)}
+												aria-label="Remove code"
+											>
+												&times;
+											</button>
+										</div>
+										{#if code.type && !STANDARD_CODE_TYPE_VALUES.has(code.type)}
+											<input
+												class="input w-full text-xs font-mono"
+												bind:value={code.type}
+												placeholder="Custom type name"
+												aria-label="Custom code type"
+											/>
+										{/if}
 									</div>
 								{/each}
 							</div>

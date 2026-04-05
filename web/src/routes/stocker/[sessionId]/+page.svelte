@@ -4,7 +4,7 @@
 	import { goto, beforeNavigate } from '$app/navigation';
 	import { api } from '$api/client.js';
 	import type { BarcodeResolution, CameraToken, Item, ItemSummary, StockerBatchEvent, ExternalCode } from '$api/types.js';
-	import { detectBarcodeType } from '$lib/barcode-type.js';
+	import { detectBarcodeType, STANDARD_CODE_TYPES, STANDARD_CODE_TYPE_VALUES } from '$lib/barcode-type.js';
 	import QRCode from 'qrcode';
 	import { onScan, scannerState, startSerialScanner, startCameraScanner, startHidScanner } from '$scanner/index.js';
 	import { scanSuccess, scanError, contextSet, newItem as newItemSound } from '$audio/feedback.js';
@@ -735,15 +735,26 @@
 					<input id="qc-qty" class="input" type="number" min="1" bind:value={qcQuantity} disabled={qcLoading} />
 				</div>
 				<div class="flex-1">
-					<label class="mb-1 flex items-center gap-1.5 text-sm font-medium text-slate-300" for="qc-barcode">
-						{#if qcExternalCode}
-							<span class="rounded-full bg-indigo-900/60 px-1.5 py-0.5 text-[10px] font-medium text-indigo-400">{qcExternalCode.type}</span>
-						{:else}
-							Barcode
-						{/if}
+					<label class="mb-1 block text-sm font-medium text-slate-300" for="qc-barcode">
+						{qcExternalCode ? 'External code' : 'Barcode'}
 					</label>
 					{#if qcExternalCode}
-						<input id="qc-barcode" class="input font-mono text-xs" bind:value={qcExternalCode.value} disabled={qcLoading} />
+						<div class="flex gap-1.5">
+							<select
+								class="input text-xs w-24 flex-shrink-0"
+								bind:value={qcExternalCode.type}
+								disabled={qcLoading}
+								aria-label="Code type"
+							>
+								{#each STANDARD_CODE_TYPES as t}
+									<option value={t.value} title={t.description}>{t.value}</option>
+								{/each}
+								{#if !STANDARD_CODE_TYPE_VALUES.has(qcExternalCode.type)}
+									<option value={qcExternalCode.type}>{qcExternalCode.type}</option>
+								{/if}
+							</select>
+							<input id="qc-barcode" class="input flex-1 font-mono text-xs min-w-0" bind:value={qcExternalCode.value} disabled={qcLoading} />
+						</div>
 					{:else}
 						<input id="qc-barcode" class="input font-mono text-xs" placeholder="scanned" bind:value={qcBarcode} disabled={qcLoading} />
 					{/if}
