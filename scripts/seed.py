@@ -167,17 +167,30 @@ class Api:
             return {"id": None, "name": name}
         return r.json()
 
+    def _generate_barcode_code(self) -> str:
+        """Generate the next system barcode code from the server sequence."""
+        r = self._post("/barcodes/generate")
+        if r.status_code in (200, 201):
+            return r.json().get("code", "")
+        return ""
+
     def create_item(self, parent_id: str, name: str, **kwargs) -> dict:
         body: dict[str, Any] = {"parent_id": parent_id, "name": name}
+        is_container = kwargs.get("is_container", False)
+        is_fungible = kwargs.get("is_fungible", False)
+
+        # Auto-assign a system barcode to every non-container item unless one is provided
+        if not is_container and "system_barcode" not in kwargs:
+            code = self._generate_barcode_code()
+            if code:
+                kwargs["system_barcode"] = code
+
         body.update(kwargs)
-        is_container = body.get("is_container", False)
-        is_fungible = body.get("is_fungible", False)
         r = self._post("/items", json=body)
         if r.status_code not in (200, 201):
             print(f"  ERROR creating '{name}': {r.status_code} {r.text}", file=sys.stderr)
             return {}
         data = r.json()
-        item_id = data.get("aggregate_id") or data.get("id", "")
         if is_container:
             _counts["containers"] += 1
         elif is_fungible:
@@ -357,15 +370,30 @@ def seed(api: Api):
                     currency="USD", weight_grams=3200, dimensions=dims(90, 7, 10),
                     tags=["valuable"])
 
-    # Bookshelf items
-    books = [
-        "To Kill a Mockingbird", "1984", "The Great Gatsby", "Pride and Prejudice",
-        "The Catcher in the Rye", "Brave New World", "Lord of the Flies",
-        "Animal Farm", "The Hobbit", "Fahrenheit 451", "Dune", "Slaughterhouse-Five",
+    # Bookshelf items — classic novels with real-ish ISBN-13s
+    books_with_isbns = [
+        ("To Kill a Mockingbird",  "9780061935466"),
+        ("1984",                   "9780451524935"),
+        ("The Great Gatsby",       "9780743273565"),
+        ("Pride and Prejudice",    "9780141439518"),
+        ("The Catcher in the Rye", "9780316769174"),
+        ("Brave New World",        "9780060850524"),
+        ("Lord of the Flies",      "9780571295715"),
+        ("Animal Farm",            "9780451526342"),
+        ("The Hobbit",             "9780547928227"),
+        ("Fahrenheit 451",         "9781451673319"),
+        ("Dune",                   "9780441013593"),
+        ("Slaughterhouse-Five",    "9780385333849"),
     ]
-    for b in books:
-        api.create_item(lr_id, b, coordinate=abstract_coord("Bookshelf"),
-                        category="Books", condition="good")
+    for title, isbn in books_with_isbns:
+        api.create_item(lr_id, title, coordinate=abstract_coord("Bookshelf"),
+                        category="Books", condition="good",
+                        external_codes=[{"type": "ISBN", "value": isbn}])
+    # Second copy of Harry Potter — same ISBN as the kids' room copy (multi-match barcode demo)
+    api.create_item(lr_id, "Harry Potter and the Sorcerer's Stone", coordinate=abstract_coord("Bookshelf"),
+                    category="Books", condition="good",
+                    external_codes=[{"type": "ISBN", "value": "9780590353403"}])
+
     for game in ["Settlers of Catan", "Ticket to Ride", "Pandemic"]:
         api.create_item(lr_id, game, coordinate=abstract_coord("Bookshelf"),
                         category="Media", condition="good", tags=["sentimental"])
@@ -394,10 +422,12 @@ def seed(api: Api):
     # Pantry
     api.create_item(kit_id, "Canned Black Beans", coordinate=abstract_coord("Pantry"),
                     category="Food", is_fungible=True, fungible_quantity=12, fungible_unit="cans",
-                    condition="new", tags=["consumable"])
+                    condition="new", tags=["consumable"],
+                    external_codes=[{"type": "UPC", "value": "021130126026"}])
     api.create_item(kit_id, "Dry Pasta", coordinate=abstract_coord("Pantry"),
                     category="Food", is_fungible=True, fungible_quantity=6, fungible_unit="boxes",
-                    condition="new", tags=["consumable"])
+                    condition="new", tags=["consumable"],
+                    external_codes=[{"type": "UPC", "value": "076808510506"}])
     api.create_item(kit_id, "Spice Rack Set", coordinate=abstract_coord("Pantry"),
                     category="Kitchen", condition="good",
                     external_codes=[{"type": "UPC", "value": "098765432109"}])
@@ -408,7 +438,8 @@ def seed(api: Api):
 
     # Under Sink
     api.create_item(kit_id, "Dish Soap", coordinate=abstract_coord("Under Sink"),
-                    category="Cleaning", condition="good", tags=["consumable"])
+                    category="Cleaning", condition="good", tags=["consumable"],
+                    external_codes=[{"type": "UPC", "value": "037000101017"}])
     api.create_item(kit_id, "Kitchen Sponges", coordinate=abstract_coord("Under Sink"),
                     category="Cleaning", is_fungible=True, fungible_quantity=10, fungible_unit="pcs",
                     tags=["consumable"])
@@ -435,9 +466,11 @@ def seed(api: Api):
                     condition="fair")
 
     # Junk Drawer
+    # AA Batteries — same UPC as the pack in the garage (multi-match barcode demo)
     api.create_item(kit_id, "AA Batteries", coordinate=abstract_coord("Junk Drawer"),
                     category="Electronics", is_fungible=True, fungible_quantity=20, fungible_unit="pcs",
-                    tags=["consumable", "dangerous"])
+                    tags=["consumable", "dangerous"],
+                    external_codes=[{"type": "UPC", "value": "041333042152"}])
     api.create_item(kit_id, "Duct Tape", coordinate=abstract_coord("Junk Drawer"),
                     category="Tools", condition="good")
     api.create_item(kit_id, "Kitchen Scissors", coordinate=abstract_coord("Junk Drawer"),
@@ -516,18 +549,33 @@ def seed(api: Api):
     api.create_item(kr_id, "Play-Doh Containers", coordinate=abstract_coord("Toy Chest"),
                     category="Toys", is_fungible=True, fungible_quantity=6, fungible_unit="tubs",
                     condition="good", tags=["consumable"])
-    # Children's books
-    kid_books = [
-        "Where the Wild Things Are", "Goodnight Moon", "The Very Hungry Caterpillar",
-        "Green Eggs and Ham", "Charlotte's Web", "Matilda",
-        "Charlie and the Chocolate Factory", "The BFG", "James and the Giant Peach",
-        "Diary of a Wimpy Kid", "Captain Underpants", "Dog Man",
-        "Harry Potter and the Sorcerer's Stone", "Percy Jackson: The Lightning Thief",
-        "The Chronicles of Narnia", "A Wrinkle in Time", "The Giving Tree", "Corduroy",
+    # Children's books — with ISBNs; Harry Potter shares its ISBN with the adults' shelf copy
+    # (same ISBN on two separate item records → exercises multi-match barcode resolution)
+    kid_books_with_isbns = [
+        ("Where the Wild Things Are",              "9780064431781"),
+        ("Goodnight Moon",                         "9780064430173"),
+        ("The Very Hungry Caterpillar",            "9780399226908"),
+        ("Green Eggs and Ham",                     "9780394800165"),
+        ("Charlotte's Web",                        "9780061124952"),
+        ("Matilda",                                "9780142410370"),
+        ("Charlie and the Chocolate Factory",      "9780142410318"),
+        ("The BFG",                                "9780142410387"),
+        ("James and the Giant Peach",              "9780142410363"),
+        ("Diary of a Wimpy Kid",                   "9780810993136"),
+        ("Captain Underpants",                     "9780439049962"),
+        ("Dog Man",                                "9780545581608"),
+        # Same ISBN as the copy on the adults' bookshelf in the Living Room — multi-match demo
+        ("Harry Potter and the Sorcerer's Stone",  "9780590353403"),
+        ("Percy Jackson: The Lightning Thief",     "9780786838653"),
+        ("The Chronicles of Narnia",               "9780064471190"),
+        ("A Wrinkle in Time",                      "9780312367541"),
+        ("The Giving Tree",                        "9780060256654"),
+        ("Corduroy",                               "9780140501735"),
     ]
-    for b in kid_books:
-        api.create_item(kr_id, b, coordinate=abstract_coord("Bookshelf"),
-                        category="Books", condition="good")
+    for title, isbn in kid_books_with_isbns:
+        api.create_item(kr_id, title, coordinate=abstract_coord("Bookshelf"),
+                        category="Books", condition="good",
+                        external_codes=[{"type": "ISBN", "value": isbn}])
     api.create_item(kr_id, "Kids Jackets", coordinate=abstract_coord("Closet"),
                     category="Clothing", is_fungible=True, fungible_quantity=3, fungible_unit="pcs",
                     condition="good", tags=["seasonal"])
@@ -620,11 +668,19 @@ def seed(api: Api):
                     category="Office", is_fungible=True, fungible_quantity=500, fungible_unit="sheets",
                     tags=["consumable"])
 
-    # Shelf items
-    for title in ["Python Cookbook", "Clean Code", "Design Patterns",
-                   "The Pragmatic Programmer", "SICP", "Algorithms in C"]:
+    # Shelf items — tech books with ISBNs
+    tech_books = [
+        ("Python Cookbook",        "9781449340377"),
+        ("Clean Code",             "9780132350884"),
+        ("Design Patterns",        "9780201633610"),
+        ("The Pragmatic Programmer","9780135957059"),
+        ("SICP",                   "9780262510875"),
+        ("Algorithms in C",        "9780201314526"),
+    ]
+    for title, isbn in tech_books:
         api.create_item(off_id, title, coordinate=abstract_coord("Shelf"),
-                        category="Books", condition="good")
+                        category="Books", condition="good",
+                        external_codes=[{"type": "ISBN", "value": isbn}])
     api.create_item(off_id, "External Hard Drive 2TB", coordinate=abstract_coord("Shelf"),
                     category="Electronics", condition="good", acquisition_cost=69.99,
                     currency="USD", tags=["valuable"])
@@ -646,10 +702,12 @@ def seed(api: Api):
 
     api.create_item(lau_id, "Liquid Detergent", coordinate=abstract_coord("Shelf"),
                     category="Cleaning", is_fungible=True, fungible_quantity=2, fungible_unit="bottles",
-                    condition="new", tags=["consumable"])
+                    condition="new", tags=["consumable"],
+                    external_codes=[{"type": "UPC", "value": "037000272786"}])
     api.create_item(lau_id, "Dryer Sheets", coordinate=abstract_coord("Shelf"),
                     category="Cleaning", is_fungible=True, fungible_quantity=100, fungible_unit="sheets",
-                    tags=["consumable"])
+                    tags=["consumable"],
+                    external_codes=[{"type": "UPC", "value": "037000341697"}])
     api.create_item(lau_id, "Steam Iron", coordinate=abstract_coord("Shelf"),
                     category="Kitchen", condition="fair", weight_grams=1400)
     api.create_item(lau_id, "Stain Remover Spray", coordinate=abstract_coord("Shelf"),
@@ -677,8 +735,14 @@ def seed(api: Api):
                     tags=["power-tool", "warranty"],
                     external_codes=[{"type": "UPC", "value": "764666333222"}])
     api.upload_image(api.item_id_from_event(ev), *next_image("DeWalt cordless drill"))
+    # AA Batteries in garage — same UPC as kitchen junk drawer pack (multi-match barcode demo)
+    api.create_item(gar_id, "AA Batteries", coordinate=abstract_coord("Workbench"),
+                    category="Electronics", is_fungible=True, fungible_quantity=8, fungible_unit="pcs",
+                    tags=["consumable", "dangerous"],
+                    external_codes=[{"type": "UPC", "value": "041333042152"}])
     api.create_item(gar_id, "32-Piece Screwdriver Set", coordinate=abstract_coord("Workbench"),
-                    category="Tools", condition="good", tags=["hand-tool"])
+                    category="Tools", condition="good", tags=["hand-tool"],
+                    external_codes=[{"type": "UPC", "value": "076174370344"}])
     api.create_item(gar_id, "Metric/SAE Wrench Set", coordinate=abstract_coord("Workbench"),
                     category="Tools", condition="good", tags=["hand-tool"],
                     weight_grams=2800)
