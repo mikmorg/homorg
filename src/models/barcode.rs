@@ -33,6 +33,15 @@ pub enum BarcodeResolution {
     Unknown {
         value: String,
     },
+    /// A system barcode that has been pre-assigned as a container or item preset.
+    /// Scanning this in a stocker session auto-creates the record without a name prompt.
+    #[serde(rename = "preset")]
+    Preset {
+        barcode: String,
+        is_container: bool,
+        container_type_id: Option<Uuid>,
+        container_type_name: Option<String>,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

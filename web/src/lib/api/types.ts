@@ -213,7 +213,8 @@ export type BarcodeResolution =
 	| { type: 'system'; barcode: string; item_id: string }
 	| { type: 'external'; code_type: string; value: string; item_ids: string[] }
 	| { type: 'unknown_system'; barcode: string }
-	| { type: 'unknown'; value: string };
+	| { type: 'unknown'; value: string }
+	| { type: 'preset'; barcode: string; is_container: boolean; container_type_id: string | null; container_type_name: string | null };
 
 export interface GeneratedBarcode {
 	barcode: string;

@@ -129,6 +129,47 @@ const put$ = <T>(path: string, body?: unknown) =>
 const del$ = <T>(path: string) =>
 	request<T>('DELETE', path);
 
+// Like request<T> but returns the raw Blob (for PDF downloads).
+// Shares the same 401→refresh→retry logic so expired tokens are handled transparently.
+async function requestBlob(
+	method: string,
+	path: string,
+	body?: unknown,
+	retry = true
+): Promise<Blob> {
+	let url = `${BASE}${path}`;
+	const auth = get(authStore);
+	const headers = new Headers({ 'Content-Type': 'application/json' });
+	if (auth?.access_token) headers.set('Authorization', `Bearer ${auth.access_token}`);
+
+	const resp = await fetch(url, {
+		method,
+		headers,
+		body: body !== undefined ? JSON.stringify(body) : undefined
+	});
+
+	if (resp.status === 401 && retry && auth?.refresh_token) {
+		const newToken = await refreshAndRetry();
+		headers.set('Authorization', `Bearer ${newToken}`);
+		const retry$ = await fetch(url, {
+			method,
+			headers,
+			body: body !== undefined ? JSON.stringify(body) : undefined
+		});
+		if (!retry$.ok) {
+			const err = await retry$.json().catch(() => ({ message: retry$.statusText }));
+			throw new ApiClientError({ status: retry$.status, message: err.message ?? retry$.statusText });
+		}
+		return retry$.blob();
+	}
+
+	if (!resp.ok) {
+		const err = await resp.json().catch(() => ({ message: resp.statusText }));
+		throw new ApiClientError({ status: resp.status, message: err.message ?? resp.statusText });
+	}
+	return resp.blob();
+}
+
 // ─── Auth ────────────────────────────────────────────────────────────────────
 
 export const auth = {
@@ -194,22 +235,15 @@ export const barcodes = {
 		post$<GeneratedBarcode[]>('/barcodes/generate-batch', { count }),
 	resolve: (code: string) =>
 		get$<BarcodeResolution>(`/barcodes/resolve/${encodeURIComponent(code)}`),
+	/** Generate preset barcode labels (pre-keyed as container or item) and return PDF as Blob. */
+	downloadPresetLabels: (count: number, isContainer: boolean, containerTypeId?: string): Promise<Blob> => {
+		const body: Record<string, unknown> = { count, is_container: isContainer };
+		if (containerTypeId) body.container_type_id = containerTypeId;
+		return requestBlob('POST', '/barcodes/preset-labels', body);
+	},
 	/** Generate new barcodes and return a PDF label sheet as a Blob. */
-	downloadLabels: async (count: number): Promise<Blob> => {
-		const auth = get(authStore);
-		const headers: Record<string, string> = { 'Content-Type': 'application/json' };
-		if (auth?.access_token) headers['Authorization'] = `Bearer ${auth.access_token}`;
-		const resp = await fetch(`${BASE}/barcodes/labels`, {
-			method: 'POST',
-			headers,
-			body: JSON.stringify({ count })
-		});
-		if (!resp.ok) {
-			const err = await resp.json().catch(() => ({ message: resp.statusText }));
-			throw new ApiClientError({ status: resp.status, message: err.message ?? resp.statusText });
-		}
-		return resp.blob();
-	}
+	downloadLabels: (count: number): Promise<Blob> =>
+		requestBlob('POST', '/barcodes/labels', { count })
 };
 
 // ─── Stocker ─────────────────────────────────────────────────────────────────

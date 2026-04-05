@@ -104,7 +104,7 @@ impl ContainerQueries {
                   $2::uuid IS NULL
                   {cursor_subquery}
               )
-            ORDER BY {order_col} {order_dir}, i.id {order_dir}
+            ORDER BY COALESCE({order_col}, '') {order_dir}, i.id {order_dir}
             LIMIT $3
             "#
         );

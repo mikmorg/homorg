@@ -46,6 +46,7 @@
 	// Image upload
 	let uploading: boolean = $state(false);
 	let uploadError: string = $state('');
+	let imageChanged: boolean = $state(false);
 
 	let loadedItemId: string = $state('');
 
@@ -55,6 +56,7 @@
 		loading = true;
 		error = '';
 		saveError = '';
+		imageChanged = false;
 		item = null;
 		parentItem = null;
 		try {
@@ -191,7 +193,7 @@
 		const oldQty = item.fungible_quantity ?? null;
 		const quantityChanged = isFungible && newQty !== null && newQty !== oldQty;
 
-		if (Object.keys(updates).length === 0 && !schemaChanged && !quantityChanged) {
+		if (Object.keys(updates).length === 0 && !schemaChanged && !quantityChanged && !imageChanged) {
 			saveError = 'No changes to save.';
 			saving = false;
 			return;
@@ -236,8 +238,9 @@
 		uploadError = '';
 		try {
 			await api.items.uploadImage(itemId, file);
-			// Refresh item to get updated images
 			item = await api.items.get(itemId);
+			imageChanged = true;
+			toast('Image added', 'success');
 		} catch (err) {
 			uploadError = err instanceof Error ? err.message : 'Upload failed';
 		} finally {
@@ -251,6 +254,7 @@
 		try {
 			await api.items.removeImage(itemId, idx);
 			item = await api.items.get(itemId);
+			imageChanged = true;
 		} catch (err) {
 			uploadError = err instanceof Error ? err.message : 'Remove failed';
 		}
@@ -422,7 +426,7 @@
 						<div class="mb-3 grid grid-cols-3 gap-2">
 							{#each item.images as img, idx}
 								<div class="relative group">
-									<img src="/files/{img.path}" alt={img.caption ?? 'Image'} class="w-full h-24 rounded-lg object-cover" />
+									<img src={img.path} alt={img.caption ?? 'Image'} class="w-full h-24 rounded-lg object-cover" />
 									<button
 										class="absolute top-1 right-1 flex h-6 w-6 items-center justify-center rounded-full bg-red-600 text-white text-xs shadow"
 										onclick={() => removeImage(idx)}

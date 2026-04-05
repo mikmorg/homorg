@@ -3,16 +3,24 @@
 	import { goto } from '$app/navigation';
 	import { api } from '$api/client.js';
 	import { isAdmin } from '$stores/auth.js';
-	import type { StatsResponse } from '$api/types.js';
+	import type { StatsResponse, ContainerType } from '$api/types.js';
 	import { toast } from '$stores/toast.js';
 
-	let stats: StatsResponse | null = null;
-	let loading = true;
-	let statsError = '';
-	let rebuilding = false;
+	let stats: StatsResponse | null = $state(null);
+	let loading = $state(true);
+	let statsError = $state('');
+	let rebuilding = $state(false);
 
-	let labelCount = 30;
-	let generatingLabels = false;
+	let labelCount = $state(30);
+	let generatingLabels = $state(false);
+
+	// Preset labels
+	let containerTypes: ContainerType[] = $state([]);
+	let presetItemCount = $state(30);
+	let presetContainerCount = $state(30);
+	let presetContainerTypeId = $state('');
+	let generatingPresetItem = $state(false);
+	let generatingPresetContainer = $state(false);
 
 	async function downloadLabels() {
 		if (labelCount < 1 || labelCount > 1000) {
@@ -35,10 +43,59 @@
 		}
 	}
 
+	async function downloadPresetItemLabels() {
+		if (presetItemCount < 1 || presetItemCount > 1000) {
+			toast('Count must be between 1 and 1000', 'error');
+			return;
+		}
+		generatingPresetItem = true;
+		try {
+			const blob = await api.barcodes.downloadPresetLabels(presetItemCount, false);
+			const url = URL.createObjectURL(blob);
+			const a = document.createElement('a');
+			a.href = url;
+			a.download = `preset-item-labels-${presetItemCount}.pdf`;
+			a.click();
+			URL.revokeObjectURL(url);
+		} catch (err) {
+			toast(err instanceof Error ? err.message : 'Label generation failed', 'error');
+		} finally {
+			generatingPresetItem = false;
+		}
+	}
+
+	async function downloadPresetContainerLabels() {
+		if (presetContainerCount < 1 || presetContainerCount > 1000) {
+			toast('Count must be between 1 and 1000', 'error');
+			return;
+		}
+		generatingPresetContainer = true;
+		try {
+			const blob = await api.barcodes.downloadPresetLabels(
+				presetContainerCount,
+				true,
+				presetContainerTypeId || undefined
+			);
+			const url = URL.createObjectURL(blob);
+			const a = document.createElement('a');
+			a.href = url;
+			a.download = `preset-container-labels-${presetContainerCount}.pdf`;
+			a.click();
+			URL.revokeObjectURL(url);
+		} catch (err) {
+			toast(err instanceof Error ? err.message : 'Label generation failed', 'error');
+		} finally {
+			generatingPresetContainer = false;
+		}
+	}
+
 	onMount(async () => {
 		if (!$isAdmin) { goto('/'); return; }
 		try {
-			stats = await api.system.stats();
+			[stats, containerTypes] = await Promise.all([
+				api.system.stats(),
+				api.containerTypes.list()
+			]);
 		} catch (err) {
 			statsError = err instanceof Error ? err.message : 'Failed to load stats';
 		} finally {
@@ -120,8 +177,8 @@
 
 		<!-- Print Labels -->
 		<div class="card p-4 space-y-3">
-			<p class="text-xs font-medium text-slate-400 uppercase tracking-wide">Print Labels</p>
-			<p class="text-xs text-slate-500">Generates new barcodes and downloads a PDF (OL25WX, 3×10 per page).</p>
+			<p class="text-xs font-medium text-slate-400 uppercase tracking-wide">Blank Labels</p>
+			<p class="text-xs text-slate-500">Unregistered barcodes for assigning to existing items. When scanned in a stocker session you'll be prompted to name the item manually.</p>
 			<div class="flex items-center gap-3">
 				<label class="text-sm text-slate-300 shrink-0" for="label-count">Labels</label>
 				<input
@@ -150,6 +207,97 @@
 						Download PDF
 					{/if}
 				</button>
+			</div>
+		</div>
+
+		<!-- Print Preset Labels -->
+		<div class="card p-4 space-y-4">
+			<div>
+				<p class="text-xs font-medium text-slate-400 uppercase tracking-wide">Scan-to-Create Labels</p>
+				<p class="text-xs text-slate-500 mt-1">Pre-registered barcodes. Scanning one in a stocker session instantly creates the record — no name prompt, barcode becomes the default name.</p>
+			</div>
+
+			<!-- Item preset labels -->
+			<div class="space-y-2">
+				<p class="text-xs text-slate-400 font-medium">Items</p>
+				<div class="flex items-center gap-3">
+					<label class="text-sm text-slate-300 shrink-0" for="preset-item-count">Count</label>
+					<input
+						id="preset-item-count"
+						type="number"
+						min="1"
+						max="1000"
+						step="10"
+						bind:value={presetItemCount}
+						class="w-24 rounded-md bg-slate-700 border border-slate-600 px-3 py-1.5 text-sm text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+					/>
+					<button
+						class="btn-primary flex items-center gap-2 disabled:opacity-50"
+						onclick={downloadPresetItemLabels}
+						disabled={generatingPresetItem}
+					>
+						{#if generatingPresetItem}
+							<div class="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white"></div>
+							Generating…
+						{:else}
+							<svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+								<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+								<polyline points="7 10 12 15 17 10"/>
+								<line x1="12" y1="15" x2="12" y2="3"/>
+							</svg>
+							Download PDF
+						{/if}
+					</button>
+				</div>
+			</div>
+
+			<!-- Container preset labels -->
+			<div class="space-y-2">
+				<p class="text-xs text-slate-400 font-medium">Containers</p>
+				<div class="flex flex-col gap-2">
+					<div class="flex items-center gap-3">
+						<label class="text-sm text-slate-300 shrink-0" for="preset-container-type">Type</label>
+						<select
+							id="preset-container-type"
+							bind:value={presetContainerTypeId}
+							class="flex-1 rounded-md bg-slate-700 border border-slate-600 px-3 py-1.5 text-sm text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+						>
+							<option value="">— No type —</option>
+							{#each containerTypes as ct}
+								<option value={ct.id}>{ct.name}</option>
+							{/each}
+						</select>
+					</div>
+					<div class="flex items-center gap-3">
+						<label class="text-sm text-slate-300 shrink-0" for="preset-container-count">Count</label>
+						<input
+							id="preset-container-count"
+							type="number"
+							min="1"
+							max="1000"
+							step="10"
+							bind:value={presetContainerCount}
+							class="w-24 rounded-md bg-slate-700 border border-slate-600 px-3 py-1.5 text-sm text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+						/>
+						<button
+							class="btn-primary flex items-center gap-2 disabled:opacity-50"
+							onclick={downloadPresetContainerLabels}
+							disabled={generatingPresetContainer}
+						>
+							{#if generatingPresetContainer}
+								<div class="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white"></div>
+								Generating…
+							{:else}
+								<svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+									<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+									<polyline points="7 10 12 15 17 10"/>
+									<line x1="12" y1="15" x2="12" y2="3"/>
+								</svg>
+								Download PDF
+							{/if}
+						</button>
+					</div>
+				</div>
 			</div>
 		</div>
 

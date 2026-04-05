@@ -99,6 +99,58 @@ impl BarcodeCommands {
         Ok(GeneratedBarcode { barcode })
     }
 
+    /// Generate a batch of system barcodes within an existing transaction.
+    ///
+    /// Identical to [`generate_batch`] but uses the provided transaction as executor so
+    /// the sequence update and event store write are part of the caller's transaction.
+    pub async fn generate_batch_in_tx(
+        &self,
+        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        count: u32,
+    ) -> AppResult<Vec<GeneratedBarcode>> {
+        if count == 0 || count > 10000 {
+            return Err(AppError::BadRequest(
+                "Batch count must be between 1 and 10000".into(),
+            ));
+        }
+
+        let start: Option<i64> = sqlx::query_scalar(
+            "UPDATE barcode_sequences SET next_value = next_value + $1 WHERE prefix = $2 RETURNING next_value - $1",
+        )
+        .bind(count as i64)
+        .bind(&self.config.barcode_prefix)
+        .fetch_optional(&mut **tx)
+        .await?;
+
+        let start = start.ok_or_else(|| AppError::Internal(format!(
+            "Barcode prefix '{}' is not seeded in barcode_sequences.",
+            self.config.barcode_prefix
+        )))?;
+
+        let barcodes: Vec<GeneratedBarcode> = (start..start + count as i64)
+            .map(|n| GeneratedBarcode {
+                barcode: format!(
+                    "{}-{:0>width$}",
+                    self.config.barcode_prefix,
+                    n,
+                    width = self.config.barcode_pad_width
+                ),
+            })
+            .collect();
+
+        if let Some(first) = barcodes.first() {
+            let event = DomainEvent::BarcodeGenerated(BarcodeGeneratedData {
+                barcode: format!("{}..+{}", first.barcode, count),
+                assigned_to: None,
+            });
+            self.event_store
+                .append_in_tx(tx, self.sequence_aggregate_id(), &event, Uuid::nil(), &EventMetadata::default())
+                .await?;
+        }
+
+        Ok(barcodes)
+    }
+
     /// Generate a batch of system barcodes.
     pub async fn generate_batch(&self, count: u32) -> AppResult<Vec<GeneratedBarcode>> {
         if count == 0 || count > 10000 {
@@ -165,9 +217,32 @@ impl BarcodeCommands {
                     barcode: code.to_string(),
                     item_id: id,
                 }),
-                None => Ok(BarcodeResolution::UnknownSystem {
-                    barcode: code.to_string(),
-                }),
+                None => {
+                    // Check barcode_presets before returning UnknownSystem.
+                    let preset: Option<(bool, Option<Uuid>, Option<String>)> = sqlx::query_as(
+                        "SELECT bp.is_container, bp.container_type_id, ct.name \
+                         FROM barcode_presets bp \
+                         LEFT JOIN container_types ct ON ct.id = bp.container_type_id \
+                         WHERE bp.barcode = $1",
+                    )
+                    .bind(code)
+                    .fetch_optional(&self.pool)
+                    .await?;
+
+                    match preset {
+                        Some((is_container, container_type_id, container_type_name)) => {
+                            Ok(BarcodeResolution::Preset {
+                                barcode: code.to_string(),
+                                is_container,
+                                container_type_id,
+                                container_type_name,
+                            })
+                        }
+                        None => Ok(BarcodeResolution::UnknownSystem {
+                            barcode: code.to_string(),
+                        }),
+                    }
+                }
             }
         } else {
             // Attempt to identify as a commercial code
@@ -229,9 +304,31 @@ impl BarcodeCommands {
                     barcode: code.to_string(),
                     item_id: id,
                 }),
-                None => Ok(BarcodeResolution::UnknownSystem {
-                    barcode: code.to_string(),
-                }),
+                None => {
+                    let preset: Option<(bool, Option<Uuid>, Option<String>)> = sqlx::query_as(
+                        "SELECT bp.is_container, bp.container_type_id, ct.name \
+                         FROM barcode_presets bp \
+                         LEFT JOIN container_types ct ON ct.id = bp.container_type_id \
+                         WHERE bp.barcode = $1",
+                    )
+                    .bind(code)
+                    .fetch_optional(&mut **tx)
+                    .await?;
+
+                    match preset {
+                        Some((is_container, container_type_id, container_type_name)) => {
+                            Ok(BarcodeResolution::Preset {
+                                barcode: code.to_string(),
+                                is_container,
+                                container_type_id,
+                                container_type_name,
+                            })
+                        }
+                        None => Ok(BarcodeResolution::UnknownSystem {
+                            barcode: code.to_string(),
+                        }),
+                    }
+                }
             }
         } else {
             let code_type = classify_commercial_code(code);

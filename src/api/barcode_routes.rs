@@ -21,6 +21,7 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/generate-batch", post(generate_batch))
         .route("/resolve/{code}", get(resolve))
         .route("/labels", post(labels_pdf))
+        .route("/preset-labels", post(preset_labels_pdf))
 }
 
 /// Generate a single new system barcode.
@@ -55,8 +56,8 @@ async fn resolve(
     _auth: AuthUser,
     Path(code): Path<String>,
 ) -> AppResult<Json<BarcodeResolution>> {
-    if code.len() > 256 {
-        return Err(AppError::BadRequest("Barcode exceeds maximum length".into()));
+    if code.is_empty() || code.len() > 256 {
+        return Err(AppError::BadRequest("Barcode must be between 1 and 256 characters".into()));
     }
     let resolution = state.barcode_commands.resolve_barcode(&code).await?;
     Ok(Json(resolution))
@@ -129,6 +130,74 @@ async fn labels_pdf(
         .header(
             header::CONTENT_DISPOSITION,
             "attachment; filename=\"labels.pdf\"",
+        )
+        .body(Body::from(pdf))
+        .unwrap())
+}
+
+#[derive(Debug, Deserialize)]
+struct PresetLabelsPdfRequest {
+    count: u32,
+    is_container: bool,
+    container_type_id: Option<uuid::Uuid>,
+}
+
+/// Generate preset barcode labels — each barcode is pre-registered as a container
+/// or item so the stocker can auto-create the record on first scan without prompting
+/// for a name (the barcode string becomes the default name).
+async fn preset_labels_pdf(
+    State(state): State<Arc<AppState>>,
+    auth: AuthUser,
+    Json(req): Json<PresetLabelsPdfRequest>,
+) -> AppResult<Response> {
+    auth.require_role("member")?;
+
+    if req.count == 0 || req.count > MAX_BARCODE_BATCH {
+        return Err(AppError::BadRequest(format!(
+            "count must be between 1 and {MAX_BARCODE_BATCH}"
+        )));
+    }
+
+    // Validate container_type_id if provided.
+    if let Some(type_id) = req.container_type_id {
+        let exists: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM container_types WHERE id = $1)",
+        )
+        .bind(type_id)
+        .fetch_one(&state.pool)
+        .await?;
+        if !exists {
+            return Err(AppError::NotFound(format!("Container type {type_id} not found")));
+        }
+    }
+
+    // Generate barcodes and insert presets atomically — all in one transaction so
+    // the sequence advance and preset rows are never out of sync.
+    let mut tx = state.pool.begin().await?;
+    let generated = state.barcode_commands.generate_batch_in_tx(&mut tx, req.count).await?;
+    let barcodes: Vec<String> = generated.into_iter().map(|b| b.barcode).collect();
+
+    for barcode in &barcodes {
+        sqlx::query(
+            "INSERT INTO barcode_presets (barcode, is_container, container_type_id) \
+             VALUES ($1, $2, $3) ON CONFLICT (barcode) DO NOTHING",
+        )
+        .bind(barcode)
+        .bind(req.is_container)
+        .bind(req.container_type_id)
+        .execute(&mut *tx)
+        .await?;
+    }
+    tx.commit().await?;
+
+    let pdf = crate::label_gen::generate_label_pdf(&barcodes).await?;
+
+    Ok(Response::builder()
+        .status(StatusCode::OK)
+        .header(header::CONTENT_TYPE, "application/pdf")
+        .header(
+            header::CONTENT_DISPOSITION,
+            "attachment; filename=\"preset-labels.pdf\"",
         )
         .body(Body::from(pdf))
         .unwrap())

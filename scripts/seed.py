@@ -772,6 +772,64 @@ def seed(api: Api):
                     is_fungible=True, fungible_quantity=2, fungible_unit="pcs",
                     condition="good", tags=["outdoor"])
 
+    # ── Backyard ─────────────────────────────────────────────────────────
+    # Exercises the geo location schema: children positioned by lat/lon within
+    # the yard, and a nested sub-container (Garden Shed) that itself uses an
+    # abstract schema so grid/abstract children inside it are also exercised.
+    print("  Backyard...")
+    yard_ev = api.create_item(
+        house_id, "Backyard",
+        is_container=True,
+        description="Fenced backyard with a garden shed, raised vegetable beds, compost corner, and patio.",
+        location_schema={"type": "geo"},
+        container_type_id=ct_types.get("Room"),
+        dimensions=dims(1800, 200, 1200),
+    )
+    yard_id = api.item_id_from_event(yard_ev)
+    api.upload_image(yard_id, *next_image("Backyard with raised garden beds and shed"))
+
+    # Garden Shed — geo-positioned within the yard, has its own abstract schema
+    shed_ev = api.create_item(
+        yard_id, "Garden Shed",
+        is_container=True,
+        description="Small metal storage shed for garden tools and lawn equipment.",
+        coordinate=geo_coord(41.8780, -87.6296),
+        location_schema=abstract_schema(["Tool Wall", "Shelf", "Floor"]),
+        container_type_id=ct_types.get("Bin"),
+    )
+    shed_id = api.item_id_from_event(shed_ev)
+    api.create_item(shed_id, "Garden Hose 50ft", coordinate=abstract_coord("Tool Wall"),
+                    category="Garden", condition="fair", tags=["outdoor"])
+    api.create_item(shed_id, "Long-Handle Shovel", coordinate=abstract_coord("Tool Wall"),
+                    category="Garden", condition="good", tags=["outdoor", "hand-tool"])
+    api.create_item(shed_id, "Leaf Rake", coordinate=abstract_coord("Tool Wall"),
+                    category="Garden", condition="good", tags=["outdoor", "hand-tool"])
+    api.create_item(shed_id, "Wheelbarrow", coordinate=abstract_coord("Floor"),
+                    category="Garden", condition="fair", tags=["outdoor", "heavy"])
+    api.create_item(shed_id, "Potting Mix Bags", coordinate=abstract_coord("Shelf"),
+                    category="Garden", is_fungible=True, fungible_quantity=4, fungible_unit="bags",
+                    condition="new", tags=["outdoor", "consumable"])
+    api.create_item(shed_id, "Fertilizer Granules", coordinate=abstract_coord("Shelf"),
+                    category="Garden", condition="good", tags=["outdoor", "consumable", "dangerous"])
+
+    # Other yard features positioned by geo coordinate
+    api.create_item(yard_id, "Raised Vegetable Beds",
+                    coordinate=geo_coord(41.8779, -87.6297),
+                    category="Garden", condition="good", tags=["outdoor", "seasonal"],
+                    description="Three 4×8 ft cedar raised beds — tomatoes, peppers, and herbs.")
+    api.create_item(yard_id, "Compost Tumbler",
+                    coordinate=geo_coord(41.87785, -87.62945),
+                    category="Garden", condition="good", tags=["outdoor"])
+    ev = api.create_item(yard_id, "Patio Furniture Set",
+                    coordinate=geo_coord(41.87805, -87.62985),
+                    category="Furniture", condition="good", tags=["outdoor", "seasonal"],
+                    acquisition_cost=299.99, currency="USD")
+    api.upload_image(api.item_id_from_event(ev), *next_image("Patio table and chairs"))
+    api.create_item(yard_id, "Weber Charcoal Grill",
+                    coordinate=geo_coord(41.87802, -87.62975),
+                    category="Kitchen", condition="good", tags=["outdoor", "dangerous"],
+                    acquisition_cost=149.99, currency="USD", weight_grams=14000)
+
     # ── Storage Crawl Space ──────────────────────────────────────────────
     print("  Storage Crawl Space...")
     cs_ev = api.create_item(

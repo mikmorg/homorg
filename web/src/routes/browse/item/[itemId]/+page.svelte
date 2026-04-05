@@ -354,11 +354,11 @@
 				<!-- Images -->
 				{#if item.images && item.images.length > 0}
 					{#if item.images.length === 1}
-						<img src="/files/{item.images[0].path}" alt={item.images[0].caption ?? item.name ?? ''} class="w-full rounded-lg object-cover max-h-48" />
+						<img src={item.images[0].path} alt={item.images[0].caption ?? item.name ?? ''} class="w-full rounded-lg object-cover max-h-48" />
 					{:else}
 						<div class="flex gap-2 overflow-x-auto pb-1 -mx-4 px-4 snap-x">
 							{#each item.images as img}
-								<img src="/files/{img.path}" alt={img.caption ?? item.name ?? ''} class="h-40 w-auto flex-shrink-0 rounded-lg object-cover snap-start" />
+								<img src={img.path} alt={img.caption ?? item.name ?? ''} class="h-40 w-auto flex-shrink-0 rounded-lg object-cover snap-start" />
 							{/each}
 						</div>
 					{/if}

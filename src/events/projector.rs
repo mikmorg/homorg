@@ -372,6 +372,24 @@ impl Projector {
                 .execute(&mut **tx)
                 .await?;
 
+            } else if field == "location_schema" {
+                // Writes to container_properties, same as ContainerSchemaUpdated.
+                // location_schema normally changes via ContainerSchemaUpdated, but handle
+                // it here too so ItemUpdated events with this field don't silently diverge.
+                let schema_value: Option<&serde_json::Value> = if change.new.is_null() {
+                    None
+                } else {
+                    Some(&change.new)
+                };
+                sqlx::query(
+                    "INSERT INTO container_properties (item_id, location_schema) VALUES ($1, $2) \
+                     ON CONFLICT (item_id) DO UPDATE SET location_schema = EXCLUDED.location_schema",
+                )
+                .bind(id)
+                .bind(schema_value)
+                .execute(&mut **tx)
+                .await?;
+
             } else if field == "is_container" {
                 let value = change.new.as_bool()
                     .or_else(|| change.new.as_str().and_then(|s| s.parse::<bool>().ok()))

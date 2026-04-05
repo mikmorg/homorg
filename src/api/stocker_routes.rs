@@ -469,8 +469,10 @@ async fn end_session(
     Path(id): Path<Uuid>,
 ) -> AppResult<Json<ScanSession>> {
     auth.require_role("member")?;
-    // Revoke all camera tokens when session ends
-    let _ = state.session_repository.revoke_all_camera_tokens(id, auth.user_id).await;
+    // Revoke all camera tokens when session ends — log but don't block on failure.
+    if let Err(e) = state.session_repository.revoke_all_camera_tokens(id, auth.user_id).await {
+        tracing::warn!("Failed to revoke camera tokens for session {id}: {e}");
+    }
     let session = state.session_repository.end_session(id, auth.user_id).await?;
     Ok(Json(session))
 }
@@ -704,9 +706,10 @@ async fn camera_upload(
         }
     };
 
-    // Count images on the item to return in response
+    // Count images on the item to return in response.
+    // jsonb_array_length returns INT4; cast to INT8 so sqlx binds to i64.
     let image_count: i64 = sqlx::query_scalar(
-        "SELECT jsonb_array_length(COALESCE(images, '[]'::jsonb)) FROM items WHERE id = $1",
+        "SELECT jsonb_array_length(COALESCE(images, '[]'::jsonb))::bigint FROM items WHERE id = $1",
     )
     .bind(target_item_id)
     .fetch_one(&state.pool)

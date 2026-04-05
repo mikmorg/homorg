@@ -12,20 +12,15 @@ pub mod tag_routes;
 pub mod category_routes;
 
 use axum::{
-    extract::State,
-    middleware::{self, Next},
-    response::IntoResponse,
     Router,
 };
 use std::{net::IpAddr, sync::Arc};
-use tower::ServiceBuilder;
 use tower::util::option_layer;
 use tower_governor::{
     governor::GovernorConfigBuilder, key_extractor::KeyExtractor, GovernorError, GovernorLayer,
 };
 use tower_http::services::ServeDir;
 use crate::config::AppConfig;
-use crate::errors::AppError;
 use crate::AppState;
 
 // ── SEC-6: Client IP extraction that respects reverse-proxy headers ──────────
@@ -77,53 +72,11 @@ impl KeyExtractor for ClientIpKeyExtractor {
     }
 }
 
-/// SEC-3: Middleware that validates a bearer token before serving uploaded files.
-/// H-7: Now also checks the DB to verify the user is still active, matching the
-/// AuthUser extractor's behavior. This prevents deactivated users from accessing
-/// images for the remaining lifetime of their JWT.
-async fn require_file_auth(
-    State(state): State<Arc<AppState>>,
-    request: axum::extract::Request,
-    next: Next,
-) -> impl IntoResponse {
-    let token = request
-        .headers()
-        .get("authorization")
-        .and_then(|v| v.to_str().ok())
-        .and_then(|s| s.strip_prefix("Bearer "))
-        .map(|s| s.to_string());
-
-    match token {
-        Some(t) => match crate::auth::jwt::decode_access_token(&t, &state.config.jwt_secret) {
-            Ok(claims) => {
-                // Verify user is still active in the database
-                let user_id = claims.sub;
-                let is_active = sqlx::query_scalar::<_, bool>(
-                    "SELECT is_active FROM users WHERE id = $1",
-                )
-                .bind(user_id)
-                .fetch_optional(&state.pool)
-                .await
-                .ok()
-                .flatten()
-                .unwrap_or(false);
-
-                if is_active {
-                    next.run(request).await
-                } else {
-                    AppError::Unauthorized.into_response()
-                }
-            }
-            Err(e) => e.into_response(),
-        },
-        None => AppError::Unauthorized.into_response(),
-    }
-}
 
 /// Build the complete API router with all v1 routes.
 pub fn build_router(state: Arc<AppState>, config: &AppConfig) -> Router {
     // Rate limiting is opt-in: disabled unless RATE_LIMIT_RPS is explicitly set.
-    let (auth_layer, api_layer, files_layer) = if config.rate_limit_enabled {
+    let (auth_layer, api_layer) = if config.rate_limit_enabled {
         let auth_conf = Arc::new(
             GovernorConfigBuilder::default()
                 .per_second(config.rate_limit_rps)
@@ -140,28 +93,14 @@ pub fn build_router(state: Arc<AppState>, config: &AppConfig) -> Router {
                 .finish()
                 .expect("Failed to build API rate limiter config"),
         );
-        let files_conf = Arc::new(
-            GovernorConfigBuilder::default()
-                .per_second(config.rate_limit_rps * 5)
-                .burst_size(config.rate_limit_burst * 10)
-                .key_extractor(ClientIpKeyExtractor)
-                .finish()
-                .expect("Failed to build files rate limiter config"),
-        );
         (
             Some(GovernorLayer::new(auth_conf)),
             Some(GovernorLayer::new(api_conf)),
-            Some(GovernorLayer::new(files_conf)),
         )
     } else {
-        (None, None, None)
+        (None, None)
     };
 
-    // SEC-3: Wrap ServeDir with a lightweight JWT auth check.
-    let files_service = ServiceBuilder::new()
-        .option_layer(files_layer)
-        .layer(middleware::from_fn_with_state(state.clone(), require_file_auth))
-        .service(ServeDir::new(&config.storage_path));
 
     let api_v1 = Router::new()
         .nest(
@@ -183,7 +122,8 @@ pub fn build_router(state: Arc<AppState>, config: &AppConfig) -> Router {
 
     Router::new()
         .nest("/api/v1", api_v1)
-        // SEC-3: /files now requires a valid bearer token.
-        .nest_service("/files", files_service)
+        // Images are household inventory photos — not sensitive. No auth required
+        // so standard browser <img src> tags work without fetch+blob workarounds.
+        .nest_service("/files", ServeDir::new(&config.storage_path))
         .with_state(state)
 }

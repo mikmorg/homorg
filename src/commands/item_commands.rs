@@ -369,7 +369,7 @@ impl ItemCommands {
         .ok_or_else(|| AppError::NotFound(format!("Item {item_id} not found")))?;
 
         let dest = sqlx::query_as::<_, (Uuid, bool, Option<String>)>(
-            "SELECT id, is_container, container_path::text FROM items WHERE id = $1 AND is_deleted = FALSE",
+            "SELECT id, is_container, container_path::text FROM items WHERE id = $1 AND is_deleted = FALSE FOR UPDATE",
         )
         .bind(req.container_id)
         .fetch_optional(&mut **tx)
@@ -535,7 +535,7 @@ impl ItemCommands {
         // IMG-1 + H-3: Check image count inside the transaction with FOR UPDATE
         // to prevent concurrent uploads from exceeding the limit.
         let image_count: i64 = sqlx::query_scalar(
-            "SELECT COALESCE(jsonb_array_length(images), 0) FROM items WHERE id = $1 AND is_deleted = FALSE FOR UPDATE",
+            "SELECT COALESCE(jsonb_array_length(images), 0)::bigint FROM items WHERE id = $1 AND is_deleted = FALSE FOR UPDATE",
         )
         .bind(item_id)
         .fetch_optional(&mut *tx)

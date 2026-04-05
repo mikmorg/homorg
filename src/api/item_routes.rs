@@ -110,6 +110,13 @@ pub(crate) fn validate_create_request(req: &CreateItemRequest) -> Result<(), App
             "fungible_quantity cannot be set when is_fungible is false".into(),
         ));
     }
+    // VAL-4b: Require fungible_quantity when is_fungible is true to avoid NULL
+    // quantities breaking display and arithmetic operations.
+    if req.is_fungible.unwrap_or(false) && req.fungible_quantity.is_none() {
+        return Err(AppError::BadRequest(
+            "fungible_quantity is required when is_fungible is true".into(),
+        ));
+    }
     // VAL-5: Reject negative numeric values (mirrors DB CHECK constraints).
     if let Some(v) = req.weight_grams {
         if v < 0.0 { return Err(AppError::BadRequest("weight_grams must be >= 0".into())); }

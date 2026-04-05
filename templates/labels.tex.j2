@@ -15,5 +15,7 @@
 \TopLabelBorder=0mm
 \BottomLabelBorder=0mm
 \begin{document}
-{% for barcode in barcodes %}\genericlabel{\begin{tabular}{c}\barracuda[module=tex.sp("0.38mm"), height=tex.sp("10mm")]{code128}{ {{- barcode -}} }\\[1pt]{\fontsize{6}{7}\selectfont\ttfamily {{ barcode }}}\end{tabular}}
-{% endfor %}\end{document}
+\makeatletter
+{% for barcode in barcodes %}\genericlabel{\makebox[\area@width][c]{\raisebox{0pt}[\area@height][0pt]{\vbox to \area@height{\vfil\hbox{\begin{tabular}{c}\barracuda[module=tex.sp("0.38mm"), height=tex.sp("10mm")]{code128}{ {{- barcode -}} }\\[1pt]{\fontsize{6}{7}\selectfont\ttfamily {{ barcode }}}\end{tabular}}\vfil}}}}
+{% endfor %}\makeatother
+\end{document}

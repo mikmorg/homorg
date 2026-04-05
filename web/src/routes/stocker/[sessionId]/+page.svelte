@@ -4,6 +4,7 @@
 	import { goto, beforeNavigate } from '$app/navigation';
 	import { api } from '$api/client.js';
 	import type { BarcodeResolution, CameraToken, Item, ItemSummary, StockerBatchEvent } from '$api/types.js';
+	import QRCode from 'qrcode';
 	import { onScan, scannerState, startSerialScanner, startCameraScanner, startHidScanner } from '$scanner/index.js';
 	import { scanSuccess, scanError, contextSet, newItem as newItemSound } from '$audio/feedback.js';
 	import { init as initAudio } from '$audio/feedback.js';
@@ -60,12 +61,25 @@
 	// Scanner modal
 	let showScannerSettings: boolean = $state(false);
 
+	// Container placement modal (for container presets)
+	let showPlaceContainer: boolean = $state(false);
+	let placeContainerBarcode: string = $state('');
+	let placeContainerTypeId: string | null = $state(null);
+	let placeContainerTypeName: string | null = $state(null);
+	let placeParentQuery: string = $state('');
+	let placeParentResults: ItemSummary[] = $state([]);
+	let placeParentLoading: boolean = $state(false);
+	let placeParentSelected: ItemSummary | null = $state(null);
+	let placingContainer: boolean = $state(false);
+	let placeError: string = $state('');
+
 	// Camera link
 	let showCameraLink: boolean = $state(false);
 	let cameraTokens: CameraToken[] = $state([]);
 	let cameraLinkLoading: boolean = $state(false);
 	let cameraLinkError: string = $state('');
 	let cameraDeviceName: string = $state('');
+	let cameraQrCodes: Record<string, string> = $state({});
 
 	let context = $derived($stockerStore.context);
 	let session = $derived($stockerStore.session);
@@ -74,6 +88,11 @@
 	onMount(async () => {
 		try {
 			const s = await api.stocker.getSession(sessionId);
+			if (s.ended_at) {
+				error = 'This session has already ended.';
+				loading = false;
+				return;
+			}
 			setSession(s);
 		} catch {
 			error = 'Session not found.';
@@ -186,10 +205,56 @@
 				break;
 			}
 
+			case 'preset': {
+				if (resolution.is_container) {
+					// Container preset — open placement modal so user picks parent location
+					placeContainerBarcode = resolution.barcode;
+					placeContainerTypeId = resolution.container_type_id;
+					placeContainerTypeName = resolution.container_type_name;
+					placeParentQuery = '';
+					placeParentResults = [];
+					placeParentSelected = null;
+					placeError = '';
+					showPlaceContainer = true;
+					newItemSound();
+					addLog(barcode, 'create', `New container: ${resolution.container_type_name ?? 'Container'}`);
+				} else {
+					// Item preset — auto-create in active context, no prompt
+					if (!context.containerId) {
+						addLog(barcode, 'error', 'No container context — scan a container first');
+						scanError();
+						break;
+					}
+					try {
+						const batchRes = await api.stocker.submitBatch(sessionId, { events: [{
+							type: 'create_and_place',
+							barcode,
+							name: barcode,
+							scanned_at: new Date().toISOString()
+						}] }, true);
+						const created = batchRes.results.find(r => r.type === 'created') as ({ type: 'created'; item_id: string } | undefined);
+						if (created) {
+							const createdItem = await api.items.get(created.item_id);
+							addRecentItem(createdItem);
+							addLog(barcode, 'success', `Created: ${barcode} → ${context.containerName}`);
+							scanSuccess();
+						} else {
+							addLog(barcode, 'error', batchRes.errors?.[0]?.message ?? 'Create failed');
+							scanError();
+						}
+					} catch (err) {
+						addLog(barcode, 'error', err instanceof Error ? err.message : 'Create failed');
+						scanError();
+					}
+				}
+				break;
+			}
+
 			case 'unknown_system':
 			case 'unknown': {
 				// Unknown barcode — offer to create item
 				qcBarcode = barcode;
+				qcError = '';
 				showQuickCreate = true;
 				newItemSound();
 				addLog(barcode, 'create', `New item? ${barcode}`);
@@ -199,6 +264,7 @@
 			case 'external': {
 				if (resolution.item_ids.length === 0) {
 					qcBarcode = barcode;
+					qcError = '';
 					showQuickCreate = true;
 					newItemSound();
 					addLog(barcode, 'create', `External code not assigned — create item?`);
@@ -363,6 +429,12 @@
 	async function loadCameraLinks() {
 		try {
 			cameraTokens = await api.stocker.listCameraLinks(sessionId);
+			const qr: Record<string, string> = {};
+			for (const ct of cameraTokens) {
+				const url = `${getCameraUrl(ct.token)}/upload`;
+				qr[ct.id] = await QRCode.toDataURL(url, { width: 192, margin: 1, errorCorrectionLevel: 'M' });
+			}
+			cameraQrCodes = qr;
 		} catch {
 			cameraTokens = [];
 		}
@@ -409,6 +481,67 @@
 		} catch (err) {
 			error = err instanceof Error ? err.message : 'Failed to end session';
 			ending = false;
+		}
+	}
+
+	// ── Container placement (preset containers) ──────────────────────────────
+	let placeParentDebounce: ReturnType<typeof setTimeout> | null = null;
+	function onPlaceParentInput() {
+		if (placeParentDebounce) clearTimeout(placeParentDebounce);
+		placeParentDebounce = setTimeout(searchPlaceParent, 300);
+	}
+
+	async function searchPlaceParent() {
+		if (!placeParentQuery.trim()) { placeParentResults = []; return; }
+		placeParentLoading = true;
+		try {
+			placeParentResults = await api.search.query({ q: placeParentQuery, is_container: true, limit: 20 });
+		} catch { placeParentResults = []; }
+		finally { placeParentLoading = false; }
+	}
+
+	async function confirmPlaceContainer() {
+		if (!placeParentSelected) { placeError = 'Select a parent container.'; return; }
+		placingContainer = true;
+		placeError = '';
+		try {
+			// Temporarily override active container to the chosen parent, create container there,
+			// then restore context to the new container.
+			const parentId = placeParentSelected.id;
+			const parentName = placeParentSelected.name ?? 'Unnamed';
+
+			// Flush any pending batch first so set_context ordering is correct.
+			await flushBatch();
+
+			const batchRes = await api.stocker.submitBatch(sessionId, { events: [
+				{ type: 'set_context', container_id: parentId, scanned_at: new Date().toISOString() },
+				{
+					type: 'create_and_place',
+					barcode: placeContainerBarcode,
+					name: placeContainerBarcode,
+					is_container: true,
+					container_type_id: placeContainerTypeId ?? undefined,
+					scanned_at: new Date().toISOString()
+				}
+			] }, true);
+
+			const created = batchRes.results.find(r => r.type === 'created') as ({ type: 'created'; item_id: string } | undefined);
+			if (created) {
+				const newContainer = await api.items.get(created.item_id);
+				// Set the new container as active context
+				setContext({ containerId: newContainer.id, containerName: newContainer.name ?? placeContainerBarcode });
+				pendingBatch.push({ type: 'set_context', container_id: newContainer.id, scanned_at: new Date().toISOString() });
+				setPendingCount(pendingBatch.length);
+				addLog(placeContainerBarcode, 'context', `Created & context → ${newContainer.name ?? placeContainerBarcode} in ${parentName}`);
+				contextSet();
+				showPlaceContainer = false;
+			} else {
+				placeError = batchRes.errors?.[0]?.message ?? 'Container creation failed';
+			}
+		} catch (err) {
+			placeError = err instanceof Error ? err.message : 'Create failed';
+		} finally {
+			placingContainer = false;
 		}
 	}
 
@@ -534,7 +667,7 @@
 
 	<!-- ── Quick action bar ──────────────────────────────────────────────── -->
 	<div class="border-t border-slate-800 px-4 py-2">
-		<button class="btn btn-secondary w-full" onclick={() => (showQuickCreate = true)}>
+		<button class="btn btn-secondary w-full" onclick={() => { qcError = ''; showQuickCreate = true; }}>
 			+ Quick create item
 		</button>
 	</div>
@@ -595,6 +728,84 @@
 				{/if}
 			</button>
 		</form>
+	</div>
+</div>
+{/if}
+
+<!-- ── Container placement modal (preset containers) ─────────────────── -->
+{#if showPlaceContainer}
+<!-- svelte-ignore a11y_no_static_element_interactions -->
+<div class="fixed inset-0 z-50 flex flex-col justify-end bg-black/60" onclick={(e) => { if (e.target === e.currentTarget) showPlaceContainer = false }} onkeydown={(e) => e.key === 'Escape' && (showPlaceContainer = false)}>
+	<div class="rounded-t-2xl bg-slate-900 p-4 pb-8" role="dialog" aria-modal="true" aria-labelledby="place-container-title">
+		<div class="mb-4 flex items-center justify-between">
+			<div>
+				<h2 id="place-container-title" class="text-base font-semibold text-slate-100">Place new container</h2>
+				<p class="text-xs text-slate-400 font-mono">{placeContainerBarcode}{#if placeContainerTypeName} · {placeContainerTypeName}{/if}</p>
+			</div>
+			<button class="btn btn-icon text-slate-400" onclick={() => (showPlaceContainer = false)} aria-label="Close">
+				<svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+					<path d="M18 6L6 18M6 6l12 12" />
+				</svg>
+			</button>
+		</div>
+
+		{#if placeError}
+			<div class="mb-3 rounded-lg bg-red-950 px-3 py-2 text-sm text-red-300 border border-red-800">{placeError}</div>
+		{/if}
+
+		<div class="space-y-3">
+			<div>
+				<label class="mb-1 block text-sm font-medium text-slate-300" for="place-parent-search">Parent container</label>
+				{#if placeParentSelected}
+					<div class="flex items-center gap-2 rounded-lg bg-indigo-500/10 border border-indigo-500/30 px-3 py-2">
+						<span class="flex-1 text-sm text-slate-100">{placeParentSelected.name ?? 'Unnamed'}</span>
+						<button class="text-xs text-slate-400 hover:text-slate-200" onclick={() => { placeParentSelected = null; placeParentQuery = ''; }}>✕</button>
+					</div>
+				{:else}
+					<input
+						id="place-parent-search"
+						class="input"
+						placeholder="Search containers…"
+						bind:value={placeParentQuery}
+						oninput={onPlaceParentInput}
+						disabled={placingContainer}
+					/>
+					{#if placeParentLoading}
+						<div class="mt-1 flex h-8 items-center justify-center">
+							<div class="h-4 w-4 animate-spin rounded-full border-2 border-slate-600 border-t-indigo-500"></div>
+						</div>
+					{:else if placeParentResults.length > 0}
+						<div class="mt-1 max-h-40 overflow-y-auto rounded-lg border border-slate-700 bg-slate-800">
+							{#each placeParentResults as item (item.id)}
+								<button
+									class="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-slate-700"
+									onclick={() => { placeParentSelected = item; placeParentResults = []; }}
+								>
+									<span class="flex-1 truncate text-slate-100">{item.name ?? 'Unnamed'}</span>
+									{#if item.system_barcode}
+										<span class="font-mono text-xs text-slate-500">{item.system_barcode}</span>
+									{/if}
+								</button>
+							{/each}
+						</div>
+					{/if}
+				{/if}
+			</div>
+
+			<p class="text-xs text-slate-500">Coordinate can be set later in Browse → Edit.</p>
+
+			<button
+				class="btn btn-primary w-full"
+				onclick={confirmPlaceContainer}
+				disabled={placingContainer || !placeParentSelected}
+			>
+				{#if placingContainer}
+					<span class="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white"></span>
+				{:else}
+					Create container & set as context
+				{/if}
+			</button>
+		</div>
 	</div>
 </div>
 {/if}
@@ -708,17 +919,25 @@
 							</button>
 						</div>
 
-						<!-- Token URL for camera app -->
+						<!-- QR code for the Homorg Camera app -->
+						{#if cameraQrCodes[ct.id]}
+							<div class="flex flex-col items-center gap-1 my-2">
+								<img
+									src={cameraQrCodes[ct.id]}
+									alt="QR code — scan with Homorg Camera app"
+									class="h-48 w-48 rounded"
+								/>
+								<p class="text-xs text-slate-500">Scan with Homorg Camera app</p>
+							</div>
+						{/if}
+
+						<!-- Token URL for manual entry -->
 						<div class="rounded bg-slate-950 p-2">
-							<p class="text-xs text-slate-500 mb-1">Camera upload endpoint:</p>
+							<p class="text-xs text-slate-500 mb-1">Or paste this URL manually:</p>
 							<code class="block text-xs text-emerald-400 break-all select-all">
 								{getCameraUrl(ct.token)}/upload
 							</code>
 						</div>
-
-						<p class="mt-2 text-xs text-slate-500">
-							Use this URL in the Android camera app. Send multipart POST with a "file" field to upload images.
-						</p>
 					</div>
 				{/each}
 			</div>
