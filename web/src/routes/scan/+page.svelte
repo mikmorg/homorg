@@ -5,8 +5,9 @@
 	import { toast } from '$stores/toast.js';
 	import { onScan, startCameraScanner, stopScanner, scannerState } from '$scanner/index.js';
 	import { getRecentContainers, pushRecentContainer } from '$stores/recentContainers.js';
-	import type { Item, ItemSummary } from '$api/types.js';
+	import type { Item, ItemSummary, BarcodeResolution } from '$api/types.js';
 	import { CONDITION_LABELS } from '$api/types.js';
+	import { detectBarcodeType } from '$lib/barcode-type.js';
 
 	type PageState = 'idle' | 'resolving' | 'found' | 'multiple' | 'not_found' | 'error';
 
@@ -15,6 +16,17 @@
 	let resolvedItem: Item | null = $state(null);
 	let resolvedItems: Item[] = $state([]);   // for multi-match disambiguation
 	let pageError = $state('');
+	let lastResolution: BarcodeResolution | null = $state(null);
+	let scannedCodeBadge = $state(''); // e.g. "ISBN · 9780590353403" shown on found card
+
+	// Attach sub-flow (link an unrecognised barcode to an existing item)
+	let showAttachSearch = $state(false);
+	let attachQuery = $state('');
+	let attachResults: ItemSummary[] = $state([]);
+	let attachSearching = $state(false);
+	let attachDebounce: ReturnType<typeof setTimeout> | null = null;
+	let attaching = $state(false);
+	let attachError = $state('');
 
 	// Camera
 	let usingCamera = $state(false);
@@ -66,14 +78,19 @@
 		pageState = 'resolving';
 		lastBarcode = barcode;
 		resolvedItem = null;
+		resolvedItems = [];
 		pageError = '';
+		lastResolution = null;
+		scannedCodeBadge = '';
 
 		try {
 			const resolution = await api.barcodes.resolve(barcode);
+			lastResolution = resolution;
 
 			if (resolution.type === 'system') {
 				resolvedItem = await api.items.get(resolution.item_id);
 				recentContainers = getRecentContainers();
+				scannedCodeBadge = resolution.barcode;
 				pageState = 'found';
 			} else if (resolution.type === 'external') {
 				if (resolution.item_ids.length === 0) {
@@ -81,10 +98,12 @@
 				} else if (resolution.item_ids.length === 1) {
 					resolvedItem = await api.items.get(resolution.item_ids[0]);
 					recentContainers = getRecentContainers();
+					scannedCodeBadge = `${resolution.code_type} · ${resolution.value}`;
 					pageState = 'found';
 				} else {
 					// Multiple items share this barcode — let the user pick
 					resolvedItems = await Promise.all(resolution.item_ids.map(id => api.items.get(id)));
+					scannedCodeBadge = `${resolution.code_type} · ${resolution.value}`;
 					pageState = 'multiple';
 				}
 			} else {
@@ -128,11 +147,75 @@
 		resolvedItem = null;
 		resolvedItems = [];
 		pageError = '';
+		lastResolution = null;
+		scannedCodeBadge = '';
 		showMovePicker = false;
 		moveQuery = '';
 		moveResults = [];
 		moveError = '';
 		confirmingDelete = false;
+		showAttachSearch = false;
+		attachQuery = '';
+		attachResults = [];
+		attachError = '';
+	}
+
+	// ── Attach barcode to item ────────────────────────────────────────────────
+
+	/** Returns attach action info when the resolution is linkable to an existing item. */
+	function getAttachInfo(): { label: string; codeType: string; value: string; isAssign: boolean } | null {
+		if (!lastResolution) return null;
+		if (lastResolution.type === 'external') {
+			const type = detectBarcodeType(lastResolution.value, lastResolution.code_type) || lastResolution.code_type;
+			return { label: `Attach as ${type} code`, codeType: type, value: lastResolution.value, isAssign: false };
+		}
+		if (lastResolution.type === 'unknown_system') {
+			return { label: 'Assign barcode to item', codeType: '', value: lastResolution.barcode, isAssign: true };
+		}
+		if (lastResolution.type === 'unknown') {
+			const type = detectBarcodeType(lastResolution.value);
+			return { label: type ? `Attach as ${type} code` : 'Attach to item', codeType: type || 'BARCODE', value: lastResolution.value, isAssign: false };
+		}
+		return null; // preset — handled differently
+	}
+
+	function openAttachSearch() {
+		showAttachSearch = true;
+		attachQuery = '';
+		attachResults = [];
+		attachError = '';
+	}
+
+	function onAttachSearch() {
+		if (attachDebounce) clearTimeout(attachDebounce);
+		if (!attachQuery.trim()) { attachResults = []; return; }
+		attachDebounce = setTimeout(async () => {
+			attachSearching = true;
+			try {
+				attachResults = await api.search.query({ q: attachQuery, limit: 20 });
+			} catch { attachResults = []; }
+			finally { attachSearching = false; }
+		}, 300);
+	}
+
+	async function attachToItem(item: ItemSummary) {
+		const info = getAttachInfo();
+		if (!info) return;
+		attaching = true;
+		attachError = '';
+		try {
+			if (info.isAssign) {
+				await api.items.assignBarcode(item.id, { barcode: info.value });
+			} else {
+				await api.items.addExternalCode(item.id, info.codeType, info.value);
+			}
+			toast(`Barcode linked to ${item.name ?? 'item'}`, 'success');
+			scanAnother();
+		} catch (err) {
+			attachError = err instanceof Error ? err.message : 'Attach failed';
+		} finally {
+			attaching = false;
+		}
 	}
 
 	// ── Move ─────────────────────────────────────────────────────────────────
@@ -262,12 +345,27 @@
 
 		<!-- Not found -->
 		{:else if pageState === 'not_found'}
+			{@const attachInfo = getAttachInfo()}
 			<div class="m-4 space-y-3">
 				<div class="rounded-lg bg-slate-800 px-4 py-4 text-center">
-					<p class="font-medium text-slate-200">Unknown barcode</p>
+					<p class="font-medium text-slate-200">
+						{lastResolution?.type === 'unknown_system' ? 'Unassigned barcode' : 'No matching item'}
+					</p>
 					<p class="mt-1 font-mono text-xs text-slate-500">{lastBarcode}</p>
+					{#if lastResolution?.type === 'external'}
+						<span class="mt-1.5 inline-block rounded-full bg-slate-700 px-2 py-0.5 text-[10px] font-medium text-slate-400">{lastResolution.code_type}</span>
+					{/if}
 				</div>
-				<button class="btn btn-secondary w-full" onclick={scanAnother}>Scan another</button>
+				{#if attachInfo}
+					<button class="btn btn-secondary w-full flex items-center justify-center gap-2" onclick={openAttachSearch}>
+						<svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+							<path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/>
+							<path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>
+						</svg>
+						{attachInfo.label}
+					</button>
+				{/if}
+				<button class="btn btn-ghost w-full text-sm text-slate-500" onclick={scanAnother}>Scan another</button>
 			</div>
 
 		<!-- Multiple items share this barcode — disambiguation list -->
@@ -330,6 +428,9 @@
 									<span class="badge badge-{item.condition}" style="font-size:0.6rem">{CONDITION_LABELS[item.condition]}</span>
 								{/if}
 							</div>
+							{#if scannedCodeBadge}
+								<p class="mt-1 font-mono text-[10px] text-slate-600">{scannedCodeBadge}</p>
+							{/if}
 							{#if item.container_path}
 								<p class="mt-1 text-xs text-slate-500 truncate">📍 {item.container_path}</p>
 							{/if}
@@ -476,6 +577,76 @@
 							{/if}
 						</div>
 						{#if moving}
+							<div class="ml-auto h-4 w-4 animate-spin rounded-full border-2 border-slate-600 border-t-indigo-400 flex-shrink-0"></div>
+						{/if}
+					</button>
+				{/each}
+			</div>
+		{/if}
+	</div>
+</div>
+{/if}
+
+<!-- ── Attach barcode to item search ─────────────────────────────────── -->
+{#if showAttachSearch}
+{@const attachInfo = getAttachInfo()}
+<div
+	class="fixed inset-0 z-50 flex flex-col bg-slate-950"
+	role="dialog"
+	aria-modal="true"
+	aria-label="Attach barcode to item"
+	tabindex="-1"
+	onkeydown={(e) => e.key === 'Escape' && (showAttachSearch = false)}
+>
+	<div class="flex items-center gap-2 border-b border-slate-800 px-3 py-2">
+		<button class="btn btn-icon text-slate-400" onclick={() => (showAttachSearch = false)} aria-label="Close">
+			<svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+				<path d="M18 6L6 18M6 6l12 12"/>
+			</svg>
+		</button>
+		<input
+			class="input flex-1"
+			placeholder="Search items…"
+			bind:value={attachQuery}
+			oninput={onAttachSearch}
+		/>
+	</div>
+
+	<div class="border-b border-slate-800 bg-slate-900 px-4 py-2">
+		<p class="text-xs text-slate-400">
+			{attachInfo?.label ?? 'Attach'}: <span class="font-mono text-slate-300">{lastBarcode}</span>
+		</p>
+	</div>
+
+	{#if attachError}
+		<div class="mx-4 mt-3 rounded-lg bg-red-950 border border-red-800 px-3 py-2 text-sm text-red-300">{attachError}</div>
+	{/if}
+
+	<div class="flex-1 overflow-y-auto p-3">
+		{#if attachSearching}
+			<div class="flex h-16 items-center justify-center">
+				<div class="h-5 w-5 animate-spin rounded-full border-2 border-slate-600 border-t-indigo-500"></div>
+			</div>
+		{:else if attachResults.length === 0 && attachQuery}
+			<p class="py-8 text-center text-sm text-slate-500">No items found</p>
+		{:else if attachResults.length === 0}
+			<p class="py-8 text-center text-sm text-slate-500">Type to search items</p>
+		{:else}
+			<div class="space-y-1">
+				{#each attachResults as result (result.id)}
+					<button
+						class="flex w-full items-start gap-3 rounded-lg px-3 py-3 text-left hover:bg-slate-800 active:bg-slate-700 disabled:opacity-50"
+						onclick={() => attachToItem(result)}
+						disabled={attaching}
+					>
+						<span class="mt-0.5 text-base">{result.is_container ? '📦' : '🔧'}</span>
+						<div class="min-w-0 flex-1">
+							<p class="text-sm font-medium text-slate-100 truncate">{result.name ?? 'Unnamed'}</p>
+							{#if result.container_path}
+								<p class="text-xs text-slate-500 truncate">{result.container_path}</p>
+							{/if}
+						</div>
+						{#if attaching}
 							<div class="ml-auto h-4 w-4 animate-spin rounded-full border-2 border-slate-600 border-t-indigo-400 flex-shrink-0"></div>
 						{/if}
 					</button>

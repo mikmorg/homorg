@@ -3,7 +3,8 @@
 	import { page } from '$app/state';
 	import { goto, beforeNavigate } from '$app/navigation';
 	import { api } from '$api/client.js';
-	import type { BarcodeResolution, CameraToken, Item, ItemSummary, StockerBatchEvent } from '$api/types.js';
+	import type { BarcodeResolution, CameraToken, Item, ItemSummary, StockerBatchEvent, ExternalCode } from '$api/types.js';
+	import { detectBarcodeType } from '$lib/barcode-type.js';
 	import QRCode from 'qrcode';
 	import { onScan, scannerState, startSerialScanner, startCameraScanner, startHidScanner } from '$scanner/index.js';
 	import { scanSuccess, scanError, contextSet, newItem as newItemSound } from '$audio/feedback.js';
@@ -48,7 +49,8 @@
 	let showQuickCreate: boolean = $state(false);
 	let qcName: string = $state('');
 	let qcQuantity: number = $state(1);
-	let qcBarcode: string = $state('');
+	let qcBarcode: string = $state('');           // system barcode (HOM- prefix or unknown)
+	let qcExternalCode: ExternalCode | null = $state(null); // detected UPC/EAN/ISBN
 	let qcLoading: boolean = $state(false);
 	let qcError: string = $state('');
 
@@ -250,10 +252,27 @@
 				break;
 			}
 
-			case 'unknown_system':
-			case 'unknown': {
-				// Unknown barcode — offer to create item
+			case 'unknown_system': {
+				// HOM- prefix, pre-printed but unassigned — store as system barcode
 				qcBarcode = barcode;
+				qcExternalCode = null;
+				qcError = '';
+				showQuickCreate = true;
+				newItemSound();
+				addLog(barcode, 'create', `New item? ${barcode}`);
+				break;
+			}
+
+			case 'unknown': {
+				// Unrecognised barcode — detect type; if UPC/EAN/ISBN store as external code
+				const unknownType = detectBarcodeType(resolution.value);
+				if (unknownType) {
+					qcBarcode = '';
+					qcExternalCode = { type: unknownType, value: resolution.value };
+				} else {
+					qcBarcode = barcode;
+					qcExternalCode = null;
+				}
 				qcError = '';
 				showQuickCreate = true;
 				newItemSound();
@@ -263,11 +282,14 @@
 
 			case 'external': {
 				if (resolution.item_ids.length === 0) {
-					qcBarcode = barcode;
+					// Known commercial code not yet linked to any item
+					const extType = detectBarcodeType(resolution.value, resolution.code_type) || resolution.code_type;
+					qcBarcode = '';
+					qcExternalCode = { type: extType, value: resolution.value };
 					qcError = '';
 					showQuickCreate = true;
 					newItemSound();
-					addLog(barcode, 'create', `External code not assigned — create item?`);
+					addLog(barcode, 'create', `${extType} not assigned — create item?`);
 					break;
 				}
 				let item: Item;
@@ -351,7 +373,8 @@
 			sessionId,
 			{ events: [{
 				type: 'create_and_place',
-				barcode: qcBarcode || '',
+				barcode: qcExternalCode ? '' : (qcBarcode || ''),
+				external_codes: qcExternalCode ? [qcExternalCode] : undefined,
 				name: qcName,
 				scanned_at: new Date().toISOString(),
 				is_fungible: qcQuantity > 1 ? true : undefined,
@@ -368,6 +391,7 @@
 				showQuickCreate = false;
 				qcName = '';
 				qcBarcode = '';
+				qcExternalCode = null;
 				qcQuantity = 1;
 			} else {
 				// SC-3: The server returned ok but no 'created' result — show errors
@@ -711,8 +735,18 @@
 					<input id="qc-qty" class="input" type="number" min="1" bind:value={qcQuantity} disabled={qcLoading} />
 				</div>
 				<div class="flex-1">
-					<label class="mb-1 block text-sm font-medium text-slate-300" for="qc-barcode">Barcode</label>
-					<input id="qc-barcode" class="input font-mono text-xs" placeholder="scanned" bind:value={qcBarcode} disabled={qcLoading} />
+					<label class="mb-1 flex items-center gap-1.5 text-sm font-medium text-slate-300" for="qc-barcode">
+						{#if qcExternalCode}
+							<span class="rounded-full bg-indigo-900/60 px-1.5 py-0.5 text-[10px] font-medium text-indigo-400">{qcExternalCode.type}</span>
+						{:else}
+							Barcode
+						{/if}
+					</label>
+					{#if qcExternalCode}
+						<input id="qc-barcode" class="input font-mono text-xs" bind:value={qcExternalCode.value} disabled={qcLoading} />
+					{:else}
+						<input id="qc-barcode" class="input font-mono text-xs" placeholder="scanned" bind:value={qcBarcode} disabled={qcLoading} />
+					{/if}
 				</div>
 			</div>
 
