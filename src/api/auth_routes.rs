@@ -128,7 +128,6 @@ async fn setup(
     // Issue tokens
     let access_token = create_access_token(
         user_id,
-        &user.role,
         &state.config.jwt_secret,
         state.config.jwt_access_ttl_secs,
     )?;
@@ -186,7 +185,6 @@ async fn login(
 
     let access_token = create_access_token(
         user.id,
-        &user.role,
         &state.config.jwt_secret,
         state.config.jwt_access_ttl_secs,
     )?;
@@ -255,7 +253,6 @@ async fn refresh(
 
     let access_token = create_access_token(
         user.id,
-        &user.role,
         &state.config.jwt_secret,
         state.config.jwt_access_ttl_secs,
     )?;
@@ -389,7 +386,6 @@ async fn register(
     // Issue tokens
     let access_token = create_access_token(
         user_id,
-        &user.role,
         &state.config.jwt_secret,
         state.config.jwt_access_ttl_secs,
     )?;

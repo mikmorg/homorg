@@ -7,10 +7,13 @@ use uuid::Uuid;
 use crate::constants::JWT_AUDIENCE;
 use crate::errors::{AppError, AppResult};
 
+/// R4-C: `role` removed from Claims — the middleware fetches the authoritative
+/// role from the DB on every request, so baking it into the token was unused
+/// and misleading.  Existing tokens that include a `role` field still decode
+/// correctly (serde ignores unknown fields).
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Claims {
     pub sub: Uuid,   // user id
-    pub role: String,
     pub aud: String,  // audience
     pub iat: i64,
     pub exp: i64,
@@ -19,14 +22,12 @@ pub struct Claims {
 /// Generate a JWT access token.
 pub fn create_access_token(
     user_id: Uuid,
-    role: &str,
     secret: &str,
     ttl_secs: u64,
 ) -> AppResult<String> {
     let now = Utc::now();
     let claims = Claims {
         sub: user_id,
-        role: role.to_string(),
         aud: JWT_AUDIENCE.to_string(),
         iat: now.timestamp(),
         exp: (now + Duration::seconds(ttl_secs as i64)).timestamp(),
@@ -74,17 +75,16 @@ mod tests {
     #[test]
     fn create_and_decode_roundtrip() {
         let uid = Uuid::new_v4();
-        let token = create_access_token(uid, "admin", TEST_SECRET, 300).unwrap();
+        let token = create_access_token(uid, TEST_SECRET, 300).unwrap();
         let claims = decode_access_token(&token, TEST_SECRET).unwrap();
         assert_eq!(claims.sub, uid);
-        assert_eq!(claims.role, "admin");
         assert_eq!(claims.aud, JWT_AUDIENCE);
     }
 
     #[test]
     fn decode_rejects_wrong_secret() {
         let uid = Uuid::new_v4();
-        let token = create_access_token(uid, "member", TEST_SECRET, 300).unwrap();
+        let token = create_access_token(uid, TEST_SECRET, 300).unwrap();
         let result = decode_access_token(&token, "wrong-secret");
         assert!(result.is_err());
     }
@@ -96,7 +96,6 @@ mod tests {
         let now = Utc::now();
         let claims = Claims {
             sub: uid,
-            role: "member".to_string(),
             aud: JWT_AUDIENCE.to_string(),
             iat: (now - Duration::seconds(600)).timestamp(),
             exp: (now - Duration::seconds(300)).timestamp(),
