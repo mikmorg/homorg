@@ -17,7 +17,7 @@ pub struct Item {
     /// Resolved category name (from JOIN with categories table).
     pub category: Option<String>,
     /// Category foreign key — used internally for update diffs.
-    #[serde(skip_serializing_if = "Option::is_none")]
+    /// Always serialized (as null when absent) so the TypeScript type `string | null` is accurate.
     pub category_id: Option<Uuid>,
     /// Tag names (aggregated from item_tags JOIN).
     pub tags: Vec<String>,

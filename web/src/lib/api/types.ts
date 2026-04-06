@@ -254,7 +254,6 @@ export type StockerBatchEvent =
 			name?: string;
 			description?: string;
 			category?: string;
-			category_id?: string;
 			tags?: string[];
 			is_container?: boolean;
 			coordinate?: unknown;

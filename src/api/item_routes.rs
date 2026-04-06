@@ -350,6 +350,9 @@ struct HistoryQuery {
 }
 
 /// Get paginated event history for an item.
+/// I2: History is intentionally accessible for deleted items — the event log is an audit trail
+/// and should remain queryable even after soft-deletion. get_by_id still returns 404 for
+/// deleted items, so the only way to reach history is via a known item UUID.
 async fn get_history(
     State(state): State<Arc<AppState>>,
     _auth: AuthUser,
