@@ -17,6 +17,11 @@
 		markSynced,
 		setPendingCount
 	} from '$stores/stocker.js';
+	import {
+		getRecentContainers,
+		pushRecentContainer,
+		type RecentContainer
+	} from '$stores/recentContainers.js';
 
 	let sessionId = $derived(page.params.sessionId!);
 
@@ -59,6 +64,16 @@
 	let pickerQuery: string = $state('');
 	let pickerResults: ItemSummary[] = $state([]);
 	let pickerLoading: boolean = $state(false);
+	let pickerRecents: RecentContainer[] = $state([]);
+
+	// Container move mode: when active, scanning a container moves it into the active
+	// context instead of setting it as the new active container.
+	let containerMoveMode: boolean = $state(false);
+
+	// Load recents whenever the picker opens
+	$effect(() => {
+		if (showContainerPicker) pickerRecents = getRecentContainers();
+	});
 
 	// Scanner modal
 	let showScannerSettings: boolean = $state(false);
@@ -130,6 +145,22 @@
 
 	const unregisterScan = onScan(handleScan);
 
+	// ── Container context helpers ────────────────────────────────────────────
+
+	/** Set a container as the active context, push to recent list, and queue the batch event. */
+	function setActiveContainer(id: string, name: string | null, containerPath: string | null) {
+		setContext({ containerId: id, containerName: name ?? 'Unnamed' });
+		pendingBatch.push({ type: 'set_context', container_id: id, scanned_at: new Date().toISOString() });
+		setPendingCount(pendingBatch.length);
+		pushRecentContainer({ id, name: name ?? 'Unnamed', container_path: containerPath });
+		containerMoveMode = false;
+		addLog(name ?? id, 'context', `Context → ${name ?? 'Unnamed'}`);
+		contextSet();
+		showContainerPicker = false;
+		pickerQuery = '';
+		pickerResults = [];
+	}
+
 	// ── Scan handling ────────────────────────────────────────────────────────
 	async function handleScan(event: { barcode: string }) {
 		initAudio(); // ensure AudioContext is live after user interaction
@@ -153,6 +184,21 @@
 	}
 
 	async function handleScanInner(barcode: string) {
+		// If the container picker is open, intercept the scan and use it to pick a container.
+		if (showContainerPicker) {
+			try {
+				const res = await api.barcodes.resolve(barcode);
+				if (res.type === 'system') {
+					const item = await api.items.get(res.item_id);
+					if (item.is_container) {
+						setActiveContainer(item.id, item.name, item.container_path ?? null);
+					} else {
+						addLog(barcode, 'error', 'Not a container');
+					}
+				}
+			} catch { /* silently ignore resolve errors while picker is open */ }
+			return;
+		}
 
 		let resolution: BarcodeResolution;
 		try {
@@ -174,19 +220,25 @@
 					return;
 				}
 				if (item.is_container) {
-					// Set as context container
-					setContext({
-						containerId: item.id,
-						containerName: item.name ?? 'Unnamed',
-					});
-					pendingBatch.push({
-						type: 'set_context',
-						container_id: item.id,
-						scanned_at: new Date().toISOString()
-					});
-					setPendingCount(pendingBatch.length);
-					addLog(barcode, 'context', `Context → ${item.name ?? 'Unnamed'}`);
-					contextSet();
+					if (containerMoveMode) {
+						// Move mode: move the container itself into the active context
+						if (!context.containerId) {
+							addLog(barcode, 'error', 'Set a container context first');
+							scanError();
+							return;
+						}
+						pendingBatch.push({
+							type: 'move_item',
+							item_id: item.id,
+							scanned_at: new Date().toISOString()
+						});
+						setPendingCount(pendingBatch.length);
+						addLog(barcode, 'success', `Moved container: ${item.name ?? 'Unnamed'} → ${context.containerName}`);
+						scanSuccess();
+					} else {
+						// Default: set as active context
+						setActiveContainer(item.id, item.name, item.container_path ?? null);
+					}
 				} else {
 					// Move item into current context
 					if (!context.containerId) {
@@ -444,22 +496,8 @@
 		}
 	}
 
-	function pickContainer(item: ItemSummary) {
-		setContext({
-			containerId: item.id,
-			containerName: item.name ?? 'Unnamed',
-		});
-		pendingBatch.push({
-			type: 'set_context',
-			container_id: item.id,
-			scanned_at: new Date().toISOString()
-		});
-		setPendingCount(pendingBatch.length);
-		addLog(item.name ?? item.id, 'context', `Context → ${item.name ?? 'Unnamed'}`);
-		contextSet();
-		showContainerPicker = false;
-		pickerQuery = '';
-		pickerResults = [];
+	function pickContainer(item: ItemSummary | RecentContainer) {
+		setActiveContainer(item.id, item.name, item.container_path ?? null);
 	}
 
 	// ── Camera link management ───────────────────────────────────────────────
@@ -663,26 +701,42 @@
 
 	<!-- ── Context banner ───────────────────────────────────────────────── -->
 	<button
-		class="flex items-center gap-3 border-b border-slate-800 px-4 py-3 text-left transition-colors hover:bg-slate-800"
-		onclick={() => (showContainerPicker = true)}
+		class="flex items-center gap-3 border-b px-4 py-3 text-left transition-colors
+		       {containerMoveMode
+		           ? 'border-amber-800/50 bg-amber-950/40 hover:bg-amber-900/40'
+		           : 'border-slate-800 hover:bg-slate-800'}"
+		onclick={() => {
+			if (containerMoveMode) containerMoveMode = false;
+			else showContainerPicker = true;
+		}}
 	>
-		<div class="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg bg-indigo-500/20 text-indigo-400">
+		<div class="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg
+		            {containerMoveMode ? 'bg-amber-500/20 text-amber-400' : 'bg-indigo-500/20 text-indigo-400'}">
 			<svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
 				<path d="M21 8a2 2 0 0 0-1.5-1.937A2 2 0 0 0 18 5.5V5a2 2 0 0 0-2-2H8a2 2 0 0 0-2 2v.5A2 2 0 0 0 4.5 6.063 2 2 0 0 0 3 8v9a3 3 0 0 0 3 3h12a3 3 0 0 0 3-3z" />
 			</svg>
 		</div>
 		<div class="min-w-0 flex-1">
 			{#if context.containerId}
-				<p class="text-xs text-slate-400">Current container</p>
-				<p class="truncate font-medium text-slate-100">{context.containerName}</p>
+				{#if containerMoveMode}
+					<p class="text-xs text-amber-400">Moving containers into</p>
+					<p class="truncate font-medium text-amber-300">{context.containerName}</p>
+				{:else}
+					<p class="text-xs text-slate-400">Current container</p>
+					<p class="truncate font-medium text-slate-100">{context.containerName}</p>
+				{/if}
 			{:else}
 				<p class="text-sm text-slate-400">Tap to set container context</p>
 				<p class="text-xs text-slate-500">or scan a container barcode</p>
 			{/if}
 		</div>
-		<svg class="h-4 w-4 flex-shrink-0 text-slate-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-			<path d="M9 18l6-6-6-6" />
-		</svg>
+		{#if containerMoveMode}
+			<span class="text-xs font-medium text-amber-400 flex-shrink-0">Tap to exit</span>
+		{:else}
+			<svg class="h-4 w-4 flex-shrink-0 text-slate-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+				<path d="M9 18l6-6-6-6" />
+			</svg>
+		{/if}
 	</button>
 
 	<!-- ── Scan log ──────────────────────────────────────────────────────── -->
@@ -703,10 +757,28 @@
 	</div>
 
 	<!-- ── Quick action bar ──────────────────────────────────────────────── -->
-	<div class="border-t border-slate-800 px-4 py-2">
-		<button class="btn btn-secondary w-full" onclick={() => { qcError = ''; showQuickCreate = true; }}>
+	<div class="flex gap-2 border-t border-slate-800 px-4 py-2">
+		<button class="btn btn-secondary flex-1" onclick={() => { qcError = ''; showQuickCreate = true; }}>
 			+ Quick create item
 		</button>
+		{#if context.containerId}
+			<button
+				class="btn flex-shrink-0 px-3 {containerMoveMode ? 'bg-amber-600 text-white hover:bg-amber-700' : 'btn-secondary'}"
+				onclick={() => (containerMoveMode = !containerMoveMode)}
+				title={containerMoveMode ? 'Exit move mode' : 'Rearrange containers'}
+				aria-label={containerMoveMode ? 'Exit container move mode' : 'Enter container move mode'}
+			>
+				{#if containerMoveMode}
+					<svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+						<path d="M20 6L9 17l-5-5" />
+					</svg>
+				{:else}
+					<svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+						<path d="M7 16V4m0 0L3 8m4-4l4 4M17 8v12m0 0l4-4m-4 4l-4-4" />
+					</svg>
+				{/if}
+			</button>
+		{/if}
 	</div>
 </div>
 
@@ -890,7 +962,34 @@
 			<div class="flex h-16 items-center justify-center">
 				<div class="h-5 w-5 animate-spin rounded-full border-2 border-slate-600 border-t-indigo-500"></div>
 			</div>
-		{:else if pickerResults.length === 0 && pickerQuery}
+		{:else if !pickerQuery.trim()}
+			<!-- No query: show recent containers -->
+			{#if pickerRecents.length > 0}
+				<p class="mb-2 px-1 text-xs font-medium uppercase tracking-wide text-slate-500">Recent</p>
+				<div class="space-y-1">
+					{#each pickerRecents as rc (rc.id)}
+						<button
+							class="flex w-full items-center gap-3 rounded-lg px-3 py-3 text-left transition-colors hover:bg-slate-800"
+							onclick={() => pickContainer(rc)}
+						>
+							<div class="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-md bg-indigo-500/20 text-indigo-400">
+								<svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+									<path d="M21 8a2 2 0 0 0-1.5-1.937A2 2 0 0 0 18 5.5V5a2 2 0 0 0-2-2H8a2 2 0 0 0-2 2v.5A2 2 0 0 0 4.5 6.063 2 2 0 0 0 3 8v9a3 3 0 0 0 3 3h12a3 3 0 0 0 3-3z" />
+								</svg>
+							</div>
+							<div class="min-w-0">
+								<p class="truncate font-medium text-slate-100">{rc.name}</p>
+								{#if rc.container_path}
+									<p class="truncate text-xs text-slate-400">{rc.container_path.replaceAll('.', ' › ')}</p>
+								{/if}
+							</div>
+						</button>
+					{/each}
+				</div>
+			{:else}
+				<p class="py-8 text-center text-sm text-slate-500">Search for a container or scan one</p>
+			{/if}
+		{:else if pickerResults.length === 0}
 			<p class="py-8 text-center text-sm text-slate-500">No containers found</p>
 		{:else}
 			<div class="space-y-1">
@@ -900,7 +999,9 @@
 						onclick={() => pickContainer(item)}
 					>
 						<div class="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-md bg-indigo-500/20 text-indigo-400 text-xs">
-							📦
+							<svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+								<path d="M21 8a2 2 0 0 0-1.5-1.937A2 2 0 0 0 18 5.5V5a2 2 0 0 0-2-2H8a2 2 0 0 0-2 2v.5A2 2 0 0 0 4.5 6.063 2 2 0 0 0 3 8v9a3 3 0 0 0 3 3h12a3 3 0 0 0 3-3z" />
+							</svg>
 						</div>
 						<div class="min-w-0">
 							<p class="truncate font-medium text-slate-100">{item.name ?? 'Unnamed'}</p>
