@@ -70,9 +70,13 @@
 	// context instead of setting it as the new active container.
 	let containerMoveMode: boolean = $state(false);
 
-	// Load recents whenever the picker opens
+	// Load recents and reset search state whenever the picker opens
 	$effect(() => {
-		if (showContainerPicker) pickerRecents = getRecentContainers();
+		if (showContainerPicker) {
+			pickerRecents = getRecentContainers();
+			pickerQuery = '';
+			pickerResults = [];
+		}
 	});
 
 	// Scanner modal
@@ -979,9 +983,6 @@
 							</div>
 							<div class="min-w-0">
 								<p class="truncate font-medium text-slate-100">{rc.name}</p>
-								{#if rc.container_path}
-									<p class="truncate text-xs text-slate-400">{rc.container_path.replaceAll('.', ' › ')}</p>
-								{/if}
 							</div>
 						</button>
 					{/each}
