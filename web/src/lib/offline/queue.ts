@@ -122,15 +122,17 @@ export async function sync(getToken: () => string | null): Promise<void> {
 					body: mutation.body ?? undefined
 				});
 
-				if (res.ok || (res.status >= 400 && res.status < 500 && res.status !== 401)) {
+				if (res.ok || (res.status >= 400 && res.status < 500 && res.status !== 401 && res.status !== 429)) {
 					// Success or permanent client error — remove from queue
 					await database.delete('pendingMutations', mutation.id!);
 				} else if (res.status === 401) {
 					// M-15: Stop processing on 401 — all remaining mutations would fail
 					// with the same stale token, wasting their attempt counters.
+					// Do NOT increment attempts: auth failure is not the mutation's fault.
+					// The auth store will refresh the token; next sync will retry.
 					await database.put('pendingMutations', {
 						...mutation,
-						attempts: mutation.attempts + 1
+						attempts: mutation.attempts
 					});
 					break;
 				} else {

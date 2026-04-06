@@ -331,8 +331,8 @@ async fn register(
             "Username must be 2–32 alphanumeric/underscore/hyphen chars; password must be 8–128 characters".into(),
         ));
     }
-    // Invite codes are 64 hex chars; reject overlong strings before they hit the DB.
-    if req.invite_code.len() > 64 {
+    // Invite codes are exactly 64 hex chars; reject anything that doesn't match.
+    if req.invite_code.len() != 64 || !req.invite_code.chars().all(|c| c.is_ascii_hexdigit()) {
         return Err(AppError::BadRequest("Invalid or expired invite code".into()));
     }
     if let Some(ref dn) = req.display_name {

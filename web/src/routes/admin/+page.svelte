@@ -127,6 +127,7 @@
 	</header>
 
 	<div class="flex-1 overflow-y-auto p-4 space-y-4">
+		{#if $isAdmin}
 		{#if loading}
 			<div class="flex h-16 items-center justify-center">
 				<div class="h-5 w-5 animate-spin rounded-full border-2 border-slate-600 border-t-indigo-500"></div>
@@ -317,5 +318,6 @@
 		</div>
 
 
+		{/if}
 	</div>
 </div>

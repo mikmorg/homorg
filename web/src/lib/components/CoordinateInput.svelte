@@ -110,11 +110,11 @@
 		<div class="grid grid-cols-2 gap-2">
 			<div>
 				<label class="mb-1 block text-xs text-slate-400" for="coord-lat">Latitude</label>
-				<input id="coord-lat" class="input text-sm" type="number" step="any" min="-90" max="90" bind:value={geoLat} oninput={setGeo} placeholder="0.000000" />
+				<input id="coord-lat" class="input text-sm" type="number" step="any" min="-90" max="90" bind:value={geoLat} onblur={setGeo} placeholder="0.000000" />
 			</div>
 			<div>
 				<label class="mb-1 block text-xs text-slate-400" for="coord-lng">Longitude</label>
-				<input id="coord-lng" class="input text-sm" type="number" step="any" min="-180" max="180" bind:value={geoLng} oninput={setGeo} placeholder="0.000000" />
+				<input id="coord-lng" class="input text-sm" type="number" step="any" min="-180" max="180" bind:value={geoLng} onblur={setGeo} placeholder="0.000000" />
 			</div>
 		</div>
 		<button class="btn btn-secondary text-xs w-full" type="button" onclick={useCurrentLocation} disabled={geoLoading}>

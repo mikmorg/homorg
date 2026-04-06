@@ -35,6 +35,8 @@
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div
 	class="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-4"
+	aria-hidden="true"
+	tabindex="-1"
 	onclick={(e) => { if (e.target === e.currentTarget) handleCancel(); }}
 	onkeydown={(e) => e.key === 'Escape' && handleCancel()}
 >

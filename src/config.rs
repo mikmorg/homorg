@@ -69,7 +69,7 @@ impl AppConfig {
             ));
         }
 
-        Ok(Self {
+        let cfg = Self {
             database_url: env::var("DATABASE_URL").map_err(|e| format!("DATABASE_URL: {e}"))?,
             jwt_secret,
             jwt_access_ttl_secs: parse_env("JWT_ACCESS_TTL_SECS", 900u64),
@@ -105,7 +105,19 @@ impl AppConfig {
             rate_limit_burst: parse_env("RATE_LIMIT_BURST", 200u32),
             // Logging
             log_format: env::var("LOG_FORMAT").unwrap_or_else(|_| "text".into()),
-        })
+        };
+
+        if cfg.max_batch_size == 0 {
+            return Err("MAX_BATCH_SIZE must be at least 1".into());
+        }
+        if cfg.db_min_connections > cfg.db_max_connections {
+            return Err(format!(
+                "DB_MIN_CONNECTIONS ({}) must not exceed DB_MAX_CONNECTIONS ({})",
+                cfg.db_min_connections, cfg.db_max_connections
+            ));
+        }
+
+        Ok(cfg)
     }
 }
 
