@@ -3,6 +3,8 @@
 	import { api } from '$api/client.js';
 	import type { UpdateUserRequest } from '$api/types.js';
 	import { authStore, currentUser } from '$stores/auth.js';
+	import { clearSession } from '$stores/stocker.js';
+	import { clearRecentContainers } from '$lib/stores/recentContainers.js';
 	import { toast } from '$stores/toast.js';
 	import { get } from 'svelte/store';
 
@@ -67,6 +69,8 @@
 		const auth = get(authStore);
 		try { if (auth?.refresh_token) await api.auth.logout(auth.refresh_token); } catch { /* ignore */ }
 		authStore.clear();
+		clearSession();
+		clearRecentContainers();
 		goto('/login');
 	}
 </script>

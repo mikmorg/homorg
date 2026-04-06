@@ -669,7 +669,7 @@ impl Projector {
             UPDATE items
             SET images = (
                 SELECT COALESCE(jsonb_agg(elem), '[]'::jsonb)
-                FROM jsonb_array_elements(images) AS elem
+                FROM jsonb_array_elements(COALESCE(images, '[]'::jsonb)) AS elem
                 WHERE elem->>'path' != $1
             ), updated_by = $2
             WHERE id = $3

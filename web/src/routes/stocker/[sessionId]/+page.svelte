@@ -366,6 +366,10 @@
 			qcError = 'Set a container context before creating items.';
 			return;
 		}
+		if (qcQuantity < 1) {
+			qcError = 'Quantity must be at least 1.';
+			return;
+		}
 		qcLoading = true;
 		qcError = '';
 		try {
@@ -406,6 +410,15 @@
 		} finally {
 			qcLoading = false;
 		}
+	}
+
+	function dismissQuickCreate() {
+		showQuickCreate = false;
+		qcName = '';
+		qcBarcode = '';
+		qcExternalCode = null;
+		qcQuantity = 1;
+		qcError = '';
 	}
 
 	// ── Container picker ─────────────────────────────────────────────────────
@@ -700,11 +713,11 @@
 <!-- ── Quick create panel ─────────────────────────────────────────────── -->
 {#if showQuickCreate}
 <!-- svelte-ignore a11y_no_static_element_interactions -->
-<div class="fixed inset-0 z-50 flex flex-col justify-end bg-black/60" onclick={(e) => { if (e.target === e.currentTarget) { showQuickCreate = false } }} onkeydown={(e) => e.key === 'Escape' && (showQuickCreate = false)}>
+<div class="fixed inset-0 z-50 flex flex-col justify-end bg-black/60" onclick={(e) => { if (e.target === e.currentTarget) dismissQuickCreate() }} onkeydown={(e) => e.key === 'Escape' && dismissQuickCreate()}>
 	<div class="rounded-t-2xl bg-slate-900 p-4 pb-8" role="dialog" aria-modal="true" aria-labelledby="quick-create-title">
 		<div class="mb-4 flex items-center justify-between">
 			<h2 id="quick-create-title" class="text-base font-semibold text-slate-100">Quick create item</h2>
-			<button class="btn btn-icon text-slate-400" onclick={() => (showQuickCreate = false)} aria-label="Close">
+			<button class="btn btn-icon text-slate-400" onclick={dismissQuickCreate} aria-label="Close">
 				<svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
 					<path d="M18 6L6 18M6 6l12 12" />
 				</svg>

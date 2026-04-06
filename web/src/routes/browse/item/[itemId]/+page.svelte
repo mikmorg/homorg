@@ -1,9 +1,11 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
+	import { onDestroy } from 'svelte';
 	import { api } from '$api/client.js';
 	import type { Item, AncestorEntry, ItemSummary, StoredEvent, ContainerStats } from '$api/types.js';
 	import { CONDITION_LABELS } from '$api/types.js';
+	import { detectBarcodeType, STANDARD_CODE_TYPES, STANDARD_CODE_TYPE_VALUES } from '$lib/barcode-type.js';
 	import ConfirmDialog from '$lib/components/ConfirmDialog.svelte';
 	import CoordinateDisplay from '$lib/components/CoordinateDisplay.svelte';
 	import CoordinateInput from '$lib/components/CoordinateInput.svelte';
@@ -36,6 +38,8 @@
 	let moveTargetItem: Item | null = $state(null);
 	let moveCoordinate: unknown | null = $state(null);
 
+	onDestroy(() => { if (moveDebounce) clearTimeout(moveDebounce); });
+
 	// Container stats
 	let containerStats: ContainerStats | null = $state(null);
 
@@ -57,7 +61,8 @@
 
 	// External code state
 	let showAddCode = $state(false);
-	let newCodeType = $state('');
+	let newCodeType = $state('');       // '' | standard value | '__custom__' sentinel
+	let newCodeTypeCustom = $state(''); // used when newCodeType === '__custom__'
 	let newCodeValue = $state('');
 	let addingCode = $state(false);
 
@@ -81,6 +86,7 @@
 		showAddCode = false;
 		barcodeValue = '';
 		newCodeType = '';
+		newCodeTypeCustom = '';
 		newCodeValue = '';
 		moveTargetItem = null;
 		moveCoordinate = null;
@@ -284,14 +290,27 @@
 		}
 	}
 
+	function resolvedNewCodeType(): string {
+		if (newCodeType === '__custom__') return newCodeTypeCustom.trim();
+		return newCodeType;
+	}
+
+	function onNewCodeValueBlur() {
+		if (!newCodeType && newCodeValue.trim()) {
+			const detected = detectBarcodeType(newCodeValue.trim());
+			if (detected) newCodeType = detected;
+		}
+	}
+
 	async function addExternalCode() {
 		addingCode = true;
 		actionError = '';
 		try {
-			await api.items.addExternalCode(itemId, newCodeType.trim(), newCodeValue.trim());
+			await api.items.addExternalCode(itemId, resolvedNewCodeType(), newCodeValue.trim());
 			item = await api.items.get(itemId);
 			showAddCode = false;
 			newCodeType = '';
+			newCodeTypeCustom = '';
 			newCodeValue = '';
 			toast('Code added', 'success');
 		} catch (err) {
@@ -537,10 +556,23 @@
 						</button>
 					</div>
 					{#if showAddCode}
-						<div class="mb-2 flex gap-2">
-							<input type="text" class="input text-sm flex-1" bind:value={newCodeType} placeholder="Type (e.g. UPC)" aria-label="Code type" />
-							<input type="text" class="input text-sm flex-1 font-mono" bind:value={newCodeValue} placeholder="Value" aria-label="Code value" />
-							<button class="btn btn-primary text-xs px-3" onclick={addExternalCode} disabled={addingCode || !newCodeValue.trim()}>Add</button>
+						<div class="mb-2 space-y-1.5">
+							<div class="flex gap-2">
+								<select class="input text-sm w-32 flex-shrink-0" bind:value={newCodeType} aria-label="Code type">
+									<option value="">Type…</option>
+									{#each STANDARD_CODE_TYPES as t}
+										<option value={t.value} title={t.description}>{t.value}</option>
+									{/each}
+									<option disabled>──────</option>
+									<option value="__custom__">Custom…</option>
+								</select>
+								<input type="text" class="input flex-1 font-mono text-sm" bind:value={newCodeValue} placeholder="Value" aria-label="Code value" onblur={onNewCodeValueBlur} />
+								<button class="btn btn-primary text-xs px-3" onclick={addExternalCode}
+									disabled={addingCode || !newCodeValue.trim() || !resolvedNewCodeType()}>Add</button>
+							</div>
+							{#if newCodeType === '__custom__'}
+								<input type="text" class="input text-sm w-full" bind:value={newCodeTypeCustom} placeholder="Custom type name" aria-label="Custom code type" />
+							{/if}
 						</div>
 					{/if}
 					{#if item.external_codes && item.external_codes.length > 0}

@@ -13,6 +13,8 @@ import type {
 	ApiError
 } from './types.js';
 import { authStore } from '$stores/auth.js';
+import { clearSession } from '$stores/stocker.js';
+import { clearRecentContainers } from '$lib/stores/recentContainers.js';
 import { get } from 'svelte/store';
 
 export class ApiClientError extends Error {
@@ -40,6 +42,8 @@ async function refreshAndRetry(): Promise<string> {
 		});
 		if (!resp.ok) {
 			authStore.clear();
+			clearSession();
+			clearRecentContainers();
 			throw new Error('Session expired');
 		}
 		const data: AuthResponse = await resp.json();

@@ -13,10 +13,12 @@ import { BaseScanner } from './scanner.js';
 
 const MAX_INTER_CHAR_MS = 50;  // scanners emit chars faster than humans can type
 const MIN_BARCODE_LENGTH = 4;
+const DEDUPE_MS = 1500;        // suppress re-emission of the same barcode within this window
 
 export class HidScanner extends BaseScanner {
 	private buffer = '';
 	private lastKeyTime = 0;
+	private readonly lastSeen = new Map<string, number>();
 	private readonly handler: (e: KeyboardEvent) => void;
 
 	constructor() {
@@ -37,7 +39,12 @@ export class HidScanner extends BaseScanner {
 				const barcode = this.buffer.trim();
 				this.buffer = '';
 				if (barcode.length >= MIN_BARCODE_LENGTH) {
-					this.emit(barcode, 'hid');
+					const now = performance.now();
+					const last = this.lastSeen.get(barcode) ?? -Infinity;
+					if (now - last > DEDUPE_MS) {
+						this.lastSeen.set(barcode, now);
+						this.emit(barcode, 'hid');
+					}
 				}
 				return;
 			}
@@ -62,5 +69,6 @@ export class HidScanner extends BaseScanner {
 		super.stop();
 		window.removeEventListener('keydown', this.handler, { capture: true });
 		this.buffer = '';
+		this.lastSeen.clear();
 	}
 }

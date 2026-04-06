@@ -154,6 +154,8 @@ async fn update_item_computes_diffs() {
         current_value: None,
         depreciation_rate: None,
         warranty_expiry: None,
+        system_barcode: None,
+        external_codes: None,
         metadata: None,
     };
 
@@ -208,6 +210,8 @@ async fn update_item_no_changes_returns_error() {
         current_value: None,
         depreciation_rate: None,
         warranty_expiry: None,
+        system_barcode: None,
+        external_codes: None,
         metadata: None,
     };
 
@@ -267,6 +271,8 @@ async fn update_prevents_removing_container_with_children() {
         current_value: None,
         depreciation_rate: None,
         warranty_expiry: None,
+        system_barcode: None,
+        external_codes: None,
         metadata: None,
     };
 

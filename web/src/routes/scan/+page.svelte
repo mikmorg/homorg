@@ -7,7 +7,7 @@
 	import { getRecentContainers, pushRecentContainer } from '$stores/recentContainers.js';
 	import type { Item, ItemSummary, BarcodeResolution } from '$api/types.js';
 	import { CONDITION_LABELS } from '$api/types.js';
-	import { detectBarcodeType } from '$lib/barcode-type.js';
+	import { detectBarcodeType, STANDARD_CODE_TYPES } from '$lib/barcode-type.js';
 
 	type PageState = 'idle' | 'resolving' | 'found' | 'multiple' | 'not_found' | 'error';
 
@@ -27,6 +27,7 @@
 	let attachDebounce: ReturnType<typeof setTimeout> | null = null;
 	let attaching = $state(false);
 	let attachError = $state('');
+	let attachTypeOverride = $state(''); // used when code type cannot be auto-detected
 
 	// Camera
 	let usingCamera = $state(false);
@@ -174,7 +175,7 @@
 		}
 		if (lastResolution.type === 'unknown') {
 			const type = detectBarcodeType(lastResolution.value);
-			return { label: type ? `Attach as ${type} code` : 'Attach to item', codeType: type || 'BARCODE', value: lastResolution.value, isAssign: false };
+			return { label: type ? `Attach as ${type} code` : 'Attach to item', codeType: type, value: lastResolution.value, isAssign: false };
 		}
 		return null; // preset — handled differently
 	}
@@ -184,6 +185,7 @@
 		attachQuery = '';
 		attachResults = [];
 		attachError = '';
+		attachTypeOverride = '';
 	}
 
 	function onAttachSearch() {
@@ -201,13 +203,18 @@
 	async function attachToItem(item: ItemSummary) {
 		const info = getAttachInfo();
 		if (!info) return;
+		const codeType = info.codeType || attachTypeOverride;
+		if (!info.isAssign && !codeType) {
+			attachError = 'Please select a code type before attaching.';
+			return;
+		}
 		attaching = true;
 		attachError = '';
 		try {
 			if (info.isAssign) {
 				await api.items.assignBarcode(item.id, { barcode: info.value });
 			} else {
-				await api.items.addExternalCode(item.id, info.codeType, info.value);
+				await api.items.addExternalCode(item.id, codeType, info.value);
 			}
 			toast(`Barcode linked to ${item.name ?? 'item'}`, 'success');
 			scanAnother();
@@ -612,10 +619,18 @@
 		/>
 	</div>
 
-	<div class="border-b border-slate-800 bg-slate-900 px-4 py-2">
+	<div class="border-b border-slate-800 bg-slate-900 px-4 py-2 space-y-1.5">
 		<p class="text-xs text-slate-400">
 			{attachInfo?.label ?? 'Attach'}: <span class="font-mono text-slate-300">{lastBarcode}</span>
 		</p>
+		{#if attachInfo && !attachInfo.isAssign && !attachInfo.codeType}
+			<select class="input text-xs w-full" bind:value={attachTypeOverride} aria-label="Code type">
+				<option value="">Select code type…</option>
+				{#each STANDARD_CODE_TYPES as t}
+					<option value={t.value} title={t.description}>{t.value} — {t.description}</option>
+				{/each}
+			</select>
+		{/if}
 	</div>
 
 	{#if attachError}

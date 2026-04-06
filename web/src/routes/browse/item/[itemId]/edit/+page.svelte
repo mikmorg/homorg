@@ -19,6 +19,7 @@
 	let saving: boolean = $state(false);
 	let error: string = $state('');
 	let saveError: string = $state('');
+	let barcodeError: string = $state('');
 
 	// Form state
 	let name: string = $state('');
@@ -72,7 +73,7 @@
 					scanContainer.appendChild(cam.videoElement);
 				}
 			} catch {
-				if (!cancelled) saveError = 'Camera unavailable — scan with a physical scanner or type the code manually';
+				if (!cancelled) barcodeError = 'Camera unavailable — scan with a physical scanner or type the code manually';
 				stopCodeScan();
 			}
 		})();
@@ -555,7 +556,7 @@
 							<span class="text-xs text-slate-400">External codes (UPC, ISBN, EAN…)</span>
 							<div class="flex gap-2">
 								{#if !scanningForCode}
-									<button type="button" class="text-xs text-indigo-400 hover:text-indigo-300" onclick={() => { scanningForCode = true; }}>Scan</button>
+									<button type="button" class="text-xs text-indigo-400 hover:text-indigo-300" onclick={() => { barcodeError = ''; scanningForCode = true; }}>Scan</button>
 									<button type="button" class="text-xs text-indigo-400 hover:text-indigo-300" onclick={addExternalCode}>+ Add</button>
 								{:else}
 									<button type="button" class="text-xs text-red-400 hover:text-red-300" onclick={stopCodeScan}>Cancel</button>
@@ -568,6 +569,10 @@
 								<div bind:this={scanContainer} class="w-full"></div>
 								<p class="text-center text-xs text-slate-500 py-1">Point camera at barcode — type is detected automatically</p>
 							</div>
+						{/if}
+
+						{#if barcodeError}
+							<p class="mt-1 text-xs text-red-400">{barcodeError}</p>
 						{/if}
 
 						{#if externalCodes.length === 0 && !scanningForCode}

@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { page } from '$app/state';
 	import { goto } from '$app/navigation';
+	import { onDestroy } from 'svelte';
 	import { api } from '$api/client.js';
 	import type { Item, ItemSummary, CreateItemRequest, Condition, Category, Tag, ContainerType } from '$api/types.js';
 	import { CONDITIONS, CONDITION_LABELS, conditionClass } from '$api/types.js';
@@ -138,6 +139,19 @@
 		}
 	}
 
+	function revokeCreatePreviews() {
+		createImagePreviews.forEach((url) => URL.revokeObjectURL(url));
+		createImagePreviews = [];
+		createImages = [];
+	}
+
+	function closeCreate() {
+		revokeCreatePreviews();
+		showCreate = false;
+	}
+
+	onDestroy(revokeCreatePreviews);
+
 	function openCreate(type: 'item' | 'container') {
 		createType = type;
 		createName = '';
@@ -148,9 +162,7 @@
 		createSelectedTagIds = new Set();
 		createContainerTypeId = null;
 		createLocationSchema = null;
-		createImages = [];
-		createImagePreviews.forEach((url) => URL.revokeObjectURL(url));
-		createImagePreviews = [];
+		revokeCreatePreviews();
 		createIsFungible = false;
 		createFungibleUnit = '';
 		createFungibleQty = '';
@@ -257,16 +269,13 @@
 				}
 			}
 
-			showCreate = false;
-			createImagePreviews.forEach((url) => URL.revokeObjectURL(url));
-			createImagePreviews = [];
+			closeCreate();
 			createIsFungible = false;
 			createFungibleUnit = '';
 			createFungibleQty = '';
 			createAcqCost = '';
 			createCurrency = '';
 			showCreateAdvanced = false;
-			createImages = [];
 			// Show success first so the user knows the item exists, then any partial failures
 			toast(createType === 'container' ? 'Container created' : 'Item created', 'success');
 			if (postCreateWarnings.length > 0) {
@@ -281,7 +290,7 @@
 	}
 </script>
 
-<svelte:window onkeydown={(e) => { if (e.key === "Escape") { if (showCreate) { showCreate = false; createImagePreviews.forEach((u) => URL.revokeObjectURL(u)); createImagePreviews = []; } } }} />
+<svelte:window onkeydown={(e) => { if (e.key === "Escape" && showCreate) closeCreate(); }} />
 
 <svelte:head>
 	<title>Browse — Homorg</title>
@@ -442,7 +451,7 @@
 {#if showCreate}
 <div class="fixed inset-0 z-50 flex flex-col bg-slate-950">
 	<header class="flex items-center gap-2 border-b border-slate-800 px-3 py-2">
-		<button class="btn btn-icon text-slate-400" onclick={() => { showCreate = false; createImagePreviews.forEach((u) => URL.revokeObjectURL(u)); }} aria-label="Cancel">
+		<button class="btn btn-icon text-slate-400" onclick={closeCreate} aria-label="Cancel">
 			<svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
 				<path d="M18 6L6 18M6 6l12 12" />
 			</svg>

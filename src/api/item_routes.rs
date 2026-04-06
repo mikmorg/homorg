@@ -225,6 +225,10 @@ fn validate_update_request(req: &UpdateItemRequest) -> Result<(), AppError> {
             "Cannot set fungible_unit when is_fungible is false".into(),
         ));
     }
+    // VAL-4c: Reject setting fungible_unit while enabling fungible (unit must be set after
+    // enabling, or in the same request — but is_fungible + fungible_unit together is valid).
+    // No additional quantity check needed: fungible quantity is managed via AdjustQuantity,
+    // and the projector initialises quantity to 0 when creating the fungible_properties row.
     Ok(())
 }
 

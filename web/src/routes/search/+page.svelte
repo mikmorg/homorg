@@ -1,10 +1,11 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { onMount, onDestroy } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { api } from '$api/client.js';
 	import { toast } from '$stores/toast.js';
 	import type { ItemSummary, Category, Tag, Condition } from '$api/types.js';
 	import { CONDITIONS, CONDITION_LABELS } from '$api/types.js';
+	import { detectBarcodeType } from '$lib/barcode-type.js';
 
 	// IDs of results that came from a barcode resolve (shown with a badge)
 	let barcodeMatchIds: Set<string> = $state(new Set());
@@ -15,6 +16,7 @@
 	let searched = $state(false);
 	let searchError = $state('');
 	let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+	onDestroy(() => { if (debounceTimer) clearTimeout(debounceTimer); });
 
 	// H-9: Generation counter to discard stale search responses
 	let searchGeneration = 0;
@@ -68,6 +70,12 @@
 		debounceTimer = setTimeout(doSearch, 300);
 	}
 
+	function looksLikeBarcode(q: string): boolean {
+		const clean = q.trim();
+		if (/^HOM-/i.test(clean)) return true; // system barcode prefix
+		return detectBarcodeType(clean) !== '';  // known format (EAN-8/UPC/ISBN/EAN/GTIN…)
+	}
+
 	async function resolveBarcodeItems(q: string): Promise<ItemSummary[]> {
 		if (!q.trim()) return [];
 		try {
@@ -108,7 +116,7 @@
 					tags: filterTags.size > 0 ? [...filterTags].join(',') : undefined,
 					limit: 51
 				}),
-				query.trim() ? resolveBarcodeItems(query) : Promise.resolve([] as ItemSummary[])
+				looksLikeBarcode(query) ? resolveBarcodeItems(query) : Promise.resolve([] as ItemSummary[])
 			]);
 			if (gen !== searchGeneration) return;
 

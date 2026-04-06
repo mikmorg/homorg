@@ -200,6 +200,8 @@ async fn undo_update_reverses_fields() {
         current_value: None,
         depreciation_rate: None,
         warranty_expiry: None,
+        system_barcode: None,
+        external_codes: None,
         metadata: None,
     };
 
