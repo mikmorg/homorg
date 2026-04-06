@@ -324,6 +324,39 @@ impl SessionRepository {
         Ok(rows)
     }
 
+    /// R4-A: End sessions that have been open longer than `idle_hours` hours and revoke
+    /// their camera tokens.  Returns the number of sessions closed.
+    pub async fn cleanup_stale_sessions(&self, idle_hours: i64) -> AppResult<u64> {
+        // Close stale sessions and collect their IDs in one statement.
+        let stale_ids: Vec<Uuid> = sqlx::query_scalar(
+            r#"
+            UPDATE scan_sessions
+            SET ended_at = NOW()
+            WHERE ended_at IS NULL
+              AND started_at < NOW() - make_interval(hours => $1)
+            RETURNING id
+            "#,
+        )
+        .bind(idle_hours)
+        .fetch_all(&self.pool)
+        .await?;
+
+        let count = stale_ids.len() as u64;
+
+        if !stale_ids.is_empty() {
+            // Revoke camera tokens for closed sessions.
+            sqlx::query(
+                "UPDATE camera_tokens SET revoked_at = NOW() \
+                 WHERE session_id = ANY($1) AND revoked_at IS NULL",
+            )
+            .bind(&stale_ids)
+            .execute(&self.pool)
+            .await?;
+        }
+
+        Ok(count)
+    }
+
     /// Get an active session by ID (for camera token validation — no user check).
     pub async fn get_session_by_id(&self, session_id: Uuid) -> AppResult<ScanSession> {
         sqlx::query_as::<_, ScanSession>(

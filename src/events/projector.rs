@@ -691,7 +691,11 @@ impl Projector {
     ) -> AppResult<()> {
         let entry = serde_json::json!({"type": data.code_type, "value": data.value});
         // Dedup: only append if no existing entry has the same type+value.
+        // R4-D: Also cap at MAX_EXTERNAL_CODES as a defense-in-depth guard during replay
+        // (command layer already enforces this at write time, but replay can drift if the
+        // constant changes or events predate the limit).
         // PI-2: COALESCE guards against NULL external_codes (same pattern as images).
+        let max_codes = crate::constants::MAX_EXTERNAL_CODES as i64;
         sqlx::query(
             r#"
             UPDATE items
@@ -699,7 +703,8 @@ impl Projector {
                 WHEN NOT EXISTS (
                     SELECT 1 FROM jsonb_array_elements(COALESCE(external_codes, '[]'::jsonb)) AS elem
                     WHERE elem->>'type' = $1 AND elem->>'value' = $4
-                ) THEN COALESCE(external_codes, '[]'::jsonb) || $5::jsonb
+                ) AND jsonb_array_length(COALESCE(external_codes, '[]'::jsonb)) < $6
+                THEN COALESCE(external_codes, '[]'::jsonb) || $5::jsonb
                 ELSE external_codes
             END,
             updated_by = $2
@@ -711,6 +716,7 @@ impl Projector {
         .bind(id)
         .bind(&data.value)
         .bind(&entry)
+        .bind(max_codes)
         .execute(&mut **tx)
         .await?;
         Ok(())
@@ -866,7 +872,9 @@ impl Projector {
     /// Uses a PostgreSQL advisory lock to prevent concurrent rebuilds.
     /// ES-2/RM-1: Fetches events in batches (1 000 at a time) to keep memory usage bounded.
     /// EH-3: Skips individual deserialization failures with a warning instead of aborting.
-    pub async fn rebuild_all(pool: &PgPool) -> AppResult<u64> {
+    /// G7: Returns (total_replayed, total_skipped) so the caller can distinguish a clean
+    /// rebuild (skipped == 0) from a partial one (skipped > 0).
+    pub async fn rebuild_all(pool: &PgPool) -> AppResult<(u64, u64)> {
         let mut tx = pool.begin().await?;
 
         // CONC-3: Limit how long we will wait to acquire the advisory lock.  This
@@ -972,6 +980,6 @@ impl Projector {
         }
 
         tx.commit().await?;
-        Ok(total)
+        Ok((total, skipped))
     }
 }

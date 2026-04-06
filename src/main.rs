@@ -57,9 +57,10 @@ async fn main() {
     let event_store = EventStore::new(pool.clone());
     let state = Arc::new(AppState::new(config.clone(), pool, event_store, storage));
 
-    // Run initial token cleanup and start periodic background task
+    // Run initial token/session cleanup and start periodic background task
     {
         let token_repo = state.token_repository.clone();
+        let session_repo = state.session_repository.clone();
         // Purge expired tokens at startup
         match token_repo.purge_expired().await {
             Ok(n) if n > 0 => tracing::info!("Purged {n} expired tokens at startup"),
@@ -70,6 +71,12 @@ async fn main() {
             Ok(n) if n > 0 => tracing::info!("Purged {n} stale revoked tokens at startup"),
             Ok(_) => {}
             Err(e) => tracing::warn!(error = %e, "Failed to purge stale revoked tokens at startup"),
+        }
+        // R4-A: Close sessions idle >24h at startup
+        match session_repo.cleanup_stale_sessions(24).await {
+            Ok(n) if n > 0 => tracing::info!("Closed {n} stale scan sessions at startup"),
+            Ok(_) => {}
+            Err(e) => tracing::warn!(error = %e, "Failed to clean up stale sessions at startup"),
         }
         // Periodic cleanup every 6 hours
         tokio::spawn(async move {
@@ -82,6 +89,10 @@ async fn main() {
                 }
                 if let Err(e) = token_repo.purge_stale_revoked(7).await {
                     tracing::warn!(error = %e, "Periodic stale token purge failed");
+                }
+                // R4-A: Close sessions idle >24h
+                if let Err(e) = session_repo.cleanup_stale_sessions(24).await {
+                    tracing::warn!(error = %e, "Periodic stale session cleanup failed");
                 }
             }
         });

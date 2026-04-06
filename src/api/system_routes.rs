@@ -137,7 +137,10 @@ async fn rebuild_projections(
         let _guard = RebuildGuard(flag);
         tracing::info!("Starting projection rebuild...");
         match Projector::rebuild_all(&pool).await {
-            Ok(count) => tracing::info!("Projection rebuild complete: {count} events replayed"),
+            Ok((total, 0)) => tracing::info!("Projection rebuild complete: {total} events replayed, 0 skipped"),
+            Ok((total, skipped)) => tracing::warn!(
+                "Projection rebuild complete with errors: {total} events replayed, {skipped} skipped (deserialization failures)"
+            ),
             Err(e) => tracing::error!("Projection rebuild failed: {e}"),
         }
         // _guard drops here, clearing rebuild_in_progress
