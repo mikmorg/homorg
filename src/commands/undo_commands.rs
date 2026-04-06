@@ -141,6 +141,11 @@ impl UndoCommands {
             )));
         }
 
+        // R4-B: Return an error if no events exist for this session rather than silently succeeding.
+        if events.is_empty() {
+            return Err(AppError::NotFound("Session not found or no undoable events".into()));
+        }
+
         let event_ids: Vec<Uuid> = events.iter().map(|e| e.event_id).collect();
         // Extract session_id from the first event's metadata (all share the same session).
         let session_id_str: Option<String> = events.first().and_then(|e| {

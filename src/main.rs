@@ -153,6 +153,14 @@ async fn main() {
             header::X_FRAME_OPTIONS,
             HeaderValue::from_static("DENY"),
         ))
+        .layer(SetResponseHeaderLayer::overriding(
+            axum::http::HeaderName::from_static("referrer-policy"),
+            HeaderValue::from_static("strict-origin-when-cross-origin"),
+        ))
+        .layer(SetResponseHeaderLayer::overriding(
+            axum::http::HeaderName::from_static("permissions-policy"),
+            HeaderValue::from_static("camera=(), microphone=(), geolocation=(), payment=()"),
+        ))
         .layer(cors);
 
     // Start server with graceful shutdown

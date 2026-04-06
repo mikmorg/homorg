@@ -569,9 +569,10 @@ impl ItemCommands {
         let mut tx = self.pool.begin().await?;
         self.verify_item_exists(&mut tx, item_id).await?;
 
-        // Look up caption/order for this image so undo can restore it
+        // Look up caption/order for this image so undo can restore it.
+        // G3: FOR UPDATE serializes concurrent remove+add to prevent races around MAX_IMAGES.
         let images_json: serde_json::Value = sqlx::query_scalar(
-            "SELECT images FROM items WHERE id = $1 AND is_deleted = FALSE",
+            "SELECT images FROM items WHERE id = $1 AND is_deleted = FALSE FOR UPDATE",
         )
         .bind(item_id)
         .fetch_optional(&mut *tx)
@@ -606,9 +607,10 @@ impl ItemCommands {
         let mut tx = self.pool.begin().await?;
         self.verify_item_exists(&mut tx, item_id).await?;
 
-        // Resolve image path inside the transaction
+        // Resolve image path inside the transaction.
+        // G3: FOR UPDATE serializes concurrent remove+add to prevent races around MAX_IMAGES.
         let images_json: serde_json::Value = sqlx::query_scalar(
-            "SELECT images FROM items WHERE id = $1 AND is_deleted = FALSE",
+            "SELECT images FROM items WHERE id = $1 AND is_deleted = FALSE FOR UPDATE",
         )
         .bind(item_id)
         .fetch_optional(&mut *tx)
@@ -672,6 +674,8 @@ impl ItemCommands {
             )));
         }
 
+        // I5: Normalize code_type to uppercase so "upc", "UPC", "Upc" all resolve to the same code.
+        let code_type = code_type.to_uppercase();
         let event = DomainEvent::ItemExternalCodeAdded(ExternalCodeData { code_type, value });
         let stored = self.event_store.append_in_tx(&mut tx, item_id, &event, actor_id, metadata).await?;
         Projector::apply(&mut tx, item_id, &event, actor_id).await?;
@@ -718,6 +722,8 @@ impl ItemCommands {
             )));
         }
 
+        // I5: Normalize to uppercase to match the storage convention applied on add.
+        let code_type = code_type.to_uppercase();
         let event = DomainEvent::ItemExternalCodeRemoved(ExternalCodeData { code_type, value });
         let stored = self.event_store.append_in_tx(&mut tx, item_id, &event, actor_id, metadata).await?;
         Projector::apply(&mut tx, item_id, &event, actor_id).await?;
