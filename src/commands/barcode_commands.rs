@@ -248,11 +248,21 @@ impl BarcodeCommands {
             // Attempt to identify as a commercial code
             let code_type = classify_commercial_code(code);
 
+            // B1: When the code type is known, include it in the containment query so that
+            // a UPC "012345678905" and an EAN "012345678905" (same digits, different types)
+            // do not collide into a false multi-match. Fall back to value-only when the type
+            // cannot be determined (e.g. free-form alphanumeric ASIN).
+            let query_json = if let Some(ct) = code_type {
+                serde_json::json!([{"type": ct, "value": code}])
+            } else {
+                serde_json::json!([{"value": code}])
+            };
+
             // Check if any item(s) have this external code — collect all matches (multi-match).
             let found: Vec<Uuid> = sqlx::query_scalar(
                 "SELECT id FROM items WHERE external_codes @> $1::jsonb AND is_deleted = FALSE ORDER BY created_at",
             )
-            .bind(serde_json::json!([{"value": code}]))
+            .bind(query_json)
             .fetch_all(&self.pool)
             .await?;
 
@@ -333,10 +343,17 @@ impl BarcodeCommands {
         } else {
             let code_type = classify_commercial_code(code);
 
+            // B1: same type-aware query as resolve_barcode (see above).
+            let query_json = if let Some(ct) = code_type {
+                serde_json::json!([{"type": ct, "value": code}])
+            } else {
+                serde_json::json!([{"value": code}])
+            };
+
             let found: Vec<Uuid> = sqlx::query_scalar(
                 "SELECT id FROM items WHERE external_codes @> $1::jsonb AND is_deleted = FALSE ORDER BY created_at",
             )
-            .bind(serde_json::json!([{"value": code}]))
+            .bind(query_json)
             .fetch_all(&mut **tx)
             .await?;
 

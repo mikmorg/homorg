@@ -164,9 +164,11 @@ pub struct CreateItemRequest {
     pub condition: Option<String>,
     pub currency: Option<String>,
     pub acquisition_date: Option<NaiveDate>,
-    pub acquisition_cost: Option<f64>,
-    pub current_value: Option<f64>,
-    pub depreciation_rate: Option<f64>,
+    // B5: use Decimal (serde-with-str) so frontend strings are parsed exactly,
+    // avoiding IEEE 754 precision loss from f64 (e.g. 19.99 → 19.989999...).
+    pub acquisition_cost: Option<rust_decimal::Decimal>,
+    pub current_value: Option<rust_decimal::Decimal>,
+    pub depreciation_rate: Option<rust_decimal::Decimal>,
     pub warranty_expiry: Option<NaiveDate>,
     pub metadata: Option<serde_json::Value>,
 }
@@ -214,12 +216,13 @@ pub struct UpdateItemRequest {
     pub currency: Option<Option<String>>,
     #[serde(default, deserialize_with = "deserialize_nullable")]
     pub acquisition_date: Option<Option<NaiveDate>>,
+    // B5: Decimal (serde-with-str) preserves precision sent as JSON strings.
     #[serde(default, deserialize_with = "deserialize_nullable")]
-    pub acquisition_cost: Option<Option<f64>>,
+    pub acquisition_cost: Option<Option<rust_decimal::Decimal>>,
     #[serde(default, deserialize_with = "deserialize_nullable")]
-    pub current_value: Option<Option<f64>>,
+    pub current_value: Option<Option<rust_decimal::Decimal>>,
     #[serde(default, deserialize_with = "deserialize_nullable")]
-    pub depreciation_rate: Option<Option<f64>>,
+    pub depreciation_rate: Option<Option<rust_decimal::Decimal>>,
     #[serde(default, deserialize_with = "deserialize_nullable")]
     pub warranty_expiry: Option<Option<NaiveDate>>,
     pub metadata: Option<serde_json::Value>,

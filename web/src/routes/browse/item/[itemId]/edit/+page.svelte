@@ -186,17 +186,14 @@
 			updates.acquisition_date = newAcqDate;
 		}
 
-		const parsedAcqCost = parseFloat(acquisitionCost);
-		const newAcqCost: number | null = Number.isFinite(parsedAcqCost) ? parsedAcqCost : null;
-		const oldAcqCost: number | null = item.acquisition_cost ? parseFloat(item.acquisition_cost) : null;
-		if (newAcqCost !== oldAcqCost) {
+		// B5: send as string to preserve decimal precision (backend parses as Decimal).
+		const newAcqCost: string | null = acquisitionCost.trim() !== '' && Number.isFinite(parseFloat(acquisitionCost)) ? acquisitionCost.trim() : null;
+		if (newAcqCost !== (item.acquisition_cost ?? null)) {
 			updates.acquisition_cost = newAcqCost;
 		}
 
-		const parsedCurrVal = parseFloat(currentValue);
-		const newCurrVal: number | null = Number.isFinite(parsedCurrVal) ? parsedCurrVal : null;
-		const oldCurrVal: number | null = item.current_value ? parseFloat(item.current_value) : null;
-		if (newCurrVal !== oldCurrVal) {
+		const newCurrVal: string | null = currentValue.trim() !== '' && Number.isFinite(parseFloat(currentValue)) ? currentValue.trim() : null;
+		if (newCurrVal !== (item.current_value ?? null)) {
 			updates.current_value = newCurrVal;
 		}
 

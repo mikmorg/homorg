@@ -193,11 +193,49 @@ mod tests {
     }
 
     #[test]
+    fn max_batch_size_zero_is_rejected() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        set_required_env();
+        std::env::set_var("MAX_BATCH_SIZE", "0");
+        let result = AppConfig::from_env();
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("MAX_BATCH_SIZE"));
+        std::env::remove_var("MAX_BATCH_SIZE");
+    }
+
+    #[test]
+    fn db_min_greater_than_max_is_rejected() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        set_required_env();
+        std::env::set_var("DB_MIN_CONNECTIONS", "10");
+        std::env::set_var("DB_MAX_CONNECTIONS", "5");
+        let result = AppConfig::from_env();
+        assert!(result.is_err());
+        let msg = result.unwrap_err();
+        assert!(msg.contains("DB_MIN_CONNECTIONS"), "unexpected: {msg}");
+        assert!(msg.contains("DB_MAX_CONNECTIONS"), "unexpected: {msg}");
+        std::env::remove_var("DB_MIN_CONNECTIONS");
+        std::env::remove_var("DB_MAX_CONNECTIONS");
+    }
+
+    #[test]
     fn cors_origins_splits_on_comma() {
         let _guard = ENV_LOCK.lock().unwrap();
         set_required_env();
         std::env::set_var("CORS_ORIGINS", "http://a.com, http://b.com");
         let config = AppConfig::from_env().unwrap();
         assert_eq!(config.cors_origins, vec!["http://a.com", "http://b.com"]);
+    }
+
+    #[test]
+    fn barcode_prefix_too_long_is_rejected() {
+        let _guard = ENV_LOCK.lock().unwrap();
+        set_required_env();
+        // DB-5: prefix must be ≤ 8 characters
+        std::env::set_var("BARCODE_PREFIX", "TOOLONGPREFIX");
+        let result = AppConfig::from_env();
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("BARCODE_PREFIX"));
+        std::env::remove_var("BARCODE_PREFIX");
     }
 }

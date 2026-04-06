@@ -128,16 +128,16 @@ pub(crate) fn validate_create_request(req: &CreateItemRequest) -> Result<(), App
         if v < 0.0 { return Err(AppError::BadRequest("max_weight_grams must be >= 0".into())); }
     }
     if let Some(v) = req.acquisition_cost {
-        if v < 0.0 { return Err(AppError::BadRequest("acquisition_cost must be >= 0".into())); }
+        if v < rust_decimal::Decimal::ZERO { return Err(AppError::BadRequest("acquisition_cost must be >= 0".into())); }
     }
     if let Some(v) = req.current_value {
-        if v < 0.0 { return Err(AppError::BadRequest("current_value must be >= 0".into())); }
+        if v < rust_decimal::Decimal::ZERO { return Err(AppError::BadRequest("current_value must be >= 0".into())); }
     }
     if let Some(v) = req.fungible_quantity {
         if v < 0 { return Err(AppError::BadRequest("fungible_quantity must be >= 0".into())); }
     }
     if let Some(v) = req.depreciation_rate {
-        if v < 0.0 { return Err(AppError::BadRequest("depreciation_rate must be >= 0".into())); }
+        if v < rust_decimal::Decimal::ZERO { return Err(AppError::BadRequest("depreciation_rate must be >= 0".into())); }
     }
     Ok(())
 }
@@ -200,13 +200,13 @@ fn validate_update_request(req: &UpdateItemRequest) -> Result<(), AppError> {
         if v < 0.0 { return Err(AppError::BadRequest("max_weight_grams must be >= 0".into())); }
     }
     if let Some(Some(v)) = req.acquisition_cost {
-        if v < 0.0 { return Err(AppError::BadRequest("acquisition_cost must be >= 0".into())); }
+        if v < rust_decimal::Decimal::ZERO { return Err(AppError::BadRequest("acquisition_cost must be >= 0".into())); }
     }
     if let Some(Some(v)) = req.current_value {
-        if v < 0.0 { return Err(AppError::BadRequest("current_value must be >= 0".into())); }
+        if v < rust_decimal::Decimal::ZERO { return Err(AppError::BadRequest("current_value must be >= 0".into())); }
     }
     if let Some(Some(v)) = req.depreciation_rate {
-        if v < 0.0 { return Err(AppError::BadRequest("depreciation_rate must be >= 0".into())); }
+        if v < rust_decimal::Decimal::ZERO { return Err(AppError::BadRequest("depreciation_rate must be >= 0".into())); }
     }
     // VAL-4: Reject container-specific fields when explicitly disabling container status.
     // Only block when a *value* is being set (Some(Some(_))), not when clearing (Some(None)).

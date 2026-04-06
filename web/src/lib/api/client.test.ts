@@ -270,8 +270,8 @@ describe('concurrent token refresh (CL-1)', () => {
 		expect((r2 as { id: string }).id).toBe('item-2');
 
 		// Exactly one refresh call should have fired
-		const refreshCalls = fetchMock.mock.calls.filter(([url]: [string]) =>
-			(url as string).includes('/auth/refresh')
+		const refreshCalls = fetchMock.mock.calls.filter((args: unknown[]) =>
+			typeof args[0] === 'string' && args[0].includes('/auth/refresh')
 		);
 		expect(refreshCalls).toHaveLength(1);
 	});

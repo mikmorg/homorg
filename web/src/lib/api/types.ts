@@ -157,9 +157,9 @@ export interface CreateItemRequest {
 	dimensions?: unknown;
 	weight_grams?: number;
 	acquisition_date?: string;
-	acquisition_cost?: number;
-	current_value?: number;
-	depreciation_rate?: number;
+	acquisition_cost?: string;
+	current_value?: string;
+	depreciation_rate?: string;
 	warranty_expiry?: string;
 	currency?: string;
 	metadata?: Record<string, unknown>;
@@ -182,9 +182,9 @@ export interface UpdateItemRequest {
 	dimensions?: unknown;
 	weight_grams?: number | null;
 	acquisition_date?: string | null;
-	acquisition_cost?: number | null;
-	current_value?: number | null;
-	depreciation_rate?: number | null;
+	acquisition_cost?: string | null;
+	current_value?: string | null;
+	depreciation_rate?: string | null;
 	warranty_expiry?: string | null;
 	currency?: string | null;
 	metadata?: Record<string, unknown>;

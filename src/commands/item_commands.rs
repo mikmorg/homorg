@@ -281,9 +281,36 @@ impl ItemCommands {
         diff_nullable_field!(condition, current.condition);
         diff_nullable_field!(currency, current.currency);
         diff_nullable_field!(acquisition_date, current.acquisition_date);
-        diff_nullable_numeric!(acquisition_cost, current.acquisition_cost);
-        diff_nullable_numeric!(current_value, current.current_value);
-        diff_nullable_numeric!(depreciation_rate, current.depreciation_rate);
+        // B5: Decimal fields use exact equality; serde serializes them as strings.
+        macro_rules! diff_nullable_decimal {
+            ($field:ident, $current_val:expr) => {
+                if let Some(ref inner) = req.$field {
+                    match inner {
+                        None => {
+                            if $current_val.is_some() {
+                                changes.push(FieldChange {
+                                    field: stringify!($field).to_string(),
+                                    old: serde_json::to_value($current_val).unwrap_or(serde_json::Value::Null),
+                                    new: serde_json::Value::Null,
+                                });
+                            }
+                        }
+                        Some(new_val) => {
+                            if $current_val.as_ref() != Some(new_val) {
+                                changes.push(FieldChange {
+                                    field: stringify!($field).to_string(),
+                                    old: serde_json::to_value($current_val).unwrap_or(serde_json::Value::Null),
+                                    new: serde_json::to_value(new_val).unwrap_or(serde_json::Value::Null),
+                                });
+                            }
+                        }
+                    }
+                }
+            };
+        }
+        diff_nullable_decimal!(acquisition_cost, current.acquisition_cost);
+        diff_nullable_decimal!(current_value, current.current_value);
+        diff_nullable_decimal!(depreciation_rate, current.depreciation_rate);
         diff_nullable_field!(warranty_expiry, current.warranty_expiry);
         diff_field!(metadata, current.metadata);
         diff_nullable_field!(system_barcode, current.system_barcode);

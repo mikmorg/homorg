@@ -231,8 +231,10 @@
 				const qty = parseInt(createFungibleQty);
 				if (Number.isFinite(qty)) body.fungible_quantity = qty;
 			}
-			const cost = parseFloat(createAcqCost);
-			if (Number.isFinite(cost)) body.acquisition_cost = cost;
+			// B5: send as string to preserve decimal precision.
+			if (createAcqCost.trim() && Number.isFinite(parseFloat(createAcqCost))) {
+				body.acquisition_cost = createAcqCost.trim();
+			}
 			if (createCurrency.trim()) body.currency = createCurrency.trim();
 
 			// Category

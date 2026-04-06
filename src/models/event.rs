@@ -3,6 +3,31 @@ use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 use uuid::Uuid;
 
+/// B5: Deserialize a Decimal from either a JSON string OR a JSON number.
+/// Events written before the precision fix stored these as f64 numbers; new events store strings.
+mod decimal_compat {
+    use rust_decimal::Decimal;
+    use serde::{Deserialize, Deserializer};
+
+    pub fn deserialize_opt<'de, D>(d: D) -> Result<Option<Decimal>, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let v: Option<serde_json::Value> = Option::deserialize(d)?;
+        match v {
+            None | Some(serde_json::Value::Null) => Ok(None),
+            Some(serde_json::Value::String(s)) => {
+                s.parse::<Decimal>().map(Some).map_err(serde::de::Error::custom)
+            }
+            Some(serde_json::Value::Number(n)) => {
+                // Legacy events stored these as floats — round-trip via text.
+                n.to_string().parse::<Decimal>().map(Some).map_err(serde::de::Error::custom)
+            }
+            _ => Err(serde::de::Error::custom("expected decimal as string or number")),
+        }
+    }
+}
+
 /// A stored event from the event_store table.
 #[derive(Debug, Clone, Serialize, Deserialize, FromRow)]
 pub struct StoredEvent {
@@ -94,9 +119,13 @@ pub struct ItemCreatedData {
     #[serde(skip_serializing_if = "Option::is_none", default)]
     pub currency: Option<String>,
     pub acquisition_date: Option<String>,
-    pub acquisition_cost: Option<f64>,
-    pub current_value: Option<f64>,
-    pub depreciation_rate: Option<f64>,
+    // B5: stored as string in new events; legacy events stored as float (handled by decimal_compat).
+    #[serde(default, deserialize_with = "decimal_compat::deserialize_opt")]
+    pub acquisition_cost: Option<rust_decimal::Decimal>,
+    #[serde(default, deserialize_with = "decimal_compat::deserialize_opt")]
+    pub current_value: Option<rust_decimal::Decimal>,
+    #[serde(default, deserialize_with = "decimal_compat::deserialize_opt")]
+    pub depreciation_rate: Option<rust_decimal::Decimal>,
     pub warranty_expiry: Option<String>,
     pub metadata: serde_json::Value,
     /// DI-2: Original creation timestamp preserved for accurate projection rebuild.
