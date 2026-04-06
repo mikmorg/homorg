@@ -68,9 +68,11 @@ async fn get_descendants(
     Query(q): Query<DescendantsQuery>,
 ) -> AppResult<Json<Vec<ItemSummary>>> {
     let limit = q.limit.unwrap_or(200).clamp(1, 1000);
+    // N2: Clamp max_depth to at least 1; 0 or negative would return no children.
+    let max_depth = q.max_depth.map(|d| d.max(1));
     let items = state
         .container_queries
-        .get_descendants(id, q.max_depth, limit)
+        .get_descendants(id, max_depth, limit)
         .await?;
     Ok(Json(items))
 }
@@ -117,6 +119,22 @@ async fn update_schema(
         return Err(AppError::BadRequest(format!(
             "schema exceeds maximum size of {MAX_SCHEMA_BYTES} bytes (got {schema_bytes})"
         )));
+    }
+
+    // N1: Validate label_renames size to prevent memory amplification.
+    const MAX_RENAMES: usize = 200;
+    const MAX_RENAME_KEY_BYTES: usize = 256;
+    if body.label_renames.len() > MAX_RENAMES {
+        return Err(AppError::BadRequest(format!(
+            "label_renames exceeds maximum of {MAX_RENAMES} entries"
+        )));
+    }
+    for (k, v) in &body.label_renames {
+        if k.len() > MAX_RENAME_KEY_BYTES || v.len() > MAX_RENAME_KEY_BYTES {
+            return Err(AppError::BadRequest(
+                "label_renames key or value exceeds 256 bytes".into(),
+            ));
+        }
     }
 
     let metadata = EventMetadata::default();

@@ -2,7 +2,7 @@
 	import '../app.css';
 	import { page } from '$app/state';
 	import { goto } from '$app/navigation';
-	import { onMount } from 'svelte';
+	import { onMount, onDestroy } from 'svelte';
 	import { isAuthenticated, isAdmin } from '$stores/auth.js';
 	import { pendingCount } from '$offline/queue.js';
 	import { startHidScanner } from '$scanner/index.js';
@@ -14,10 +14,12 @@
 
 	const PUBLIC_PATHS = ['/', '/login', '/setup', '/register'];
 
+	let cleanupSync: (() => void) | undefined;
 	onMount(() => {
 		startHidScanner().catch(console.error);
-		registerSyncListeners(getAccessToken);
+		cleanupSync = registerSyncListeners(getAccessToken);
 	});
+	onDestroy(() => cleanupSync?.());
 
 	$effect(() => {
 		const path = page.url.pathname;

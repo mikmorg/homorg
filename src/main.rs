@@ -12,6 +12,7 @@ use tracing_subscriber::EnvFilter;
 
 use homorg::api;
 use homorg::config::AppConfig;
+use homorg::constants::{BACKGROUND_CLEANUP_INTERVAL_SECS, SESSION_IDLE_TIMEOUT_HOURS};
 use homorg::db;
 use homorg::events::store::EventStore;
 use homorg::storage::LocalStorage;
@@ -72,15 +73,15 @@ async fn main() {
             Ok(_) => {}
             Err(e) => tracing::warn!(error = %e, "Failed to purge stale revoked tokens at startup"),
         }
-        // R4-A: Close sessions idle >24h at startup
-        match session_repo.cleanup_stale_sessions(24).await {
+        // R4-A: Close sessions idle longer than SESSION_IDLE_TIMEOUT_HOURS at startup
+        match session_repo.cleanup_stale_sessions(SESSION_IDLE_TIMEOUT_HOURS).await {
             Ok(n) if n > 0 => tracing::info!("Closed {n} stale scan sessions at startup"),
             Ok(_) => {}
             Err(e) => tracing::warn!(error = %e, "Failed to clean up stale sessions at startup"),
         }
         // Periodic cleanup every 6 hours
         tokio::spawn(async move {
-            let mut interval = tokio::time::interval(std::time::Duration::from_secs(6 * 3600));
+            let mut interval = tokio::time::interval(std::time::Duration::from_secs(BACKGROUND_CLEANUP_INTERVAL_SECS));
             interval.tick().await; // skip immediate tick (already ran above)
             loop {
                 interval.tick().await;
@@ -90,8 +91,8 @@ async fn main() {
                 if let Err(e) = token_repo.purge_stale_revoked(7).await {
                     tracing::warn!(error = %e, "Periodic stale token purge failed");
                 }
-                // R4-A: Close sessions idle >24h
-                if let Err(e) = session_repo.cleanup_stale_sessions(24).await {
+                // R4-A: Close sessions idle longer than SESSION_IDLE_TIMEOUT_HOURS
+                if let Err(e) = session_repo.cleanup_stale_sessions(SESSION_IDLE_TIMEOUT_HOURS).await {
                     tracing::warn!(error = %e, "Periodic stale session cleanup failed");
                 }
             }

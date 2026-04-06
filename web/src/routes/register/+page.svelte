@@ -15,7 +15,7 @@
 	// Pre-fill invite code from URL if provided
 	$effect(() => {
 		const code = page.url.searchParams.get('code');
-		if (code && !inviteCode) inviteCode = code;
+		if (code) inviteCode = code;
 	});
 
 	async function register(e: SubmitEvent) {

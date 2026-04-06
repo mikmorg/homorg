@@ -168,13 +168,13 @@ export async function clear() {
 	}
 }
 
-/** Register online/offline listeners to auto-sync when connectivity returns. */
-export function registerSyncListeners(getToken: () => string | null) {
-	if (typeof window === 'undefined') return;
+/** Register online/offline listeners to auto-sync when connectivity returns.
+ *  Returns a cleanup function that removes the listeners (call from onDestroy). */
+export function registerSyncListeners(getToken: () => string | null): () => void {
+	if (typeof window === 'undefined') return () => {};
 
-	window.addEventListener('online', () => {
-		sync(getToken).catch(console.error);
-	});
+	const handler = () => sync(getToken).catch(console.error);
+	window.addEventListener('online', handler);
 
 	// Initial count load
 	refreshCount().catch(() => {});
@@ -188,4 +188,6 @@ export function registerSyncListeners(getToken: () => string | null) {
 			})
 			.catch(() => {});
 	}
+
+	return () => window.removeEventListener('online', handler);
 }

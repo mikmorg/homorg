@@ -72,6 +72,14 @@ pub const MAX_CODE_VALUE_LEN: usize = 200;
 /// Maximum character length of an external code type identifier.
 pub const MAX_CODE_TYPE_LEN: usize = 64;
 
+// ── Background task intervals ──────────────────────────────────────────
+
+/// Sessions idle longer than this many hours are auto-closed by the cleanup task.
+pub const SESSION_IDLE_TIMEOUT_HOURS: i64 = 24;
+
+/// Interval between periodic background cleanup runs (seconds).
+pub const BACKGROUND_CLEANUP_INTERVAL_SECS: u64 = 6 * 3600;
+
 // ── Images ────────────────────────────────────────────────────────────
 
 /// Maximum number of images allowed per item.
