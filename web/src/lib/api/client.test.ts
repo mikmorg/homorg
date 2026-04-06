@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { get } from 'svelte/store';
 import { authStore } from '$stores/auth.js';
-import { ApiClientError, items, auth, containers } from './client.js';
+import { ApiClientError, items, auth, containers, barcodes } from './client.js';
 import type { AuthResponse } from './types.js';
 
 // ── Helpers ────────────────────────────────────────────────────────────────
@@ -230,5 +230,114 @@ describe('token refresh on 401', () => {
 		});
 		// Auth store should be updated with new token
 		expect(get(authStore)?.access_token).toBe('new-access-tok');
+	});
+});
+
+// ── Concurrent 401 refresh (CL-1 refreshQueue) ────────────────────────────────
+
+describe('concurrent token refresh (CL-1)', () => {
+	it('fires only one refresh call when two requests 401 simultaneously', async () => {
+		authStore.set(AUTH_RESP);
+
+		// Set up a slow refresh so we can have two 401s in flight at once.
+		let resolveRefresh!: (r: Partial<Response>) => void;
+		const refreshPromise = new Promise<Partial<Response>>((r) => { resolveRefresh = r; });
+
+		const fetchMock = vi.fn()
+			// Both concurrent requests get 401
+			.mockResolvedValueOnce({ ok: false, status: 401, statusText: 'Unauthorized' } as Partial<Response>)
+			.mockResolvedValueOnce({ ok: false, status: 401, statusText: 'Unauthorized' } as Partial<Response>)
+			// One refresh call (slow)
+			.mockReturnValueOnce(refreshPromise)
+			// Both retries succeed
+			.mockResolvedValueOnce(jsonResponse({ id: 'item-1' }))
+			.mockResolvedValueOnce(jsonResponse({ id: 'item-2' }));
+		vi.stubGlobal('fetch', fetchMock);
+
+		// Launch two requests in parallel before refresh completes
+		const p1 = items.get('item-1');
+		const p2 = items.get('item-2');
+
+		// Allow the initial 401 responses to land
+		await Promise.resolve();
+		await Promise.resolve();
+
+		// Now resolve the refresh
+		resolveRefresh(jsonResponse(NEW_AUTH_RESP));
+
+		const [r1, r2] = await Promise.all([p1, p2]);
+		expect((r1 as { id: string }).id).toBe('item-1');
+		expect((r2 as { id: string }).id).toBe('item-2');
+
+		// Exactly one refresh call should have fired
+		const refreshCalls = fetchMock.mock.calls.filter(([url]: [string]) =>
+			(url as string).includes('/auth/refresh')
+		);
+		expect(refreshCalls).toHaveLength(1);
+	});
+
+	it('all queued callers reject when refresh fails', async () => {
+		authStore.set(AUTH_RESP);
+
+		vi.stubGlobal('fetch', vi.fn()
+			.mockResolvedValueOnce({ ok: false, status: 401, statusText: 'Unauthorized' } as Partial<Response>)
+			.mockResolvedValueOnce({ ok: false, status: 401, statusText: 'Unauthorized' } as Partial<Response>)
+			// Refresh itself fails
+			.mockResolvedValueOnce({ ok: false, status: 401, statusText: 'Unauthorized' } as Partial<Response>));
+
+		const p1 = items.get('item-1');
+		const p2 = items.get('item-2');
+
+		await expect(Promise.all([p1, p2])).rejects.toThrow('Session expired');
+		expect(get(authStore)).toBeNull();
+	});
+});
+
+// ── requestBlob (PDF downloads) ───────────────────────────────────────────────
+
+describe('requestBlob', () => {
+	it('returns a Blob on successful response', async () => {
+		authStore.set(AUTH_RESP);
+		const pdfBytes = new Uint8Array([0x25, 0x50, 0x44, 0x46]); // %PDF
+		vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce({
+			ok: true,
+			status: 200,
+			blob: () => Promise.resolve(new Blob([pdfBytes], { type: 'application/pdf' }))
+		} as Partial<Response>));
+
+		const blob = await barcodes.downloadLabels(10);
+		expect(blob).toBeInstanceOf(Blob);
+	});
+
+	it('retries with new token when 401 and refresh succeeds', async () => {
+		authStore.set(AUTH_RESP);
+		const pdfBlob = new Blob(['pdf-data'], { type: 'application/pdf' });
+
+		vi.stubGlobal('fetch', vi.fn()
+			.mockResolvedValueOnce({ ok: false, status: 401, statusText: 'Unauthorized' } as Partial<Response>)
+			.mockResolvedValueOnce(jsonResponse(NEW_AUTH_RESP))
+			.mockResolvedValueOnce({
+				ok: true, status: 200,
+				blob: () => Promise.resolve(pdfBlob)
+			} as Partial<Response>)
+		);
+
+		const result = await barcodes.downloadLabels(5);
+		expect(result).toBeInstanceOf(Blob);
+		expect(get(authStore)?.access_token).toBe('new-access-tok');
+	});
+
+	it('throws ApiClientError when response is not ok', async () => {
+		authStore.set(AUTH_RESP);
+		vi.stubGlobal('fetch', vi.fn().mockResolvedValueOnce({
+			ok: false,
+			status: 403,
+			statusText: 'Forbidden',
+			json: () => Promise.resolve({ message: 'Not an admin' })
+		} as Partial<Response>));
+
+		await expect(barcodes.downloadLabels(10)).rejects.toMatchObject({
+			error: { status: 403, message: 'Not an admin' }
+		});
 	});
 });

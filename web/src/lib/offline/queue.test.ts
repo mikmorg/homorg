@@ -189,6 +189,48 @@ describe('sync — concurrency guard', () => {
 	});
 });
 
+// ── sync — 429 handling (R3-F: treat as transient) ───────────────────────────
+
+describe('sync — 429 Too Many Requests', () => {
+	it('keeps mutation in queue on 429 (transient, not permanent)', async () => {
+		await mod.enqueue(mutation());
+		mockFetch({ ok: false, status: 429 } as Partial<Response>);
+		await mod.sync(() => null);
+		// 429 should NOT dequeue — stays in queue for retry
+		expect(get(mod.pendingCount)).toBe(1);
+	});
+
+	it('increments attempt counter on 429', async () => {
+		await mod.enqueue(mutation());
+		// Fail with 429 once
+		mockFetch({ ok: false, status: 429 } as Partial<Response>);
+		await mod.sync(() => null);
+		// Now succeed — mutation is still queued so fetch fires again
+		mockFetch({ ok: true, status: 200 } as Partial<Response>);
+		await mod.sync(() => null);
+		expect(get(mod.pendingCount)).toBe(0);
+	});
+});
+
+// ── sync — 401 attempt counter (R3-E: 401 must not burn attempts) ─────────────
+
+describe('sync — 401 does not increment attempt counter', () => {
+	it('attempts stay at 0 after a 401 response', async () => {
+		await mod.enqueue(mutation());
+		// Fail 20 times with 401 (would exhaust attempts if counted)
+		for (let i = 0; i < 20; i++) {
+			mockFetch({ ok: false, status: 401 } as Partial<Response>);
+			await mod.sync(() => null);
+		}
+		// Mutation should still be alive — 0 attempts consumed
+		const fetchMock = mockFetch({ ok: true, status: 200 } as Partial<Response>);
+		await mod.sync(() => null);
+		// Mutation was processed (fetch called) and dequeued
+		expect(fetchMock).toHaveBeenCalledTimes(1);
+		expect(get(mod.pendingCount)).toBe(0);
+	});
+});
+
 // ── clear ──────────────────────────────────────────────────────────────────
 
 describe('clear', () => {

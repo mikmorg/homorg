@@ -84,7 +84,7 @@ export function detectBarcodeType(value: string, format?: string): string {
 	if (/^\d{14}$/.test(digits)) return 'GTIN';
 	if (/^\d{13}$/.test(digits)) return /^97[89]/.test(digits) ? 'ISBN' : 'EAN';
 	if (/^\d{12}$/.test(digits)) return 'UPC';
-	if (/^\d{10}$/.test(digits) && isISBN10(digits)) return 'ISBN';
+	if (/^\d{9}[\dX]$/i.test(digits) && isISBN10(digits)) return 'ISBN';
 	if (/^\d{8}$/.test(digits)) return 'EAN-8';
 
 	return '';
