@@ -20,6 +20,12 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/generate", post(generate))
         .route("/generate-batch", post(generate_batch))
         .route("/resolve/{code}", get(resolve))
+}
+
+/// PDF label generation routes — exposed separately so a tighter rate limit
+/// can be applied in the top-level router (these are CPU/memory intensive).
+pub fn pdf_routes() -> Router<Arc<AppState>> {
+    Router::new()
         .route("/labels", post(labels_pdf))
         .route("/preset-labels", post(preset_labels_pdf))
 }

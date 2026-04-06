@@ -76,7 +76,7 @@ impl KeyExtractor for ClientIpKeyExtractor {
 /// Build the complete API router with all v1 routes.
 pub fn build_router(state: Arc<AppState>, config: &AppConfig) -> Router {
     // Rate limiting is opt-in: disabled unless RATE_LIMIT_RPS is explicitly set.
-    let (auth_layer, api_layer) = if config.rate_limit_enabled {
+    let (auth_layer, api_layer, pdf_layer) = if config.rate_limit_enabled {
         let auth_conf = Arc::new(
             GovernorConfigBuilder::default()
                 .per_second(config.rate_limit_rps)
@@ -93,12 +93,22 @@ pub fn build_router(state: Arc<AppState>, config: &AppConfig) -> Router {
                 .finish()
                 .expect("Failed to build API rate limiter config"),
         );
+        // PDF label generation is CPU/memory intensive — 1 RPS with burst of 5.
+        let pdf_conf = Arc::new(
+            GovernorConfigBuilder::default()
+                .per_second(1)
+                .burst_size(5)
+                .key_extractor(ClientIpKeyExtractor)
+                .finish()
+                .expect("Failed to build PDF rate limiter config"),
+        );
         (
             Some(GovernorLayer::new(auth_conf)),
             Some(GovernorLayer::new(api_conf)),
+            Some(GovernorLayer::new(pdf_conf)),
         )
     } else {
-        (None, None)
+        (None, None, None)
     };
 
 
@@ -109,7 +119,12 @@ pub fn build_router(state: Arc<AppState>, config: &AppConfig) -> Router {
         )
         .nest("/items", item_routes::router())
         .nest("/containers", container_routes::router())
-        .nest("/barcodes", barcode_routes::router())
+        .nest(
+            "/barcodes",
+            barcode_routes::router().merge(
+                barcode_routes::pdf_routes().layer(option_layer(pdf_layer)),
+            ),
+        )
         .nest("/stocker", stocker_routes::router())
         .nest("/search", search_routes::router())
         .nest("/undo", undo_routes::router())

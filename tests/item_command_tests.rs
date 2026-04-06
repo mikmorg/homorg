@@ -825,3 +825,296 @@ async fn schema_label_deletion_does_not_corrupt_other_children() {
     let c = state.item_queries.get_by_id(child_c).await.unwrap();
     assert_eq!(c.item.coordinate, Some(serde_json::json!({ "type": "abstract", "value": "C" })));
 }
+
+// ── External codes ──────────────────────────────────────────────────────
+
+#[tokio::test]
+#[ignore]
+async fn add_external_code_stores_with_uppercase_type() {
+    // I5: type should be normalized to uppercase regardless of input case.
+    let ctx = common::setup().await;
+    let state = &ctx.state;
+    let metadata = EventMetadata::default();
+
+    let item_id = Uuid::new_v4();
+    let bc = state.barcode_commands.generate_barcode().await.unwrap();
+    state
+        .item_commands
+        .create_item(item_id, &common::make_item_request(&bc.barcode, ROOT_ID, "Coded Item", false), ctx.admin_id, &metadata)
+        .await
+        .unwrap();
+
+    state
+        .item_commands
+        .add_external_code(item_id, "upc".into(), "012345678905".into(), ctx.admin_id, &metadata)
+        .await
+        .unwrap();
+
+    let item = state.item_queries.get_by_id(item_id).await.unwrap();
+    let codes: Vec<serde_json::Value> = serde_json::from_value(item.item.external_codes).unwrap();
+    assert_eq!(codes.len(), 1);
+    assert_eq!(codes[0]["type"].as_str().unwrap(), "UPC");
+    assert_eq!(codes[0]["value"].as_str().unwrap(), "012345678905");
+}
+
+#[tokio::test]
+#[ignore]
+async fn add_external_code_deduplicates() {
+    let ctx = common::setup().await;
+    let state = &ctx.state;
+    let metadata = EventMetadata::default();
+
+    let item_id = Uuid::new_v4();
+    let bc = state.barcode_commands.generate_barcode().await.unwrap();
+    state
+        .item_commands
+        .create_item(item_id, &common::make_item_request(&bc.barcode, ROOT_ID, "Dup Item", false), ctx.admin_id, &metadata)
+        .await
+        .unwrap();
+
+    state
+        .item_commands
+        .add_external_code(item_id, "UPC".into(), "012345678905".into(), ctx.admin_id, &metadata)
+        .await
+        .unwrap();
+
+    // Adding the same type+value again should return an error.
+    let result = state
+        .item_commands
+        .add_external_code(item_id, "UPC".into(), "012345678905".into(), ctx.admin_id, &metadata)
+        .await;
+    assert!(result.is_err());
+
+    // Only one entry should be stored.
+    let item = state.item_queries.get_by_id(item_id).await.unwrap();
+    let codes: Vec<serde_json::Value> = serde_json::from_value(item.item.external_codes).unwrap();
+    assert_eq!(codes.len(), 1);
+}
+
+#[tokio::test]
+#[ignore]
+async fn add_external_code_enforces_max() {
+    let ctx = common::setup().await;
+    let state = &ctx.state;
+    let metadata = EventMetadata::default();
+
+    let item_id = Uuid::new_v4();
+    let bc = state.barcode_commands.generate_barcode().await.unwrap();
+    state
+        .item_commands
+        .create_item(item_id, &common::make_item_request(&bc.barcode, ROOT_ID, "Many Codes", false), ctx.admin_id, &metadata)
+        .await
+        .unwrap();
+
+    // Add exactly MAX_EXTERNAL_CODES (50) codes — all should succeed.
+    for i in 0..homorg::constants::MAX_EXTERNAL_CODES {
+        let value = format!("{:012}", i);
+        state
+            .item_commands
+            .add_external_code(item_id, "EAN".into(), value, ctx.admin_id, &metadata)
+            .await
+            .unwrap_or_else(|e| panic!("code {i} failed: {e}"));
+    }
+
+    // The 51st should fail.
+    let result = state
+        .item_commands
+        .add_external_code(item_id, "EAN".into(), "999999999999".into(), ctx.admin_id, &metadata)
+        .await;
+    assert!(result.is_err(), "expected error when exceeding MAX_EXTERNAL_CODES");
+
+    let item = state.item_queries.get_by_id(item_id).await.unwrap();
+    let codes: Vec<serde_json::Value> = serde_json::from_value(item.item.external_codes).unwrap();
+    assert_eq!(codes.len(), homorg::constants::MAX_EXTERNAL_CODES);
+}
+
+#[tokio::test]
+#[ignore]
+async fn remove_external_code_removes_from_item() {
+    let ctx = common::setup().await;
+    let state = &ctx.state;
+    let metadata = EventMetadata::default();
+
+    let item_id = Uuid::new_v4();
+    let bc = state.barcode_commands.generate_barcode().await.unwrap();
+    state
+        .item_commands
+        .create_item(item_id, &common::make_item_request(&bc.barcode, ROOT_ID, "Remove Code", false), ctx.admin_id, &metadata)
+        .await
+        .unwrap();
+
+    state
+        .item_commands
+        .add_external_code(item_id, "ISBN".into(), "9780306406157".into(), ctx.admin_id, &metadata)
+        .await
+        .unwrap();
+
+    state
+        .item_commands
+        .remove_external_code(item_id, "ISBN".into(), "9780306406157".into(), ctx.admin_id, &metadata)
+        .await
+        .unwrap();
+
+    let item = state.item_queries.get_by_id(item_id).await.unwrap();
+    let codes: Vec<serde_json::Value> = serde_json::from_value(item.item.external_codes).unwrap();
+    assert!(codes.is_empty());
+}
+
+#[tokio::test]
+#[ignore]
+async fn remove_external_code_not_found_returns_error() {
+    let ctx = common::setup().await;
+    let state = &ctx.state;
+    let metadata = EventMetadata::default();
+
+    let item_id = Uuid::new_v4();
+    let bc = state.barcode_commands.generate_barcode().await.unwrap();
+    state
+        .item_commands
+        .create_item(item_id, &common::make_item_request(&bc.barcode, ROOT_ID, "No Code", false), ctx.admin_id, &metadata)
+        .await
+        .unwrap();
+
+    let result = state
+        .item_commands
+        .remove_external_code(item_id, "UPC".into(), "000000000000".into(), ctx.admin_id, &metadata)
+        .await;
+    assert!(result.is_err());
+}
+
+// ── Images ──────────────────────────────────────────────────────────────
+
+#[tokio::test]
+#[ignore]
+async fn add_image_stores_in_item() {
+    let ctx = common::setup().await;
+    let state = &ctx.state;
+    let metadata = EventMetadata::default();
+
+    let item_id = Uuid::new_v4();
+    let bc = state.barcode_commands.generate_barcode().await.unwrap();
+    state
+        .item_commands
+        .create_item(item_id, &common::make_item_request(&bc.barcode, ROOT_ID, "With Image", false), ctx.admin_id, &metadata)
+        .await
+        .unwrap();
+
+    state
+        .item_commands
+        .add_image(item_id, "uploads/img.jpg".into(), Some("Caption".into()), 0, ctx.admin_id, &metadata)
+        .await
+        .unwrap();
+
+    let item = state.item_queries.get_by_id(item_id).await.unwrap();
+    let images = item.item.images.as_array().unwrap();
+    assert_eq!(images.len(), 1);
+    assert_eq!(images[0]["path"].as_str().unwrap(), "uploads/img.jpg");
+    assert_eq!(images[0]["caption"].as_str().unwrap(), "Caption");
+}
+
+#[tokio::test]
+#[ignore]
+async fn remove_image_by_path_removes_from_item() {
+    let ctx = common::setup().await;
+    let state = &ctx.state;
+    let metadata = EventMetadata::default();
+
+    let item_id = Uuid::new_v4();
+    let bc = state.barcode_commands.generate_barcode().await.unwrap();
+    state
+        .item_commands
+        .create_item(item_id, &common::make_item_request(&bc.barcode, ROOT_ID, "Image Removal", false), ctx.admin_id, &metadata)
+        .await
+        .unwrap();
+
+    state
+        .item_commands
+        .add_image(item_id, "uploads/remove_me.jpg".into(), None, 0, ctx.admin_id, &metadata)
+        .await
+        .unwrap();
+
+    state
+        .item_commands
+        .remove_image(item_id, "uploads/remove_me.jpg".into(), ctx.admin_id, &metadata)
+        .await
+        .unwrap();
+
+    let item = state.item_queries.get_by_id(item_id).await.unwrap();
+    let images = item.item.images.as_array().unwrap();
+    assert!(images.is_empty());
+}
+
+#[tokio::test]
+#[ignore]
+async fn remove_image_by_index_removes_correct_entry() {
+    let ctx = common::setup().await;
+    let state = &ctx.state;
+    let metadata = EventMetadata::default();
+
+    let item_id = Uuid::new_v4();
+    let bc = state.barcode_commands.generate_barcode().await.unwrap();
+    state
+        .item_commands
+        .create_item(item_id, &common::make_item_request(&bc.barcode, ROOT_ID, "Two Images", false), ctx.admin_id, &metadata)
+        .await
+        .unwrap();
+
+    state
+        .item_commands
+        .add_image(item_id, "uploads/first.jpg".into(), None, 0, ctx.admin_id, &metadata)
+        .await
+        .unwrap();
+    state
+        .item_commands
+        .add_image(item_id, "uploads/second.jpg".into(), None, 1, ctx.admin_id, &metadata)
+        .await
+        .unwrap();
+
+    // Remove index 0 (first) — only "second.jpg" should remain.
+    state
+        .item_commands
+        .remove_image_by_index(item_id, 0, ctx.admin_id, &metadata)
+        .await
+        .unwrap();
+
+    let item = state.item_queries.get_by_id(item_id).await.unwrap();
+    let images = item.item.images.as_array().unwrap();
+    assert_eq!(images.len(), 1);
+    assert_eq!(images[0]["path"].as_str().unwrap(), "uploads/second.jpg");
+}
+
+#[tokio::test]
+#[ignore]
+async fn add_image_enforces_max_images_limit() {
+    let ctx = common::setup().await;
+    let state = &ctx.state;
+    let metadata = EventMetadata::default();
+
+    let item_id = Uuid::new_v4();
+    let bc = state.barcode_commands.generate_barcode().await.unwrap();
+    state
+        .item_commands
+        .create_item(item_id, &common::make_item_request(&bc.barcode, ROOT_ID, "Max Images", false), ctx.admin_id, &metadata)
+        .await
+        .unwrap();
+
+    // Add exactly MAX_IMAGES_PER_ITEM (50) images.
+    for i in 0..homorg::constants::MAX_IMAGES_PER_ITEM {
+        state
+            .item_commands
+            .add_image(item_id, format!("uploads/{i}.jpg"), None, i as i32, ctx.admin_id, &metadata)
+            .await
+            .unwrap_or_else(|e| panic!("image {i} failed: {e}"));
+    }
+
+    // The 51st should fail.
+    let result = state
+        .item_commands
+        .add_image(item_id, "uploads/overflow.jpg".into(), None, 50, ctx.admin_id, &metadata)
+        .await;
+    assert!(result.is_err(), "expected error when exceeding MAX_IMAGES_PER_ITEM");
+
+    let item = state.item_queries.get_by_id(item_id).await.unwrap();
+    let images = item.item.images.as_array().unwrap();
+    assert_eq!(images.len(), homorg::constants::MAX_IMAGES_PER_ITEM);
+}

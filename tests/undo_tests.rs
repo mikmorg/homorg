@@ -404,3 +404,24 @@ async fn undo_container_schema_null_not_stored_as_json_null() {
     assert_eq!(item.item.location_schema, None,
         "undo of initial schema set should produce SQL NULL, not JSON null literal");
 }
+
+// ── R4-B / R6-B3: undo_session with non-existent session ───────────────
+
+#[tokio::test]
+#[ignore]
+async fn undo_session_nonexistent_returns_error() {
+    let ctx = common::setup().await;
+    let state = &ctx.state;
+
+    let result = state
+        .undo_commands
+        .undo_session(&Uuid::new_v4().to_string(), ctx.admin_id, 500)
+        .await;
+
+    assert!(result.is_err());
+    let msg = result.unwrap_err().to_string().to_lowercase();
+    assert!(
+        msg.contains("not found") || msg.contains("no undoable"),
+        "unexpected error message: {msg}"
+    );
+}
