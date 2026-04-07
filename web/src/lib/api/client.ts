@@ -16,11 +16,17 @@ import { authStore } from '$stores/auth.js';
 import { clearSession } from '$stores/stocker.js';
 import { clearRecentContainers } from '$lib/stores/recentContainers.js';
 import { get } from 'svelte/store';
+import { enqueue } from '$offline/queue.js';
 
 export class ApiClientError extends Error {
 	constructor(public readonly error: ApiError) {
 		super(error.message);
 	}
+}
+
+/** Thrown when a mutation fails due to a network error and has been queued for offline sync. */
+export class QueuedError extends Error {
+	constructor() { super('Request queued for offline sync'); }
 }
 
 const BASE = '/api/v1';
@@ -88,7 +94,27 @@ async function request<T>(
 		headers.set('Authorization', `Bearer ${auth.access_token}`);
 	}
 
-	const resp = await fetch(url, { method, ...fetchOptions, headers });
+	// Determine up front whether this request can be queued for offline replay.
+	// Auth endpoints are excluded (tokens expire; replaying them would be wrong).
+	// FormData (file uploads) are excluded because the body cannot be serialised.
+	const isQueueable =
+		method !== 'GET' &&
+		!(fetchOptions.body instanceof FormData) &&
+		!path.startsWith('/auth/');
+	const headersForQueue: Record<string, string> =
+		isQueueable ? { 'Content-Type': 'application/json' } : {};
+	const bodyForQueue = typeof fetchOptions.body === 'string' ? fetchOptions.body : null;
+
+	let resp: Response;
+	try {
+		resp = await fetch(url, { method, ...fetchOptions, headers });
+	} catch (networkErr) {
+		if (isQueueable) {
+			await enqueue({ url, method, headers: headersForQueue, body: bodyForQueue });
+			throw new QueuedError();
+		}
+		throw networkErr;
+	}
 
 	if (resp.status === 401 && retry && auth?.refresh_token) {
 		// CL-2: FormData/ReadableStream bodies are consumed by the first fetch()

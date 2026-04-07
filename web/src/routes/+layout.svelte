@@ -4,9 +4,8 @@
 	import { goto } from '$app/navigation';
 	import { onMount, onDestroy } from 'svelte';
 	import { isAuthenticated, isAdmin } from '$stores/auth.js';
-	import { pendingCount } from '$offline/queue.js';
+	import { pendingCount, registerSyncListeners, sync } from '$offline/queue.js';
 	import { startHidScanner } from '$scanner/index.js';
-	import { registerSyncListeners } from '$offline/queue.js';
 	import { getAccessToken } from '$stores/auth.js';
 	import Toast from '$lib/components/Toast.svelte';
 
@@ -139,9 +138,12 @@
 	<!-- Offline indicator -->
 	{#if $pendingCount > 0}
 		<div class="fixed bottom-20 left-1/2 -translate-x-1/2 z-50">
-			<div class="rounded-full bg-amber-600 px-3 py-1 text-xs font-medium text-white shadow-lg">
-				{$pendingCount} pending sync
-			</div>
+			<button
+				onclick={() => sync(getAccessToken)}
+				class="rounded-full bg-amber-600 px-3 py-1 text-xs font-medium text-white shadow-lg cursor-pointer"
+			>
+				{$pendingCount} pending — tap to sync
+			</button>
 		</div>
 	{/if}
 <Toast />

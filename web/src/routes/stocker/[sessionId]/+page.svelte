@@ -2,7 +2,7 @@
 	import { onMount, onDestroy } from 'svelte';
 	import { page } from '$app/state';
 	import { goto, beforeNavigate } from '$app/navigation';
-	import { api } from '$api/client.js';
+	import { api, QueuedError } from '$api/client.js';
 	import type { BarcodeResolution, CameraToken, Item, ItemSummary, StockerBatchEvent, ExternalCode } from '$api/types.js';
 	import { detectBarcodeType, STANDARD_CODE_TYPES, STANDARD_CODE_TYPE_VALUES } from '$lib/barcode-type.js';
 	import QRCode from 'qrcode';
@@ -301,8 +301,12 @@
 							scanError();
 						}
 					} catch (err) {
-						addLog(barcode, 'error', err instanceof Error ? err.message : 'Create failed');
-						scanError();
+						if (err instanceof QueuedError) {
+							addLog(barcode, 'error', 'Queued for sync (offline)');
+						} else {
+							addLog(barcode, 'error', err instanceof Error ? err.message : 'Create failed');
+							scanError();
+						}
 					}
 				}
 				break;
@@ -406,10 +410,15 @@
 				setSession(s);
 			} catch { /* ignore stats refresh failure */ }
 		} catch (err) {
-			// Re-queue failed batch at the front so ordering is preserved
-			pendingBatch = [...batch, ...pendingBatch];
-			setPendingCount(pendingBatch.length);
-			console.error('[stocker] batch flush failed', err);
+			if (err instanceof QueuedError) {
+				// Batch accepted into offline queue — local pendingBatch already cleared
+				markSynced();
+			} else {
+				// Re-queue failed batch at the front so ordering is preserved
+				pendingBatch = [...batch, ...pendingBatch];
+				setPendingCount(pendingBatch.length);
+				console.error('[stocker] batch flush failed', err);
+			}
 		} finally {
 			flushing = false;
 		}
@@ -461,8 +470,12 @@
 				scanError();
 			}
 		} catch (err) {
-			qcError = err instanceof Error ? err.message : 'Create failed';
-			scanError();
+			if (err instanceof QueuedError) {
+				qcError = 'Queued — will create when back online';
+			} else {
+				qcError = err instanceof Error ? err.message : 'Create failed';
+				scanError();
+			}
 		} finally {
 			qcLoading = false;
 		}
@@ -618,7 +631,11 @@
 				placeError = batchRes.errors?.[0]?.message ?? 'Container creation failed';
 			}
 		} catch (err) {
-			placeError = err instanceof Error ? err.message : 'Create failed';
+			if (err instanceof QueuedError) {
+				placeError = 'Queued — will create when back online';
+			} else {
+				placeError = err instanceof Error ? err.message : 'Create failed';
+			}
 		} finally {
 			placingContainer = false;
 		}

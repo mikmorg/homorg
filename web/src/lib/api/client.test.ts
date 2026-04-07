@@ -1,8 +1,17 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { get } from 'svelte/store';
 import { authStore } from '$stores/auth.js';
-import { ApiClientError, items, auth, containers, barcodes } from './client.js';
+import { ApiClientError, QueuedError, items, auth, containers, barcodes } from './client.js';
 import type { AuthResponse } from './types.js';
+
+vi.mock('$offline/queue.js', () => ({
+	enqueue: vi.fn().mockResolvedValue(undefined),
+	pendingCount: { subscribe: vi.fn(() => () => {}) },
+	sync: vi.fn(),
+	registerSyncListeners: vi.fn(() => () => {}),
+	clear: vi.fn()
+}));
+import { enqueue } from '$offline/queue.js';
 
 // ── Helpers ────────────────────────────────────────────────────────────────
 
@@ -339,5 +348,70 @@ describe('requestBlob', () => {
 		await expect(barcodes.downloadLabels(10)).rejects.toMatchObject({
 			error: { status: 403, message: 'Not an admin' }
 		});
+	});
+});
+
+// ── Offline queue integration ─────────────────────────────────────────────────
+
+describe('offline queue integration', () => {
+	beforeEach(() => {
+		vi.mocked(enqueue).mockClear();
+	});
+
+	it('enqueues and throws QueuedError when POST fails with network error', async () => {
+		authStore.set(AUTH_RESP);
+		vi.stubGlobal('fetch', vi.fn().mockRejectedValueOnce(new Error('Network error')));
+
+		await expect(items.create({ name: 'Wrench' } as never)).rejects.toBeInstanceOf(QueuedError);
+		expect(enqueue).toHaveBeenCalledOnce();
+		expect(vi.mocked(enqueue).mock.calls[0][0]).toMatchObject({
+			url: '/api/v1/items',
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
+			body: JSON.stringify({ name: 'Wrench' })
+		});
+	});
+
+	it('includes query params in enqueued URL', async () => {
+		authStore.set(AUTH_RESP);
+		vi.stubGlobal('fetch', vi.fn().mockRejectedValueOnce(new Error('Network error')));
+
+		await expect(
+			items.adjustQuantity('item-1', { delta: 1, unit: 'units' } as never)
+		).rejects.toBeInstanceOf(QueuedError);
+		expect(vi.mocked(enqueue).mock.calls[0][0]).toMatchObject({
+			url: '/api/v1/items/item-1/quantity',
+			method: 'POST'
+		});
+	});
+
+	it('does not enqueue GET requests on network error', async () => {
+		vi.stubGlobal('fetch', vi.fn().mockRejectedValueOnce(new Error('Network error')));
+
+		await expect(items.get('item-1')).rejects.toThrow('Network error');
+		expect(enqueue).not.toHaveBeenCalled();
+	});
+
+	it('does not enqueue FormData (file upload) on network error', async () => {
+		authStore.set(AUTH_RESP);
+		vi.stubGlobal('fetch', vi.fn().mockRejectedValueOnce(new Error('Network error')));
+
+		const file = new File(['data'], 'img.png', { type: 'image/png' });
+		await expect(items.uploadImage('item-1', file)).rejects.toThrow('Network error');
+		expect(enqueue).not.toHaveBeenCalled();
+	});
+
+	it('does not enqueue auth endpoints on network error', async () => {
+		vi.stubGlobal('fetch', vi.fn().mockRejectedValueOnce(new Error('Network error')));
+
+		await expect(auth.login({ username: 'u', password: 'p' })).rejects.toThrow('Network error');
+		expect(enqueue).not.toHaveBeenCalled();
+	});
+
+	it('does not enqueue DELETE on auth path on network error', async () => {
+		vi.stubGlobal('fetch', vi.fn().mockRejectedValueOnce(new Error('Network error')));
+
+		await expect(auth.logout('refresh-tok')).rejects.toThrow('Network error');
+		expect(enqueue).not.toHaveBeenCalled();
 	});
 });
