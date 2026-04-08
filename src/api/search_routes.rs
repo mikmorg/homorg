@@ -20,7 +20,8 @@ const MAX_SEARCH_PATH_LEN: usize = 500;
 /// dot, and the star wildcard).  Reject all other lquery meta-characters
 /// ({, }, !, @, |, quantifiers) to prevent computationally expensive patterns.
 fn is_safe_lquery(path: &str) -> bool {
-    path.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'.' || b == b'*')
+    path.bytes()
+        .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'.' || b == b'*')
 }
 
 pub fn router() -> Router<Arc<AppState>> {
@@ -56,7 +57,7 @@ async fn search(
         }
         if !is_safe_lquery(path) {
             return Err(AppError::BadRequest(
-                "Path pattern contains invalid characters; only alphanumeric, '_', '.', and '*' are allowed".into()
+                "Path pattern contains invalid characters; only alphanumeric, '_', '.', and '*' are allowed".into(),
             ));
         }
     }

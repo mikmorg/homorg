@@ -23,20 +23,13 @@ pub fn router() -> Router<Arc<AppState>> {
 }
 
 /// List all tags with their item counts.
-async fn list_tags(
-    State(state): State<Arc<AppState>>,
-    _auth: AuthUser,
-) -> AppResult<Json<Vec<Tag>>> {
+async fn list_tags(State(state): State<Arc<AppState>>, _auth: AuthUser) -> AppResult<Json<Vec<Tag>>> {
     let tags = state.taxonomy_queries.list_tags().await?;
     Ok(Json(tags))
 }
 
 /// Get a single tag by ID.
-async fn get_tag(
-    State(state): State<Arc<AppState>>,
-    _auth: AuthUser,
-    Path(id): Path<Uuid>,
-) -> AppResult<Json<Tag>> {
+async fn get_tag(State(state): State<Arc<AppState>>, _auth: AuthUser, Path(id): Path<Uuid>) -> AppResult<Json<Tag>> {
     let tag = state.taxonomy_queries.get_tag_by_id(id).await?;
     Ok(Json(tag))
 }
@@ -83,11 +76,7 @@ fn validate_tag_name(name: &str) -> Result<(), AppError> {
 }
 
 /// Delete a tag and remove it from all items.
-async fn delete_tag(
-    State(state): State<Arc<AppState>>,
-    auth: AuthUser,
-    Path(id): Path<Uuid>,
-) -> AppResult<StatusCode> {
+async fn delete_tag(State(state): State<Arc<AppState>>, auth: AuthUser, Path(id): Path<Uuid>) -> AppResult<StatusCode> {
     auth.require_role("member")?;
     state.taxonomy_queries.delete_tag(id).await?;
     Ok(StatusCode::NO_CONTENT)

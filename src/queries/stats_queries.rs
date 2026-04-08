@@ -101,15 +101,11 @@ impl StatsQueries {
         .fetch_one(&self.pool)
         .await?;
 
-        let items_by_category: Vec<CategoryCount> =
-            serde_json::from_value(row.items_by_category).map_err(|e| {
-                AppError::Internal(format!("Failed to deserialize items_by_category: {e}"))
-            })?;
+        let items_by_category: Vec<CategoryCount> = serde_json::from_value(row.items_by_category)
+            .map_err(|e| AppError::Internal(format!("Failed to deserialize items_by_category: {e}")))?;
 
-        let items_by_condition: Vec<ConditionCount> =
-            serde_json::from_value(row.items_by_condition).map_err(|e| {
-                AppError::Internal(format!("Failed to deserialize items_by_condition: {e}"))
-            })?;
+        let items_by_condition: Vec<ConditionCount> = serde_json::from_value(row.items_by_condition)
+            .map_err(|e| AppError::Internal(format!("Failed to deserialize items_by_condition: {e}")))?;
 
         Ok(StatsResponse {
             total_items: row.total_items,

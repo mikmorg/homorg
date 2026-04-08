@@ -16,12 +16,13 @@ mod decimal_compat {
         let v: Option<serde_json::Value> = Option::deserialize(d)?;
         match v {
             None | Some(serde_json::Value::Null) => Ok(None),
-            Some(serde_json::Value::String(s)) => {
-                s.parse::<Decimal>().map(Some).map_err(serde::de::Error::custom)
-            }
+            Some(serde_json::Value::String(s)) => s.parse::<Decimal>().map(Some).map_err(serde::de::Error::custom),
             Some(serde_json::Value::Number(n)) => {
                 // Legacy events stored these as floats — round-trip via text.
-                n.to_string().parse::<Decimal>().map(Some).map_err(serde::de::Error::custom)
+                n.to_string()
+                    .parse::<Decimal>()
+                    .map(Some)
+                    .map_err(serde::de::Error::custom)
             }
             _ => Err(serde::de::Error::custom("expected decimal as string or number")),
         }
@@ -351,9 +352,7 @@ mod tests {
 
     #[test]
     fn item_restored_serde_roundtrip() {
-        let evt = DomainEvent::ItemRestored(ItemRestoredData {
-            from_event_id: None,
-        });
+        let evt = DomainEvent::ItemRestored(ItemRestoredData { from_event_id: None });
         assert_eq!(roundtrip(&evt).event_type(), "ItemRestored");
     }
 
@@ -427,9 +426,17 @@ mod tests {
         });
         let rt = roundtrip(&evt);
         if let DomainEvent::ContainerSchemaUpdated(d) = rt {
-            assert_eq!(d.label_renames.get("top shelf").map(|s| s.as_str()), Some("upper shelf"));
-            assert_eq!(d.label_renames.get("bottom shelf").map(|s| s.as_str()), Some("lower shelf"));
-        } else { panic!("wrong variant"); }
+            assert_eq!(
+                d.label_renames.get("top shelf").map(|s| s.as_str()),
+                Some("upper shelf")
+            );
+            assert_eq!(
+                d.label_renames.get("bottom shelf").map(|s| s.as_str()),
+                Some("lower shelf")
+            );
+        } else {
+            panic!("wrong variant");
+        }
     }
 
     #[test]
@@ -445,7 +452,10 @@ mod tests {
         if let serde_json::Value::Object(map) = &json {
             let inner = map.iter().find_map(|(_, v)| v.as_object());
             if let Some(inner_map) = inner {
-                assert!(!inner_map.contains_key("label_renames"), "empty label_renames should be omitted");
+                assert!(
+                    !inner_map.contains_key("label_renames"),
+                    "empty label_renames should be omitted"
+                );
             }
         }
     }
@@ -456,22 +466,39 @@ mod tests {
             system_barcode: None,
             node_id: "n_test".into(),
             name: Some("Expensive Widget".into()),
-            description: None, category: None, tags: vec![],
-            is_container: false, container_path: "n_root".into(),
-            parent_id: Uuid::nil(), coordinate: None, location_schema: None,
-            max_capacity_cc: None, max_weight_grams: None, dimensions: None,
-            weight_grams: None, is_fungible: false, fungible_quantity: None,
-            fungible_unit: None, external_codes: vec![],
-            condition: None, currency: Some("EUR".into()),
-            acquisition_date: None, acquisition_cost: None, current_value: None,
-            depreciation_rate: None, warranty_expiry: None,
-            metadata: serde_json::json!({}), created_at: None,
+            description: None,
+            category: None,
+            tags: vec![],
+            is_container: false,
+            container_path: "n_root".into(),
+            parent_id: Uuid::nil(),
+            coordinate: None,
+            location_schema: None,
+            max_capacity_cc: None,
+            max_weight_grams: None,
+            dimensions: None,
+            weight_grams: None,
+            is_fungible: false,
+            fungible_quantity: None,
+            fungible_unit: None,
+            external_codes: vec![],
+            condition: None,
+            currency: Some("EUR".into()),
+            acquisition_date: None,
+            acquisition_cost: None,
+            current_value: None,
+            depreciation_rate: None,
+            warranty_expiry: None,
+            metadata: serde_json::json!({}),
+            created_at: None,
             container_type_id: None,
         }));
         let rt = roundtrip(&evt);
         if let DomainEvent::ItemCreated(d) = rt {
             assert_eq!(d.currency.as_deref(), Some("EUR"));
-        } else { panic!("wrong variant"); }
+        } else {
+            panic!("wrong variant");
+        }
     }
 
     #[test]
@@ -498,71 +525,133 @@ mod tests {
         let evt = DomainEvent::ItemCreated(Box::new(ItemCreatedData {
             system_barcode: None,
             node_id: "n_aabbccdd0011".into(),
-            name: None, description: None, category: None, tags: vec![],
-            is_container: false, container_path: "n_root".into(),
-            parent_id: Uuid::nil(), coordinate: None, location_schema: None,
-            max_capacity_cc: None, max_weight_grams: None, dimensions: None,
-            weight_grams: None, is_fungible: false, fungible_quantity: None,
-            fungible_unit: None, external_codes: vec![], condition: None,
+            name: None,
+            description: None,
+            category: None,
+            tags: vec![],
+            is_container: false,
+            container_path: "n_root".into(),
+            parent_id: Uuid::nil(),
+            coordinate: None,
+            location_schema: None,
+            max_capacity_cc: None,
+            max_weight_grams: None,
+            dimensions: None,
+            weight_grams: None,
+            is_fungible: false,
+            fungible_quantity: None,
+            fungible_unit: None,
+            external_codes: vec![],
+            condition: None,
             currency: None,
-            acquisition_date: None, acquisition_cost: None, current_value: None,
-            depreciation_rate: None, warranty_expiry: None,
-            metadata: serde_json::json!({}), created_at: None,
+            acquisition_date: None,
+            acquisition_cost: None,
+            current_value: None,
+            depreciation_rate: None,
+            warranty_expiry: None,
+            metadata: serde_json::json!({}),
+            created_at: None,
             container_type_id: None,
         }));
         let rt = roundtrip(&evt);
         if let DomainEvent::ItemCreated(d) = rt {
             assert!(d.system_barcode.is_none());
-        } else { panic!("wrong variant"); }
+        } else {
+            panic!("wrong variant");
+        }
     }
 
     #[test]
     fn event_type_names_are_distinct() {
         let types = vec![
             DomainEvent::ItemCreated(Box::new(ItemCreatedData {
-                system_barcode: None, node_id: String::new(), name: None,
-                description: None, category: None, tags: vec![], is_container: false,
-                container_path: String::new(), parent_id: Uuid::nil(), coordinate: None,
-                location_schema: None, max_capacity_cc: None, max_weight_grams: None,
-                dimensions: None, weight_grams: None, is_fungible: false,
-                fungible_quantity: None, fungible_unit: None, external_codes: vec![],
-                condition: None, currency: None,
-                acquisition_date: None, acquisition_cost: None,
-                current_value: None, depreciation_rate: None, warranty_expiry: None,
-                metadata: serde_json::json!({}), created_at: None,
+                system_barcode: None,
+                node_id: String::new(),
+                name: None,
+                description: None,
+                category: None,
+                tags: vec![],
+                is_container: false,
+                container_path: String::new(),
+                parent_id: Uuid::nil(),
+                coordinate: None,
+                location_schema: None,
+                max_capacity_cc: None,
+                max_weight_grams: None,
+                dimensions: None,
+                weight_grams: None,
+                is_fungible: false,
+                fungible_quantity: None,
+                fungible_unit: None,
+                external_codes: vec![],
+                condition: None,
+                currency: None,
+                acquisition_date: None,
+                acquisition_cost: None,
+                current_value: None,
+                depreciation_rate: None,
+                warranty_expiry: None,
+                metadata: serde_json::json!({}),
+                created_at: None,
                 container_type_id: None,
-            })).event_type(),
+            }))
+            .event_type(),
             DomainEvent::ItemUpdated(ItemUpdatedData { changes: vec![] }).event_type(),
             DomainEvent::ItemMoved(ItemMovedData {
-                from_container_id: None, to_container_id: Uuid::nil(),
-                from_path: None, to_path: String::new(), coordinate: None,
+                from_container_id: None,
+                to_container_id: Uuid::nil(),
+                from_path: None,
+                to_path: String::new(),
+                coordinate: None,
                 from_coordinate: None,
-            }).event_type(),
+            })
+            .event_type(),
             DomainEvent::ItemDeleted(ItemDeletedData { reason: None }).event_type(),
             DomainEvent::ItemRestored(ItemRestoredData { from_event_id: None }).event_type(),
             DomainEvent::ItemImageAdded(ItemImageAddedData {
-                path: String::new(), caption: None, order: 0,
-            }).event_type(),
-            DomainEvent::ItemImageRemoved(ItemImageRemovedData { path: String::new(), caption: None, order: None }).event_type(),
+                path: String::new(),
+                caption: None,
+                order: 0,
+            })
+            .event_type(),
+            DomainEvent::ItemImageRemoved(ItemImageRemovedData {
+                path: String::new(),
+                caption: None,
+                order: None,
+            })
+            .event_type(),
             DomainEvent::ItemExternalCodeAdded(ExternalCodeData {
-                code_type: String::new(), value: String::new(),
-            }).event_type(),
+                code_type: String::new(),
+                value: String::new(),
+            })
+            .event_type(),
             DomainEvent::ItemExternalCodeRemoved(ExternalCodeData {
-                code_type: String::new(), value: String::new(),
-            }).event_type(),
+                code_type: String::new(),
+                value: String::new(),
+            })
+            .event_type(),
             DomainEvent::ItemQuantityAdjusted(QuantityAdjustedData {
-                old_qty: None, new_qty: 0, reason: None,
-            }).event_type(),
+                old_qty: None,
+                new_qty: 0,
+                reason: None,
+            })
+            .event_type(),
             DomainEvent::ContainerSchemaUpdated(ContainerSchemaUpdatedData {
-                old_schema: None, new_schema: serde_json::json!(null),
+                old_schema: None,
+                new_schema: serde_json::json!(null),
                 label_renames: std::collections::HashMap::new(),
-            }).event_type(),
+            })
+            .event_type(),
             DomainEvent::BarcodeGenerated(BarcodeGeneratedData {
-                barcode: String::new(), assigned_to: None,
-            }).event_type(),
+                barcode: String::new(),
+                assigned_to: None,
+            })
+            .event_type(),
             DomainEvent::ItemBarcodeAssigned(ItemBarcodeAssignedData {
-                barcode: String::new(), previous_barcode: None,
-            }).event_type(),
+                barcode: String::new(),
+                previous_barcode: None,
+            })
+            .event_type(),
         ];
         let set: std::collections::HashSet<&str> = types.iter().copied().collect();
         assert_eq!(set.len(), types.len(), "event_type() names must be unique");

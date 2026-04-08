@@ -9,7 +9,7 @@ use uuid::Uuid;
 
 use crate::auth::middleware::AuthUser;
 use crate::auth::password::{hash_password, verify_password};
-use crate::constants::{PASSWORD_MIN_LEN, PASSWORD_MAX_LEN, MAX_DISPLAY_NAME_LEN};
+use crate::constants::{MAX_DISPLAY_NAME_LEN, PASSWORD_MAX_LEN, PASSWORD_MIN_LEN};
 use crate::errors::{AppError, AppResult};
 use crate::models::user::*;
 use crate::AppState;
@@ -22,10 +22,7 @@ pub fn router() -> Router<Arc<AppState>> {
 }
 
 /// List all household members (admin only).
-async fn list_users(
-    State(state): State<Arc<AppState>>,
-    auth: AuthUser,
-) -> AppResult<Json<Vec<UserPublic>>> {
+async fn list_users(State(state): State<Arc<AppState>>, auth: AuthUser) -> AppResult<Json<Vec<UserPublic>>> {
     auth.require_role("admin")?;
     let users = state.user_queries.list_all().await?;
     Ok(Json(users))
@@ -61,9 +58,9 @@ async fn update_user(
     if let Some(ref password) = req.password {
         let pw_chars = password.chars().count();
         if !(PASSWORD_MIN_LEN..=PASSWORD_MAX_LEN).contains(&pw_chars) {
-            return Err(AppError::BadRequest(
-                format!("Password must be {PASSWORD_MIN_LEN}–{PASSWORD_MAX_LEN} characters"),
-            ));
+            return Err(AppError::BadRequest(format!(
+                "Password must be {PASSWORD_MIN_LEN}–{PASSWORD_MAX_LEN} characters"
+            )));
         }
     }
     // SEC-6: Self-service password change requires the current password so that
@@ -89,12 +86,10 @@ async fn update_user(
     // Pre-verify current_password first so we don't waste CPU hashing when the current
     // password is wrong — verify is fast (~10ms), hash is slow (~100ms).
     if req.password.is_some() && is_self {
-        let stored_hash: Option<String> = sqlx::query_scalar(
-            "SELECT password_hash FROM users WHERE id = $1",
-        )
-        .bind(id)
-        .fetch_optional(&state.pool)
-        .await?;
+        let stored_hash: Option<String> = sqlx::query_scalar("SELECT password_hash FROM users WHERE id = $1")
+            .bind(id)
+            .fetch_optional(&state.pool)
+            .await?;
         if let Some(ref hash) = stored_hash {
             let current_pw = req.current_password.as_deref().unwrap_or("");
             if !verify_password(current_pw, hash).await? {
@@ -112,14 +107,11 @@ async fn update_user(
 
     // EH-4: Lock and verify user exists before updating to produce a proper 404.
     // Also fetch password_hash so we can verify current_password for self-service changes.
-    let found: Option<(Uuid, String)> = sqlx::query_as(
-        "SELECT id, password_hash FROM users WHERE id = $1 FOR UPDATE",
-    )
-    .bind(id)
-    .fetch_optional(&mut *tx)
-    .await?;
-    let (_, stored_hash) = found
-        .ok_or_else(|| AppError::NotFound(format!("User {id} not found")))?;
+    let found: Option<(Uuid, String)> = sqlx::query_as("SELECT id, password_hash FROM users WHERE id = $1 FOR UPDATE")
+        .bind(id)
+        .fetch_optional(&mut *tx)
+        .await?;
+    let (_, stored_hash) = found.ok_or_else(|| AppError::NotFound(format!("User {id} not found")))?;
 
     // SEC-6: Verify current password in-transaction as a second safeguard (TOCTOU safety).
     if req.password.is_some() && is_self {
@@ -182,24 +174,20 @@ async fn update_role(
     // Run inside a transaction to close the TOCTOU window between counting and updating.
     let mut tx = state.pool.begin().await?;
 
-    let current_role: Option<String> = sqlx::query_scalar(
-        "SELECT role FROM users WHERE id = $1 FOR UPDATE",
-    )
-    .bind(id)
-    .fetch_optional(&mut *tx)
-    .await?;
+    let current_role: Option<String> = sqlx::query_scalar("SELECT role FROM users WHERE id = $1 FOR UPDATE")
+        .bind(id)
+        .fetch_optional(&mut *tx)
+        .await?;
 
-    let current_role = current_role
-        .ok_or_else(|| AppError::NotFound(format!("User {id} not found")))?;
+    let current_role = current_role.ok_or_else(|| AppError::NotFound(format!("User {id} not found")))?;
 
     if current_role == "admin" && req.role != "admin" {
         // Count remaining active admins *excluding* the one being demoted
-        let remaining_admins: i64 = sqlx::query_scalar(
-            "SELECT COUNT(*) FROM users WHERE role = 'admin' AND is_active = TRUE AND id != $1",
-        )
-        .bind(id)
-        .fetch_one(&mut *tx)
-        .await?;
+        let remaining_admins: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM users WHERE role = 'admin' AND is_active = TRUE AND id != $1")
+                .bind(id)
+                .fetch_one(&mut *tx)
+                .await?;
 
         if remaining_admins == 0 {
             return Err(AppError::BadRequest(
@@ -236,22 +224,20 @@ async fn deactivate_user(
     // two concurrent requests deactivate each other, leaving zero admins.
     let mut tx = state.pool.begin().await?;
 
-    let role: Option<String> = sqlx::query_scalar(
-        "SELECT role FROM users WHERE id = $1 AND is_active = TRUE FOR UPDATE",
-    )
-    .bind(id)
-    .fetch_optional(&mut *tx)
-    .await?;
+    let role: Option<String> =
+        sqlx::query_scalar("SELECT role FROM users WHERE id = $1 AND is_active = TRUE FOR UPDATE")
+            .bind(id)
+            .fetch_optional(&mut *tx)
+            .await?;
 
     let role = role.ok_or_else(|| AppError::NotFound(format!("User {id} not found")))?;
 
     if role == "admin" {
-        let remaining_admins: i64 = sqlx::query_scalar(
-            "SELECT COUNT(*) FROM users WHERE role = 'admin' AND is_active = TRUE AND id != $1",
-        )
-        .bind(id)
-        .fetch_one(&mut *tx)
-        .await?;
+        let remaining_admins: i64 =
+            sqlx::query_scalar("SELECT COUNT(*) FROM users WHERE role = 'admin' AND is_active = TRUE AND id != $1")
+                .bind(id)
+                .fetch_one(&mut *tx)
+                .await?;
 
         if remaining_admins == 0 {
             return Err(AppError::BadRequest(

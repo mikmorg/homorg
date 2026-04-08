@@ -43,11 +43,7 @@ impl SessionRepository {
     }
 
     /// List sessions for a user, ordered by most recent first.
-    pub async fn list_for_user(
-        &self,
-        user_id: Uuid,
-        limit: i64,
-    ) -> AppResult<Vec<ScanSession>> {
+    pub async fn list_for_user(&self, user_id: Uuid, limit: i64) -> AppResult<Vec<ScanSession>> {
         let sessions = sqlx::query_as::<_, ScanSession>(
             "SELECT * FROM scan_sessions WHERE user_id = $1 ORDER BY started_at DESC LIMIT $2",
         )
@@ -59,27 +55,17 @@ impl SessionRepository {
     }
 
     /// Get a single session belonging to a user.
-    pub async fn get_for_user(
-        &self,
-        session_id: Uuid,
-        user_id: Uuid,
-    ) -> AppResult<ScanSession> {
-        sqlx::query_as::<_, ScanSession>(
-            "SELECT * FROM scan_sessions WHERE id = $1 AND user_id = $2",
-        )
-        .bind(session_id)
-        .bind(user_id)
-        .fetch_optional(&self.pool)
-        .await?
-        .ok_or_else(|| AppError::NotFound(format!("Session {session_id} not found")))
+    pub async fn get_for_user(&self, session_id: Uuid, user_id: Uuid) -> AppResult<ScanSession> {
+        sqlx::query_as::<_, ScanSession>("SELECT * FROM scan_sessions WHERE id = $1 AND user_id = $2")
+            .bind(session_id)
+            .bind(user_id)
+            .fetch_optional(&self.pool)
+            .await?
+            .ok_or_else(|| AppError::NotFound(format!("Session {session_id} not found")))
     }
 
     /// Get an active (not ended) session belonging to a user.
-    pub async fn get_active_for_user(
-        &self,
-        session_id: Uuid,
-        user_id: Uuid,
-    ) -> AppResult<ScanSession> {
+    pub async fn get_active_for_user(&self, session_id: Uuid, user_id: Uuid) -> AppResult<ScanSession> {
         sqlx::query_as::<_, ScanSession>(
             "SELECT * FROM scan_sessions WHERE id = $1 AND user_id = $2 AND ended_at IS NULL",
         )
@@ -162,11 +148,7 @@ impl SessionRepository {
     }
 
     /// End a session (set ended_at).
-    pub async fn end_session(
-        &self,
-        session_id: Uuid,
-        user_id: Uuid,
-    ) -> AppResult<ScanSession> {
+    pub async fn end_session(&self, session_id: Uuid, user_id: Uuid) -> AppResult<ScanSession> {
         sqlx::query_as::<_, ScanSession>(
             r#"
             UPDATE scan_sessions
@@ -280,11 +262,7 @@ impl SessionRepository {
     }
 
     /// Revoke a camera token.
-    pub async fn revoke_camera_token(
-        &self,
-        token_id: Uuid,
-        user_id: Uuid,
-    ) -> AppResult<()> {
+    pub async fn revoke_camera_token(&self, token_id: Uuid, user_id: Uuid) -> AppResult<()> {
         let rows = sqlx::query(
             r#"
             UPDATE camera_tokens
@@ -304,11 +282,7 @@ impl SessionRepository {
     }
 
     /// Revoke all camera tokens for a session.
-    pub async fn revoke_all_camera_tokens(
-        &self,
-        session_id: Uuid,
-        user_id: Uuid,
-    ) -> AppResult<u64> {
+    pub async fn revoke_all_camera_tokens(&self, session_id: Uuid, user_id: Uuid) -> AppResult<u64> {
         let rows = sqlx::query(
             r#"
             UPDATE camera_tokens
@@ -359,12 +333,10 @@ impl SessionRepository {
 
     /// Get an active session by ID (for camera token validation — no user check).
     pub async fn get_session_by_id(&self, session_id: Uuid) -> AppResult<ScanSession> {
-        sqlx::query_as::<_, ScanSession>(
-            "SELECT * FROM scan_sessions WHERE id = $1",
-        )
-        .bind(session_id)
-        .fetch_optional(&self.pool)
-        .await?
-        .ok_or_else(|| AppError::NotFound(format!("Session {session_id} not found")))
+        sqlx::query_as::<_, ScanSession>("SELECT * FROM scan_sessions WHERE id = $1")
+            .bind(session_id)
+            .fetch_optional(&self.pool)
+            .await?
+            .ok_or_else(|| AppError::NotFound(format!("Session {session_id} not found")))
     }
 }

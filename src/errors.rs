@@ -80,10 +80,13 @@ impl IntoResponse for AppError {
                 StatusCode::UNPROCESSABLE_ENTITY,
                 "VALIDATION_ERROR",
                 "One or more fields failed validation".to_string(),
-                fields.iter().map(|f| FieldError {
-                    field: f.field.clone(),
-                    message: f.message.clone(),
-                }).collect(),
+                fields
+                    .iter()
+                    .map(|f| FieldError {
+                        field: f.field.clone(),
+                        message: f.message.clone(),
+                    })
+                    .collect(),
             ),
             AppError::Unauthorized => (
                 StatusCode::UNAUTHORIZED,
@@ -97,12 +100,7 @@ impl IntoResponse for AppError {
                 "Insufficient permissions".to_string(),
                 vec![],
             ),
-            AppError::BadRequest(msg) => (
-                StatusCode::BAD_REQUEST,
-                "BAD_REQUEST",
-                msg.clone(),
-                vec![],
-            ),
+            AppError::BadRequest(msg) => (StatusCode::BAD_REQUEST, "BAD_REQUEST", msg.clone(), vec![]),
             AppError::Database(e) => {
                 tracing::error!(error = %e, "Database error");
                 (
@@ -193,12 +191,18 @@ mod tests {
 
     #[test]
     fn storage_returns_500() {
-        assert_eq!(status_of(AppError::Storage("x".into())), StatusCode::INTERNAL_SERVER_ERROR);
+        assert_eq!(
+            status_of(AppError::Storage("x".into())),
+            StatusCode::INTERNAL_SERVER_ERROR
+        );
     }
 
     #[test]
     fn internal_returns_500() {
-        assert_eq!(status_of(AppError::Internal("x".into())), StatusCode::INTERNAL_SERVER_ERROR);
+        assert_eq!(
+            status_of(AppError::Internal("x".into())),
+            StatusCode::INTERNAL_SERVER_ERROR
+        );
     }
 
     #[test]

@@ -28,8 +28,8 @@ impl EventStore {
     ) -> AppResult<StoredEvent> {
         let event_id = Uuid::new_v4();
         let event_type = event.event_type();
-        let event_data = serde_json::to_value(event)
-            .map_err(|e| AppError::Internal(format!("Failed to serialize event: {e}")))?;
+        let event_data =
+            serde_json::to_value(event).map_err(|e| AppError::Internal(format!("Failed to serialize event: {e}")))?;
         let meta_json = serde_json::to_value(metadata)
             .map_err(|e| AppError::Internal(format!("Failed to serialize metadata: {e}")))?;
 
@@ -76,17 +76,15 @@ impl EventStore {
         metadata: &EventMetadata,
     ) -> AppResult<StoredEvent> {
         let mut tx = self.pool.begin().await?;
-        let stored = self.append_in_tx(&mut tx, aggregate_id, event, actor_id, metadata).await?;
+        let stored = self
+            .append_in_tx(&mut tx, aggregate_id, event, actor_id, metadata)
+            .await?;
         tx.commit().await?;
         Ok(stored)
     }
 
     /// Replay all events for a given aggregate in order.
-    pub async fn get_events(
-        &self,
-        aggregate_id: Uuid,
-        from_sequence: Option<i64>,
-    ) -> AppResult<Vec<StoredEvent>> {
+    pub async fn get_events(&self, aggregate_id: Uuid, from_sequence: Option<i64>) -> AppResult<Vec<StoredEvent>> {
         let from = from_sequence.unwrap_or(0);
         let rows = sqlx::query_as::<_, StoredEvent>(
             r#"

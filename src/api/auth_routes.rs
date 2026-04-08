@@ -10,7 +10,7 @@ use uuid::Uuid;
 use crate::auth::jwt::create_access_token;
 use crate::auth::middleware::AuthUser;
 use crate::auth::password::{hash_password, verify_password};
-use crate::constants::{PASSWORD_MAX_LEN, PASSWORD_MIN_LEN, USERS_ID, MAX_DISPLAY_NAME_LEN, is_valid_username};
+use crate::constants::{is_valid_username, MAX_DISPLAY_NAME_LEN, PASSWORD_MAX_LEN, PASSWORD_MIN_LEN, USERS_ID};
 use crate::errors::{AppError, AppResult};
 use crate::models::event::EventMetadata;
 use crate::models::item::CreateItemRequest;
@@ -111,30 +111,41 @@ async fn setup(
     let pw_hash = hash_password(&req.password).await?;
 
     // Create the admin user within the advisory-locked transaction
-    let user = state.user_queries.create_in_tx(
-        &mut tx, user_id, &req.username, &pw_hash, req.display_name.as_deref(), "admin",
-    ).await?;
+    let user = state
+        .user_queries
+        .create_in_tx(
+            &mut tx,
+            user_id,
+            &req.username,
+            &pw_hash,
+            req.display_name.as_deref(),
+            "admin",
+        )
+        .await?;
 
     // Create user's ephemeral container via event store (survives rebuild_all)
     let container_id = Uuid::new_v4();
     let create_req = build_user_container_request(&req.username, req.display_name.as_deref());
 
     let evt_metadata = EventMetadata::default();
-    state.item_commands.create_item_in_tx(&mut tx, container_id, &create_req, user_id, &evt_metadata).await?;
+    state
+        .item_commands
+        .create_item_in_tx(&mut tx, container_id, &create_req, user_id, &evt_metadata)
+        .await?;
 
     // Link user to their container
-    state.user_queries.set_container_in_tx(&mut tx, user_id, container_id).await?;
+    state
+        .user_queries
+        .set_container_in_tx(&mut tx, user_id, container_id)
+        .await?;
 
     // Issue tokens
-    let access_token = create_access_token(
-        user_id,
-        &state.config.jwt_secret,
-        state.config.jwt_access_ttl_secs,
-    )?;
+    let access_token = create_access_token(user_id, &state.config.jwt_secret, state.config.jwt_access_ttl_secs)?;
 
-    let issued = state.token_repository.issue_refresh_token_in_tx(
-        &mut tx, user_id, "setup", state.config.jwt_refresh_ttl_days, None,
-    ).await?;
+    let issued = state
+        .token_repository
+        .issue_refresh_token_in_tx(&mut tx, user_id, "setup", state.config.jwt_refresh_ttl_days, None)
+        .await?;
 
     tx.commit().await?;
 
@@ -150,10 +161,7 @@ async fn setup(
 }
 
 /// Authenticate and return access + refresh tokens.
-async fn login(
-    State(state): State<Arc<AppState>>,
-    Json(req): Json<LoginRequest>,
-) -> AppResult<Json<AuthResponse>> {
+async fn login(State(state): State<Arc<AppState>>, Json(req): Json<LoginRequest>) -> AppResult<Json<AuthResponse>> {
     // H-4: Validate input lengths before expensive operations.
     // Prevents multi-MB password from burning Argon2 CPU.
     let pw_len = req.password.len();
@@ -163,12 +171,10 @@ async fn login(
 
     // SEC-2: Prevent timing oracle — run dummy Argon2 verify when user is not found
     // so an attacker cannot distinguish "user not found" from "wrong password" by timing.
-    let user_opt = state
-        .user_queries
-        .find_active_by_username(&req.username)
-        .await?;
+    let user_opt = state.user_queries.find_active_by_username(&req.username).await?;
 
-    const DUMMY_HASH: &str = "$argon2id$v=19$m=19456,t=2,p=1$c29tZXNhbHRzb21lc2FsdA$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+    const DUMMY_HASH: &str =
+        "$argon2id$v=19$m=19456,t=2,p=1$c29tZXNhbHRzb21lc2FsdA$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
     let (user, real_hash) = match user_opt {
         Some(u) => {
             let hash = u.password_hash.clone();
@@ -183,17 +189,16 @@ async fn login(
         _ => return Err(AppError::Unauthorized),
     };
 
-    let access_token = create_access_token(
-        user.id,
-        &state.config.jwt_secret,
-        state.config.jwt_access_ttl_secs,
-    )?;
+    let access_token = create_access_token(user.id, &state.config.jwt_secret, state.config.jwt_access_ttl_secs)?;
 
-    let issued = state.token_repository.issue_refresh_token(
-        user.id,
-        req.device_name.as_deref().unwrap_or("unknown"),
-        state.config.jwt_refresh_ttl_days,
-    ).await?;
+    let issued = state
+        .token_repository
+        .issue_refresh_token(
+            user.id,
+            req.device_name.as_deref().unwrap_or("unknown"),
+            state.config.jwt_refresh_ttl_days,
+        )
+        .await?;
 
     Ok(Json(AuthResponse {
         access_token,
@@ -206,10 +211,7 @@ async fn login(
 /// Rotate refresh token and issue new access token.
 /// Implements reuse detection: if a previously-rotated token is presented,
 /// all tokens in the same family are purged (compromised chain).
-async fn refresh(
-    State(state): State<Arc<AppState>>,
-    Json(req): Json<RefreshRequest>,
-) -> AppResult<Json<AuthResponse>> {
+async fn refresh(State(state): State<Arc<AppState>>, Json(req): Json<RefreshRequest>) -> AppResult<Json<AuthResponse>> {
     let token_hash = crate::auth::jwt::hash_refresh_token(&req.refresh_token);
 
     let mut tx = state.pool.begin().await?;
@@ -235,7 +237,10 @@ async fn refresh(
                     family_id = %revoked.family_id,
                     "Refresh token reuse detected — purging token family"
                 );
-                state.token_repository.purge_family_in_tx(&mut tx, revoked.family_id).await?;
+                state
+                    .token_repository
+                    .purge_family_in_tx(&mut tx, revoked.family_id)
+                    .await?;
                 tx.commit().await?;
             }
             return Err(AppError::Unauthorized);
@@ -251,19 +256,18 @@ async fn refresh(
         .await?
         .ok_or(AppError::Unauthorized)?;
 
-    let access_token = create_access_token(
-        user.id,
-        &state.config.jwt_secret,
-        state.config.jwt_access_ttl_secs,
-    )?;
+    let access_token = create_access_token(user.id, &state.config.jwt_secret, state.config.jwt_access_ttl_secs)?;
 
-    let issued = state.token_repository.issue_refresh_token_in_tx(
-        &mut tx,
-        user.id,
-        row.device_name.as_deref().unwrap_or("unknown"),
-        state.config.jwt_refresh_ttl_days,
-        Some(row.family_id), // same family chain
-    ).await?;
+    let issued = state
+        .token_repository
+        .issue_refresh_token_in_tx(
+            &mut tx,
+            user.id,
+            row.device_name.as_deref().unwrap_or("unknown"),
+            state.config.jwt_refresh_ttl_days,
+            Some(row.family_id), // same family chain
+        )
+        .await?;
 
     tx.commit().await?;
 
@@ -287,10 +291,7 @@ async fn logout(
 }
 
 /// Get current authenticated user profile.
-async fn me(
-    State(state): State<Arc<AppState>>,
-    auth: AuthUser,
-) -> AppResult<Json<UserPublic>> {
+async fn me(State(state): State<Arc<AppState>>, auth: AuthUser) -> AppResult<Json<UserPublic>> {
     let user = state.user_queries.find_by_id(auth.user_id).await?;
     if !user.is_active {
         return Err(AppError::Unauthorized);
@@ -360,39 +361,58 @@ async fn register(
         return Err(AppError::Conflict("Username already taken".into()));
     }
 
-    let user = state.user_queries.create_in_tx(
-        &mut tx, user_id, &req.username, &pw_hash, req.display_name.as_deref(), "member",
-    ).await.map_err(|e| match &e {
-        AppError::Database(sqlx::Error::Database(db_err))
-            if db_err.constraint() == Some("users_username_key") =>
-        {
-            AppError::Conflict("Username already taken".into())
-        }
-        _ => e,
-    })?;
+    let user = state
+        .user_queries
+        .create_in_tx(
+            &mut tx,
+            user_id,
+            &req.username,
+            &pw_hash,
+            req.display_name.as_deref(),
+            "member",
+        )
+        .await
+        .map_err(|e| match &e {
+            AppError::Database(sqlx::Error::Database(db_err)) if db_err.constraint() == Some("users_username_key") => {
+                AppError::Conflict("Username already taken".into())
+            }
+            _ => e,
+        })?;
 
     // Mark invite as used
-    state.token_repository.mark_invite_used_in_tx(&mut tx, invite.id, user_id).await?;
+    state
+        .token_repository
+        .mark_invite_used_in_tx(&mut tx, invite.id, user_id)
+        .await?;
 
     // Create user's ephemeral container via event store (survives rebuild_all)
     let container_id = Uuid::new_v4();
     let create_req = build_user_container_request(&req.username, req.display_name.as_deref());
 
     let evt_metadata = EventMetadata::default();
-    state.item_commands.create_item_in_tx(&mut tx, container_id, &create_req, user_id, &evt_metadata).await?;
+    state
+        .item_commands
+        .create_item_in_tx(&mut tx, container_id, &create_req, user_id, &evt_metadata)
+        .await?;
 
-    state.user_queries.set_container_in_tx(&mut tx, user_id, container_id).await?;
+    state
+        .user_queries
+        .set_container_in_tx(&mut tx, user_id, container_id)
+        .await?;
 
     // Issue tokens
-    let access_token = create_access_token(
-        user_id,
-        &state.config.jwt_secret,
-        state.config.jwt_access_ttl_secs,
-    )?;
+    let access_token = create_access_token(user_id, &state.config.jwt_secret, state.config.jwt_access_ttl_secs)?;
 
-    let issued = state.token_repository.issue_refresh_token_in_tx(
-        &mut tx, user_id, "registration", state.config.jwt_refresh_ttl_days, None,
-    ).await?;
+    let issued = state
+        .token_repository
+        .issue_refresh_token_in_tx(
+            &mut tx,
+            user_id,
+            "registration",
+            state.config.jwt_refresh_ttl_days,
+            None,
+        )
+        .await?;
 
     tx.commit().await?;
 

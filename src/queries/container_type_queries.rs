@@ -2,9 +2,7 @@ use sqlx::PgPool;
 use uuid::Uuid;
 
 use crate::errors::{AppError, AppResult};
-use crate::models::container_type::{
-    ContainerType, CreateContainerTypeRequest, UpdateContainerTypeRequest,
-};
+use crate::models::container_type::{ContainerType, CreateContainerTypeRequest, UpdateContainerTypeRequest};
 
 /// Read/write query handler for container types.
 #[derive(Clone)]
@@ -53,11 +51,7 @@ impl ContainerTypeQueries {
     }
 
     /// Create a new container type.
-    pub async fn create(
-        &self,
-        req: &CreateContainerTypeRequest,
-        created_by: Uuid,
-    ) -> AppResult<ContainerType> {
+    pub async fn create(&self, req: &CreateContainerTypeRequest, created_by: Uuid) -> AppResult<ContainerType> {
         let row = sqlx::query_as::<_, ContainerType>(
             r#"
             INSERT INTO container_types (
@@ -99,11 +93,7 @@ impl ContainerTypeQueries {
 
     /// Partially update a container type in a single query.
     /// Sending an empty string for description or icon clears it to NULL.
-    pub async fn update(
-        &self,
-        id: Uuid,
-        req: &UpdateContainerTypeRequest,
-    ) -> AppResult<ContainerType> {
+    pub async fn update(&self, id: Uuid, req: &UpdateContainerTypeRequest) -> AppResult<ContainerType> {
         let row = sqlx::query_as::<_, ContainerType>(
             r#"
             UPDATE container_types

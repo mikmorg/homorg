@@ -18,7 +18,11 @@ pub struct BarcodeCommands {
 
 impl BarcodeCommands {
     pub fn new(pool: PgPool, config: AppConfig, event_store: EventStore) -> Self {
-        Self { pool, config, event_store }
+        Self {
+            pool,
+            config,
+            event_store,
+        }
     }
 
     /// Stable aggregate UUID for barcode-sequence events — derived from prefix name.
@@ -36,11 +40,13 @@ impl BarcodeCommands {
         .fetch_optional(&self.pool)
         .await?;
 
-        let next = next.ok_or_else(|| AppError::Internal(format!(
-            "Barcode prefix '{}' is not seeded in barcode_sequences. \
+        let next = next.ok_or_else(|| {
+            AppError::Internal(format!(
+                "Barcode prefix '{}' is not seeded in barcode_sequences. \
              Add a row or set BARCODE_PREFIX to a seeded value.",
-            self.config.barcode_prefix
-        )))?;
+                self.config.barcode_prefix
+            ))
+        })?;
 
         let barcode = format!(
             "{}-{:0>width$}",
@@ -55,7 +61,12 @@ impl BarcodeCommands {
             assigned_to: None,
         });
         self.event_store
-            .append(self.sequence_aggregate_id(), &event, Uuid::nil(), &EventMetadata::default())
+            .append(
+                self.sequence_aggregate_id(),
+                &event,
+                Uuid::nil(),
+                &EventMetadata::default(),
+            )
             .await?;
 
         Ok(GeneratedBarcode { barcode })
@@ -74,11 +85,13 @@ impl BarcodeCommands {
         .fetch_optional(&mut **tx)
         .await?;
 
-        let next = next.ok_or_else(|| AppError::Internal(format!(
-            "Barcode prefix '{}' is not seeded in barcode_sequences. \
+        let next = next.ok_or_else(|| {
+            AppError::Internal(format!(
+                "Barcode prefix '{}' is not seeded in barcode_sequences. \
              Add a row or set BARCODE_PREFIX to a seeded value.",
-            self.config.barcode_prefix
-        )))?;
+                self.config.barcode_prefix
+            ))
+        })?;
 
         let barcode = format!(
             "{}-{:0>width$}",
@@ -93,7 +106,13 @@ impl BarcodeCommands {
             assigned_to: None,
         });
         self.event_store
-            .append_in_tx(tx, self.sequence_aggregate_id(), &event, Uuid::nil(), &EventMetadata::default())
+            .append_in_tx(
+                tx,
+                self.sequence_aggregate_id(),
+                &event,
+                Uuid::nil(),
+                &EventMetadata::default(),
+            )
             .await?;
 
         Ok(GeneratedBarcode { barcode })
@@ -109,9 +128,7 @@ impl BarcodeCommands {
         count: u32,
     ) -> AppResult<Vec<GeneratedBarcode>> {
         if count == 0 || count > 10000 {
-            return Err(AppError::BadRequest(
-                "Batch count must be between 1 and 10000".into(),
-            ));
+            return Err(AppError::BadRequest("Batch count must be between 1 and 10000".into()));
         }
 
         let start: Option<i64> = sqlx::query_scalar(
@@ -122,10 +139,12 @@ impl BarcodeCommands {
         .fetch_optional(&mut **tx)
         .await?;
 
-        let start = start.ok_or_else(|| AppError::Internal(format!(
-            "Barcode prefix '{}' is not seeded in barcode_sequences.",
-            self.config.barcode_prefix
-        )))?;
+        let start = start.ok_or_else(|| {
+            AppError::Internal(format!(
+                "Barcode prefix '{}' is not seeded in barcode_sequences.",
+                self.config.barcode_prefix
+            ))
+        })?;
 
         let barcodes: Vec<GeneratedBarcode> = (start..start + count as i64)
             .map(|n| GeneratedBarcode {
@@ -144,7 +163,13 @@ impl BarcodeCommands {
                 assigned_to: None,
             });
             self.event_store
-                .append_in_tx(tx, self.sequence_aggregate_id(), &event, Uuid::nil(), &EventMetadata::default())
+                .append_in_tx(
+                    tx,
+                    self.sequence_aggregate_id(),
+                    &event,
+                    Uuid::nil(),
+                    &EventMetadata::default(),
+                )
                 .await?;
         }
 
@@ -154,9 +179,7 @@ impl BarcodeCommands {
     /// Generate a batch of system barcodes.
     pub async fn generate_batch(&self, count: u32) -> AppResult<Vec<GeneratedBarcode>> {
         if count == 0 || count > 10000 {
-            return Err(AppError::BadRequest(
-                "Batch count must be between 1 and 10000".into(),
-            ));
+            return Err(AppError::BadRequest("Batch count must be between 1 and 10000".into()));
         }
 
         // EH-1: fetch_optional for clear error on unconfigured prefix.
@@ -168,10 +191,12 @@ impl BarcodeCommands {
         .fetch_optional(&self.pool)
         .await?;
 
-        let start = start.ok_or_else(|| AppError::Internal(format!(
-            "Barcode prefix '{}' is not seeded in barcode_sequences.",
-            self.config.barcode_prefix
-        )))?;
+        let start = start.ok_or_else(|| {
+            AppError::Internal(format!(
+                "Barcode prefix '{}' is not seeded in barcode_sequences.",
+                self.config.barcode_prefix
+            ))
+        })?;
 
         let barcodes: Vec<GeneratedBarcode> = (start..start + count as i64)
             .map(|n| GeneratedBarcode {
@@ -192,7 +217,12 @@ impl BarcodeCommands {
                 assigned_to: None,
             });
             self.event_store
-                .append(self.sequence_aggregate_id(), &event, Uuid::nil(), &EventMetadata::default())
+                .append(
+                    self.sequence_aggregate_id(),
+                    &event,
+                    Uuid::nil(),
+                    &EventMetadata::default(),
+                )
                 .await?;
         }
 
@@ -205,12 +235,11 @@ impl BarcodeCommands {
 
         if code.starts_with(&prefix_with_dash) {
             // System barcode — look up in items
-            let item_id: Option<Uuid> = sqlx::query_scalar(
-                "SELECT id FROM items WHERE system_barcode = $1 AND is_deleted = FALSE",
-            )
-            .bind(code)
-            .fetch_optional(&self.pool)
-            .await?;
+            let item_id: Option<Uuid> =
+                sqlx::query_scalar("SELECT id FROM items WHERE system_barcode = $1 AND is_deleted = FALSE")
+                    .bind(code)
+                    .fetch_optional(&self.pool)
+                    .await?;
 
             match item_id {
                 Some(id) => Ok(BarcodeResolution::System {
@@ -230,14 +259,12 @@ impl BarcodeCommands {
                     .await?;
 
                     match preset {
-                        Some((is_container, container_type_id, container_type_name)) => {
-                            Ok(BarcodeResolution::Preset {
-                                barcode: code.to_string(),
-                                is_container,
-                                container_type_id,
-                                container_type_name,
-                            })
-                        }
+                        Some((is_container, container_type_id, container_type_name)) => Ok(BarcodeResolution::Preset {
+                            barcode: code.to_string(),
+                            is_container,
+                            container_type_id,
+                            container_type_name,
+                        }),
                         None => Ok(BarcodeResolution::UnknownSystem {
                             barcode: code.to_string(),
                         }),
@@ -302,12 +329,11 @@ impl BarcodeCommands {
         let prefix_with_dash = format!("{}-", self.config.barcode_prefix);
 
         if code.starts_with(&prefix_with_dash) {
-            let item_id: Option<Uuid> = sqlx::query_scalar(
-                "SELECT id FROM items WHERE system_barcode = $1 AND is_deleted = FALSE",
-            )
-            .bind(code)
-            .fetch_optional(&mut **tx)
-            .await?;
+            let item_id: Option<Uuid> =
+                sqlx::query_scalar("SELECT id FROM items WHERE system_barcode = $1 AND is_deleted = FALSE")
+                    .bind(code)
+                    .fetch_optional(&mut **tx)
+                    .await?;
 
             match item_id {
                 Some(id) => Ok(BarcodeResolution::System {
@@ -326,14 +352,12 @@ impl BarcodeCommands {
                     .await?;
 
                     match preset {
-                        Some((is_container, container_type_id, container_type_name)) => {
-                            Ok(BarcodeResolution::Preset {
-                                barcode: code.to_string(),
-                                is_container,
-                                container_type_id,
-                                container_type_name,
-                            })
-                        }
+                        Some((is_container, container_type_id, container_type_name)) => Ok(BarcodeResolution::Preset {
+                            barcode: code.to_string(),
+                            is_container,
+                            container_type_id,
+                            container_type_name,
+                        }),
                         None => Ok(BarcodeResolution::UnknownSystem {
                             barcode: code.to_string(),
                         }),
@@ -393,30 +417,25 @@ impl BarcodeCommands {
         // BC-1: Use FOR UPDATE to serialize concurrent barcode assignments to the same item so
         // that previous_barcode in the event always reflects the true prior state, preventing
         // undo chain corruption when two callers race.
-        let current: Option<(Uuid, Option<String>)> = sqlx::query_as(
-            "SELECT id, system_barcode FROM items WHERE id = $1 AND is_deleted = FALSE FOR UPDATE",
-        )
-        .bind(item_id)
-        .fetch_optional(&mut *tx)
-        .await?;
+        let current: Option<(Uuid, Option<String>)> =
+            sqlx::query_as("SELECT id, system_barcode FROM items WHERE id = $1 AND is_deleted = FALSE FOR UPDATE")
+                .bind(item_id)
+                .fetch_optional(&mut *tx)
+                .await?;
 
-        let (_, previous_barcode) = current
-            .ok_or_else(|| AppError::NotFound(format!("Item {item_id} not found")))?;
+        let (_, previous_barcode) = current.ok_or_else(|| AppError::NotFound(format!("Item {item_id} not found")))?;
 
         // If assigning the same barcode, reject early.
         if previous_barcode.as_deref() == Some(barcode) {
-            return Err(AppError::BadRequest(
-                "Item already has this barcode".into(),
-            ));
+            return Err(AppError::BadRequest("Item already has this barcode".into()));
         }
 
         // Ensure the new barcode is not already in use by another item.
-        let taken_by: Option<Uuid> = sqlx::query_scalar(
-            "SELECT id FROM items WHERE system_barcode = $1 AND is_deleted = FALSE",
-        )
-        .bind(barcode)
-        .fetch_optional(&mut *tx)
-        .await?;
+        let taken_by: Option<Uuid> =
+            sqlx::query_scalar("SELECT id FROM items WHERE system_barcode = $1 AND is_deleted = FALSE")
+                .bind(barcode)
+                .fetch_optional(&mut *tx)
+                .await?;
 
         if let Some(owner) = taken_by {
             return Err(AppError::Conflict(format!(
@@ -429,7 +448,8 @@ impl BarcodeCommands {
             previous_barcode: previous_barcode.clone(),
         });
 
-        let stored = self.event_store
+        let stored = self
+            .event_store
             .append_in_tx(&mut tx, item_id, &event, actor_id, metadata)
             .await?;
         Projector::apply(&mut tx, item_id, &event, actor_id).await?;

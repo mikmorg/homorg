@@ -94,11 +94,7 @@ async fn get_event_by_id_lookup() {
         .await
         .unwrap();
 
-    let found = state
-        .event_store
-        .get_event_by_id(stored.event_id)
-        .await
-        .unwrap();
+    let found = state.event_store.get_event_by_id(stored.event_id).await.unwrap();
     assert_eq!(found.event_id, stored.event_id);
     assert_eq!(found.aggregate_id, item_id);
     assert_eq!(found.event_type, "ItemCreated");
@@ -169,11 +165,7 @@ async fn get_events_by_session_id() {
         .await
         .unwrap();
 
-    let events = state
-        .event_store
-        .get_events_by_session(session_id)
-        .await
-        .unwrap();
+    let events = state.event_store.get_events_by_session(session_id).await.unwrap();
     assert_eq!(events.len(), 1);
     assert_eq!(events[0].aggregate_id, item_id);
 }

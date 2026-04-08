@@ -1,2 +1,2 @@
 [build]
-target-dir = "/mnt/homorg-build/cargo-target"
+target-dir = "target"

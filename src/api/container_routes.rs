@@ -43,13 +43,7 @@ async fn get_children(
     let limit = q.limit.unwrap_or(50).clamp(1, 200);
     let items = state
         .container_queries
-        .get_children(
-            id,
-            q.cursor,
-            limit,
-            q.sort_by.as_deref(),
-            q.sort_dir.as_deref(),
-        )
+        .get_children(id, q.cursor, limit, q.sort_by.as_deref(), q.sort_dir.as_deref())
         .await?;
     Ok(Json(items))
 }
@@ -70,10 +64,7 @@ async fn get_descendants(
     let limit = q.limit.unwrap_or(200).clamp(1, 1000);
     // N2: Clamp max_depth to at least 1; 0 or negative would return no children.
     let max_depth = q.max_depth.map(|d| d.max(1));
-    let items = state
-        .container_queries
-        .get_descendants(id, max_depth, limit)
-        .await?;
+    let items = state.container_queries.get_descendants(id, max_depth, limit).await?;
     Ok(Json(items))
 }
 

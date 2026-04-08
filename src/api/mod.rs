@@ -1,27 +1,23 @@
 pub mod auth_routes;
-pub mod item_routes;
-pub mod container_routes;
 pub mod barcode_routes;
-pub mod stocker_routes;
+pub mod category_routes;
+pub mod container_routes;
+pub mod container_type_routes;
+pub mod item_routes;
 pub mod search_routes;
+pub mod stocker_routes;
+pub mod system_routes;
+pub mod tag_routes;
 pub mod undo_routes;
 pub mod user_routes;
-pub mod system_routes;
-pub mod container_type_routes;
-pub mod tag_routes;
-pub mod category_routes;
 
-use axum::{
-    Router,
-};
-use std::{net::IpAddr, sync::Arc};
-use tower::util::option_layer;
-use tower_governor::{
-    governor::GovernorConfigBuilder, key_extractor::KeyExtractor, GovernorError, GovernorLayer,
-};
-use tower_http::services::ServeDir;
 use crate::config::AppConfig;
 use crate::AppState;
+use axum::Router;
+use std::{net::IpAddr, sync::Arc};
+use tower::util::option_layer;
+use tower_governor::{governor::GovernorConfigBuilder, key_extractor::KeyExtractor, GovernorError, GovernorLayer};
+use tower_http::services::ServeDir;
 
 // ── SEC-6: Client IP extraction that respects reverse-proxy headers ──────────
 /// Extracts the originating client IP from `X-Forwarded-For` (first entry) when
@@ -38,11 +34,7 @@ impl KeyExtractor for ClientIpKeyExtractor {
 
     fn extract<T>(&self, req: &axum::http::Request<T>) -> Result<Self::Key, GovernorError> {
         // Check X-Forwarded-For first (first hop = client)
-        if let Some(xff) = req
-            .headers()
-            .get("x-forwarded-for")
-            .and_then(|v| v.to_str().ok())
-        {
+        if let Some(xff) = req.headers().get("x-forwarded-for").and_then(|v| v.to_str().ok()) {
             if let Some(first) = xff.split(',').next() {
                 let trimmed = first.trim();
                 if trimmed.parse::<IpAddr>().is_ok() {
@@ -51,11 +43,7 @@ impl KeyExtractor for ClientIpKeyExtractor {
             }
         }
         // Fall back to X-Real-IP (set by nginx)
-        if let Some(xri) = req
-            .headers()
-            .get("x-real-ip")
-            .and_then(|v| v.to_str().ok())
-        {
+        if let Some(xri) = req.headers().get("x-real-ip").and_then(|v| v.to_str().ok()) {
             if xri.trim().parse::<IpAddr>().is_ok() {
                 return Ok(xri.trim().to_string());
             }
@@ -71,7 +59,6 @@ impl KeyExtractor for ClientIpKeyExtractor {
         Err(GovernorError::UnableToExtractKey)
     }
 }
-
 
 /// Build the complete API router with all v1 routes.
 pub fn build_router(state: Arc<AppState>, config: &AppConfig) -> Router {
@@ -111,19 +98,13 @@ pub fn build_router(state: Arc<AppState>, config: &AppConfig) -> Router {
         (None, None, None)
     };
 
-
     let api_v1 = Router::new()
-        .nest(
-            "/auth",
-            auth_routes::router().layer(option_layer(auth_layer)),
-        )
+        .nest("/auth", auth_routes::router().layer(option_layer(auth_layer)))
         .nest("/items", item_routes::router())
         .nest("/containers", container_routes::router())
         .nest(
             "/barcodes",
-            barcode_routes::router().merge(
-                barcode_routes::pdf_routes().layer(option_layer(pdf_layer)),
-            ),
+            barcode_routes::router().merge(barcode_routes::pdf_routes().layer(option_layer(pdf_layer))),
         )
         .nest("/stocker", stocker_routes::router())
         .nest("/search", search_routes::router())

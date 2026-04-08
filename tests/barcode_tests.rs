@@ -71,11 +71,7 @@ async fn resolve_system_barcode() {
         .await
         .unwrap();
 
-    let resolution = state
-        .barcode_commands
-        .resolve_barcode(&bc.barcode)
-        .await
-        .unwrap();
+    let resolution = state.barcode_commands.resolve_barcode(&bc.barcode).await.unwrap();
 
     match resolution {
         BarcodeResolution::System { item_id: rid, .. } => assert_eq!(rid, item_id),
@@ -90,11 +86,7 @@ async fn resolve_unknown_system_barcode() {
     let state = &ctx.state;
 
     // Resolve a system-prefixed barcode that doesn't exist
-    let resolution = state
-        .barcode_commands
-        .resolve_barcode("HOM-999999")
-        .await
-        .unwrap();
+    let resolution = state.barcode_commands.resolve_barcode("HOM-999999").await.unwrap();
 
     match resolution {
         BarcodeResolution::UnknownSystem { .. } => {}
@@ -109,11 +101,7 @@ async fn resolve_non_system_code_classifies() {
     let state = &ctx.state;
 
     // A 13-digit code should be classified as EAN
-    let resolution = state
-        .barcode_commands
-        .resolve_barcode("0123456789012")
-        .await
-        .unwrap();
+    let resolution = state.barcode_commands.resolve_barcode("0123456789012").await.unwrap();
 
     match resolution {
         BarcodeResolution::External { code_type, .. } => assert_eq!(code_type, "EAN"),

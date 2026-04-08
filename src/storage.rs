@@ -50,7 +50,9 @@ impl StorageBackend for LocalStorage {
         // ST-1: Only allow known image extensions to prevent content-type confusion
         // if the storage directory is ever served directly by a reverse proxy.
         let ext = match raw_ext.as_str() {
-            "jpg" | "jpeg" | "png" | "gif" | "webp" | "avif" | "heic" | "heif" | "svg" | "bmp" | "tiff" | "tif" => &raw_ext,
+            "jpg" | "jpeg" | "png" | "gif" | "webp" | "avif" | "heic" | "heif" | "svg" | "bmp" | "tiff" | "tif" => {
+                &raw_ext
+            }
             _ => "bin",
         };
         let storage_filename = format!("{file_id}.{ext}");
@@ -62,13 +64,11 @@ impl StorageBackend for LocalStorage {
         fs::write(&tmp_path, data)
             .await
             .map_err(|e| AppError::Storage(format!("Failed to write temp file: {e}")))?;
-        fs::rename(&tmp_path, &file_path)
-            .await
-            .map_err(|e| {
-                // Best-effort cleanup of the temp file; ignore secondary errors.
-                let _ = std::fs::remove_file(&tmp_path);
-                AppError::Storage(format!("Failed to finalize file (rename): {e}"))
-            })?;
+        fs::rename(&tmp_path, &file_path).await.map_err(|e| {
+            // Best-effort cleanup of the temp file; ignore secondary errors.
+            let _ = std::fs::remove_file(&tmp_path);
+            AppError::Storage(format!("Failed to finalize file (rename): {e}"))
+        })?;
 
         let key = format!("{}/{}", item_id, storage_filename);
         Ok(key)

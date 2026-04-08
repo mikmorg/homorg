@@ -31,12 +31,11 @@ async fn undo_create_soft_deletes() {
         .unwrap();
     assert_eq!(compensating.event_type, "ItemDeleted");
 
-    let row: (bool,) =
-        sqlx::query_as("SELECT is_deleted FROM items WHERE id = $1")
-            .bind(item_id)
-            .fetch_one(&state.pool)
-            .await
-            .unwrap();
+    let row: (bool,) = sqlx::query_as("SELECT is_deleted FROM items WHERE id = $1")
+        .bind(item_id)
+        .fetch_one(&state.pool)
+        .await
+        .unwrap();
     assert!(row.0);
 }
 
@@ -74,12 +73,11 @@ async fn undo_delete_restores() {
         .unwrap();
     assert_eq!(compensating.event_type, "ItemRestored");
 
-    let row: (bool,) =
-        sqlx::query_as("SELECT is_deleted FROM items WHERE id = $1")
-            .bind(item_id)
-            .fetch_one(&state.pool)
-            .await
-            .unwrap();
+    let row: (bool,) = sqlx::query_as("SELECT is_deleted FROM items WHERE id = $1")
+        .bind(item_id)
+        .fetch_one(&state.pool)
+        .await
+        .unwrap();
     assert!(!row.0);
 }
 
@@ -246,11 +244,7 @@ async fn undo_batch_reverses_multiple_events() {
     }
 
     // Undo all 3 creations in a batch
-    let results = state
-        .undo_commands
-        .undo_batch(&event_ids, ctx.admin_id)
-        .await
-        .unwrap();
+    let results = state.undo_commands.undo_batch(&event_ids, ctx.admin_id).await.unwrap();
 
     assert_eq!(results.len(), 3);
     for result in &results {
@@ -259,12 +253,11 @@ async fn undo_batch_reverses_multiple_events() {
 
     // All items should be soft-deleted
     for id in &item_ids {
-        let row: (bool,) =
-            sqlx::query_as("SELECT is_deleted FROM items WHERE id = $1")
-                .bind(id)
-                .fetch_one(&state.pool)
-                .await
-                .unwrap();
+        let row: (bool,) = sqlx::query_as("SELECT is_deleted FROM items WHERE id = $1")
+            .bind(id)
+            .fetch_one(&state.pool)
+            .await
+            .unwrap();
         assert!(row.0);
     }
 }
@@ -304,12 +297,11 @@ async fn undo_session_reverses_full_session() {
     assert_eq!(results.len(), 2);
 
     for id in &item_ids {
-        let row: (bool,) =
-            sqlx::query_as("SELECT is_deleted FROM items WHERE id = $1")
-                .bind(id)
-                .fetch_one(&state.pool)
-                .await
-                .unwrap();
+        let row: (bool,) = sqlx::query_as("SELECT is_deleted FROM items WHERE id = $1")
+            .bind(id)
+            .fetch_one(&state.pool)
+            .await
+            .unwrap();
         assert!(row.0);
     }
 }
@@ -338,7 +330,10 @@ async fn undo_container_schema_restores_previous() {
     let schema_event = state
         .item_commands
         .update_container_schema(
-            container_id, serde_json::json!({"type": "grid", "rows": 3, "columns": 4}), std::collections::HashMap::new(), ctx.admin_id,
+            container_id,
+            serde_json::json!({"type": "grid", "rows": 3, "columns": 4}),
+            std::collections::HashMap::new(),
+            ctx.admin_id,
             &metadata,
         )
         .await
@@ -401,8 +396,10 @@ async fn undo_container_schema_null_not_stored_as_json_null() {
 
     let item = state.item_queries.get_by_id(container_id).await.unwrap();
     // Must be SQL NULL (None), not Some(Value::Null) — the 'null'::jsonb literal
-    assert_eq!(item.item.location_schema, None,
-        "undo of initial schema set should produce SQL NULL, not JSON null literal");
+    assert_eq!(
+        item.item.location_schema, None,
+        "undo of initial schema set should produce SQL NULL, not JSON null literal"
+    );
 }
 
 // ── R4-B / R6-B3: undo_session with non-existent session ───────────────

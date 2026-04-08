@@ -119,11 +119,7 @@ impl TokenRepository {
     }
 
     /// Mark a refresh token as revoked (soft-delete for reuse detection).
-    pub async fn revoke_by_id_in_tx(
-        &self,
-        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-        id: Uuid,
-    ) -> AppResult<()> {
+    pub async fn revoke_by_id_in_tx(&self, tx: &mut sqlx::Transaction<'_, sqlx::Postgres>, id: Uuid) -> AppResult<()> {
         sqlx::query("UPDATE refresh_tokens SET revoked_at = NOW() WHERE id = $1")
             .bind(id)
             .execute(&mut **tx)
@@ -178,22 +174,16 @@ impl TokenRepository {
 
     /// Purge expired tokens (past expires_at) regardless of revoked status.
     pub async fn purge_expired(&self) -> AppResult<u64> {
-        let result = sqlx::query(
-            "DELETE FROM refresh_tokens WHERE expires_at < NOW()",
-        )
-        .execute(&self.pool)
-        .await?;
+        let result = sqlx::query("DELETE FROM refresh_tokens WHERE expires_at < NOW()")
+            .execute(&self.pool)
+            .await?;
         Ok(result.rows_affected())
     }
 
     // ── Invite tokens ───────────────────────────────────────────────────
 
     /// Create a new invite code.
-    pub async fn create_invite(
-        &self,
-        created_by: Uuid,
-        ttl_days: i64,
-    ) -> AppResult<InviteToken> {
+    pub async fn create_invite(&self, created_by: Uuid, ttl_days: i64) -> AppResult<InviteToken> {
         let code = generate_refresh_token(); // reuse the random string generator
         let expires_at = Utc::now() + Duration::days(ttl_days);
 

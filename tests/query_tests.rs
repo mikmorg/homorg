@@ -156,7 +156,11 @@ async fn get_children_cursor_pagination() {
         .await
         .unwrap();
     // Should return the remaining 2 items: Epsilon, Gamma
-    assert_eq!(page2.len(), 2, "page 2 must not be empty (cursor pagination regression)");
+    assert_eq!(
+        page2.len(),
+        2,
+        "page 2 must not be empty (cursor pagination regression)"
+    );
     let names2: Vec<_> = page2.iter().map(|c| c.name.as_deref().unwrap_or("")).collect();
     assert_eq!(names2, vec!["Epsilon", "Gamma"]);
 }
@@ -306,11 +310,7 @@ async fn get_ancestors_breadcrumb() {
         .await
         .unwrap();
 
-    let ancestors = state
-        .container_queries
-        .get_ancestors(child_id)
-        .await
-        .unwrap();
+    let ancestors = state.container_queries.get_ancestors(child_id).await.unwrap();
 
     // Should include ROOT and Ancestor Box (at minimum)
     assert!(ancestors.len() >= 2);
@@ -354,11 +354,7 @@ async fn container_stats_counts() {
             .unwrap();
     }
 
-    let stats = state
-        .container_queries
-        .get_stats(container_id)
-        .await
-        .unwrap();
+    let stats = state.container_queries.get_stats(container_id).await.unwrap();
     assert_eq!(stats.child_count, 2);
     assert_eq!(stats.descendant_count, 2);
 }
@@ -385,11 +381,7 @@ async fn get_by_barcode_returns_item() {
         .await
         .unwrap();
 
-    let detail = state
-        .item_queries
-        .get_by_barcode(&bc.barcode)
-        .await
-        .unwrap();
+    let detail = state.item_queries.get_by_barcode(&bc.barcode).await.unwrap();
     assert_eq!(detail.item.id, item_id);
     assert_eq!(detail.item.name.as_deref(), Some("Barcode Lookup"));
 }
@@ -421,11 +413,7 @@ async fn get_history_returns_events() {
         .await
         .unwrap();
 
-    let history = state
-        .item_queries
-        .get_history(item_id, None, 50)
-        .await
-        .unwrap();
+    let history = state.item_queries.get_history(item_id, None, 50).await.unwrap();
     assert!(history.len() >= 2);
     assert_eq!(history[0].event_type, "ItemCreated");
 }
@@ -444,7 +432,11 @@ async fn search_fulltext_match() {
     let mut req = common::make_item_request(&bc.barcode, ROOT_ID, "Quantum Oscillator Widget", false);
     req.description = Some("A highly specialized laboratory instrument".to_string());
     req.category = Some("electronics".to_string());
-    state.item_commands.create_item(item_id, &req, ctx.admin_id, &metadata).await.unwrap();
+    state
+        .item_commands
+        .create_item(item_id, &req, ctx.admin_id, &metadata)
+        .await
+        .unwrap();
 
     // Full-text search for "oscillator"
     let params = SearchParams {
@@ -467,13 +459,21 @@ async fn search_with_category_filter() {
     let bc1 = state.barcode_commands.generate_barcode().await.unwrap();
     let mut req1 = common::make_item_request(&bc1.barcode, ROOT_ID, "Filtered A", false);
     req1.category = Some("tools".to_string());
-    state.item_commands.create_item(id1, &req1, ctx.admin_id, &metadata).await.unwrap();
+    state
+        .item_commands
+        .create_item(id1, &req1, ctx.admin_id, &metadata)
+        .await
+        .unwrap();
 
     let id2 = Uuid::new_v4();
     let bc2 = state.barcode_commands.generate_barcode().await.unwrap();
     let mut req2 = common::make_item_request(&bc2.barcode, ROOT_ID, "Filtered B", false);
     req2.category = Some("books".to_string());
-    state.item_commands.create_item(id2, &req2, ctx.admin_id, &metadata).await.unwrap();
+    state
+        .item_commands
+        .create_item(id2, &req2, ctx.admin_id, &metadata)
+        .await
+        .unwrap();
 
     let params = SearchParams {
         category: Some("tools".to_string()),

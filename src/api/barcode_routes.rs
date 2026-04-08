@@ -63,7 +63,9 @@ async fn resolve(
     Path(code): Path<String>,
 ) -> AppResult<Json<BarcodeResolution>> {
     if code.is_empty() || code.len() > 256 {
-        return Err(AppError::BadRequest("Barcode must be between 1 and 256 characters".into()));
+        return Err(AppError::BadRequest(
+            "Barcode must be between 1 and 256 characters".into(),
+        ));
     }
     let resolution = state.barcode_commands.resolve_barcode(&code).await?;
     Ok(Json(resolution))
@@ -110,9 +112,7 @@ async fn labels_pdf(
             }
             // Only allow characters that are safe for both Code128 and LaTeX text.
             for b in &barcodes {
-                if b.is_empty()
-                    || b.len() > 32
-                    || !b.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '.')
+                if b.is_empty() || b.len() > 32 || !b.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '.')
                 {
                     return Err(AppError::BadRequest(format!(
                         "barcode \"{b}\" contains invalid characters or exceeds 32 chars"
@@ -133,10 +133,7 @@ async fn labels_pdf(
     Ok(Response::builder()
         .status(StatusCode::OK)
         .header(header::CONTENT_TYPE, "application/pdf")
-        .header(
-            header::CONTENT_DISPOSITION,
-            "attachment; filename=\"labels.pdf\"",
-        )
+        .header(header::CONTENT_DISPOSITION, "attachment; filename=\"labels.pdf\"")
         .body(Body::from(pdf))
         .unwrap())
 }
@@ -166,12 +163,10 @@ async fn preset_labels_pdf(
 
     // Validate container_type_id if provided.
     if let Some(type_id) = req.container_type_id {
-        let exists: bool = sqlx::query_scalar(
-            "SELECT EXISTS(SELECT 1 FROM container_types WHERE id = $1)",
-        )
-        .bind(type_id)
-        .fetch_one(&state.pool)
-        .await?;
+        let exists: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM container_types WHERE id = $1)")
+            .bind(type_id)
+            .fetch_one(&state.pool)
+            .await?;
         if !exists {
             return Err(AppError::NotFound(format!("Container type {type_id} not found")));
         }

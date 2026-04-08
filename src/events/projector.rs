@@ -23,16 +23,28 @@ impl Projector {
             DomainEvent::ItemCreated(data) => Self::project_item_created(tx, aggregate_id, data, actor_id).await,
             DomainEvent::ItemUpdated(data) => Self::project_item_updated(tx, aggregate_id, data, actor_id).await,
             DomainEvent::ItemMoved(data) => Self::project_item_moved(tx, aggregate_id, data, actor_id).await,
-            DomainEvent::ItemMoveReverted(data) => Self::project_item_move_reverted(tx, aggregate_id, data, actor_id).await,
+            DomainEvent::ItemMoveReverted(data) => {
+                Self::project_item_move_reverted(tx, aggregate_id, data, actor_id).await
+            }
             DomainEvent::ItemDeleted(_) => Self::project_item_deleted(tx, aggregate_id, actor_id).await,
             DomainEvent::ItemRestored(_) => Self::project_item_restored(tx, aggregate_id, actor_id).await,
             DomainEvent::ItemImageAdded(data) => Self::project_image_added(tx, aggregate_id, data, actor_id).await,
             DomainEvent::ItemImageRemoved(data) => Self::project_image_removed(tx, aggregate_id, data, actor_id).await,
-            DomainEvent::ItemExternalCodeAdded(data) => Self::project_ext_code_added(tx, aggregate_id, data, actor_id).await,
-            DomainEvent::ItemExternalCodeRemoved(data) => Self::project_ext_code_removed(tx, aggregate_id, data, actor_id).await,
-            DomainEvent::ItemQuantityAdjusted(data) => Self::project_quantity_adjusted(tx, aggregate_id, data, actor_id).await,
-            DomainEvent::ContainerSchemaUpdated(data) => Self::project_schema_updated(tx, aggregate_id, data, actor_id).await,
-            DomainEvent::ItemBarcodeAssigned(data) => Self::project_barcode_assigned(tx, aggregate_id, data, actor_id).await,
+            DomainEvent::ItemExternalCodeAdded(data) => {
+                Self::project_ext_code_added(tx, aggregate_id, data, actor_id).await
+            }
+            DomainEvent::ItemExternalCodeRemoved(data) => {
+                Self::project_ext_code_removed(tx, aggregate_id, data, actor_id).await
+            }
+            DomainEvent::ItemQuantityAdjusted(data) => {
+                Self::project_quantity_adjusted(tx, aggregate_id, data, actor_id).await
+            }
+            DomainEvent::ContainerSchemaUpdated(data) => {
+                Self::project_schema_updated(tx, aggregate_id, data, actor_id).await
+            }
+            DomainEvent::ItemBarcodeAssigned(data) => {
+                Self::project_barcode_assigned(tx, aggregate_id, data, actor_id).await
+            }
             DomainEvent::BarcodeGenerated(_) => Ok(()), // No projection change
         }
     }
@@ -43,8 +55,7 @@ impl Projector {
         data: &ItemCreatedData,
         actor_id: Uuid,
     ) -> AppResult<()> {
-        let ext_codes = serde_json::to_value(&data.external_codes)
-            .unwrap_or_else(|_| serde_json::json!([]));
+        let ext_codes = serde_json::to_value(&data.external_codes).unwrap_or_else(|_| serde_json::json!([]));
 
         // DI-2: Use the creation timestamp stored in the event so rebuild_all restores original
         // `created_at` values.  May be None for older events; fall back to NOW().
@@ -145,13 +156,11 @@ impl Projector {
             .fetch_one(&mut **tx)
             .await?;
 
-            sqlx::query(
-                "INSERT INTO item_tags (item_id, tag_id) VALUES ($1, $2) ON CONFLICT DO NOTHING",
-            )
-            .bind(id)
-            .bind(tag_id)
-            .execute(&mut **tx)
-            .await?;
+            sqlx::query("INSERT INTO item_tags (item_id, tag_id) VALUES ($1, $2) ON CONFLICT DO NOTHING")
+                .bind(id)
+                .bind(tag_id)
+                .execute(&mut **tx)
+                .await?;
         }
 
         // ── Container extension row ──────────────────────────────────────────────────
@@ -195,19 +204,23 @@ impl Projector {
         // Apply each field change individually via dynamic SQL.
         // We use a safe allowlist of fields to prevent injection.
         let allowed_text_fields = ["name", "description", "condition", "currency"];
-        let allowed_numeric_fields = [
-            "weight_grams",
-            "acquisition_cost", "current_value", "depreciation_rate",
-        ];
+        let allowed_numeric_fields = ["weight_grams", "acquisition_cost", "current_value", "depreciation_rate"];
         let allowed_jsonb_fields = ["coordinate", "dimensions", "metadata"];
 
         // Fields that ONLY write to extension/junction tables (no direct items UPDATE).
         // If all changes target these fields, we still need to touch items.updated_by.
         let extension_only_fields = [
-            "tags", "location_schema", "max_capacity_cc", "max_weight_grams",
-            "container_type_id", "fungible_unit", "fungible_quantity",
+            "tags",
+            "location_schema",
+            "max_capacity_cc",
+            "max_weight_grams",
+            "container_type_id",
+            "fungible_unit",
+            "fungible_quantity",
         ];
-        let items_touched = data.changes.iter()
+        let items_touched = data
+            .changes
+            .iter()
             .any(|c| !extension_only_fields.contains(&c.field.as_str()));
 
         for change in &data.changes {
@@ -222,7 +235,6 @@ impl Projector {
                     .bind(id)
                     .execute(&mut **tx)
                     .await?;
-
             } else if allowed_numeric_fields.contains(&field) {
                 let value = change.new.as_f64();
                 let query = format!("UPDATE items SET {field} = $1, updated_by = $2 WHERE id = $3");
@@ -232,22 +244,17 @@ impl Projector {
                     .bind(id)
                     .execute(&mut **tx)
                     .await?;
-
             } else if allowed_jsonb_fields.contains(&field) {
                 let query = format!("UPDATE items SET {field} = $1, updated_by = $2 WHERE id = $3");
                 // Bind None when new value is JSON null so DB stores SQL NULL, not 'null'::jsonb
-                let jsonb_value: Option<&serde_json::Value> = if change.new.is_null() {
-                    None
-                } else {
-                    Some(&change.new)
-                };
+                let jsonb_value: Option<&serde_json::Value> =
+                    if change.new.is_null() { None } else { Some(&change.new) };
                 sqlx::query(&query)
                     .bind(jsonb_value)
                     .bind(actor_id)
                     .bind(id)
                     .execute(&mut **tx)
                     .await?;
-
             } else if field == "category" {
                 // Normalize: get-or-create category row, update foreign key.
                 let new_name = change.new.as_str().filter(|s| !s.is_empty());
@@ -270,7 +277,6 @@ impl Projector {
                     .bind(id)
                     .execute(&mut **tx)
                     .await?;
-
             } else if field == "tags" {
                 // Normalize: replace all item_tags entries.
                 let tags: Vec<String> = match serde_json::from_value(change.new.clone()) {
@@ -296,15 +302,12 @@ impl Projector {
                     .bind(tag_name)
                     .fetch_one(&mut **tx)
                     .await?;
-                    sqlx::query(
-                        "INSERT INTO item_tags (item_id, tag_id) VALUES ($1, $2) ON CONFLICT DO NOTHING",
-                    )
-                    .bind(id)
-                    .bind(tag_id)
-                    .execute(&mut **tx)
-                    .await?;
+                    sqlx::query("INSERT INTO item_tags (item_id, tag_id) VALUES ($1, $2) ON CONFLICT DO NOTHING")
+                        .bind(id)
+                        .bind(tag_id)
+                        .execute(&mut **tx)
+                        .await?;
                 }
-
             } else if field == "max_capacity_cc" {
                 let value = change.new.as_f64();
                 sqlx::query(
@@ -315,7 +318,6 @@ impl Projector {
                 .bind(value)
                 .execute(&mut **tx)
                 .await?;
-
             } else if field == "max_weight_grams" {
                 let value = change.new.as_f64();
                 sqlx::query(
@@ -326,16 +328,15 @@ impl Projector {
                 .bind(value)
                 .execute(&mut **tx)
                 .await?;
-
             } else if field == "container_type_id" {
                 // Try to parse as UUID string first, then as JSON UUID value.
                 // A JSON null legitimately clears the type, so only warn on
                 // non-null values that fail to parse.
-                let value: Option<Uuid> = change.new.as_str()
-                    .and_then(|s| Uuid::parse_str(s).ok())
-                    .or_else(|| {
-                        serde_json::from_value::<Option<Uuid>>(change.new.clone()).ok().flatten()
-                    });
+                let value: Option<Uuid> = change.new.as_str().and_then(|s| Uuid::parse_str(s).ok()).or_else(|| {
+                    serde_json::from_value::<Option<Uuid>>(change.new.clone())
+                        .ok()
+                        .flatten()
+                });
                 if value.is_none() && !change.new.is_null() {
                     warn!(item_id = %id, raw = %change.new, "projector: container_type_id is non-null but could not be parsed as UUID, storing NULL");
                 }
@@ -347,7 +348,6 @@ impl Projector {
                 .bind(value)
                 .execute(&mut **tx)
                 .await?;
-
             } else if field == "fungible_unit" {
                 let value = change.new.as_str().map(|s| s.to_string());
                 sqlx::query(
@@ -358,7 +358,6 @@ impl Projector {
                 .bind(&value)
                 .execute(&mut **tx)
                 .await?;
-
             } else if field == "fungible_quantity" {
                 // Legacy: quantity changes should go through ItemQuantityAdjusted but
                 // handle here for backward compat with older events.
@@ -371,16 +370,12 @@ impl Projector {
                 .bind(value)
                 .execute(&mut **tx)
                 .await?;
-
             } else if field == "location_schema" {
                 // Writes to container_properties, same as ContainerSchemaUpdated.
                 // location_schema normally changes via ContainerSchemaUpdated, but handle
                 // it here too so ItemUpdated events with this field don't silently diverge.
-                let schema_value: Option<&serde_json::Value> = if change.new.is_null() {
-                    None
-                } else {
-                    Some(&change.new)
-                };
+                let schema_value: Option<&serde_json::Value> =
+                    if change.new.is_null() { None } else { Some(&change.new) };
                 sqlx::query(
                     "INSERT INTO container_properties (item_id, location_schema) VALUES ($1, $2) \
                      ON CONFLICT (item_id) DO UPDATE SET location_schema = EXCLUDED.location_schema",
@@ -389,7 +384,6 @@ impl Projector {
                 .bind(schema_value)
                 .execute(&mut **tx)
                 .await?;
-
             } else if field == "is_container" {
                 let value = change.new.as_bool()
                     .or_else(|| change.new.as_str().and_then(|s| s.parse::<bool>().ok()))
@@ -405,12 +399,10 @@ impl Projector {
                     .await?;
                 if value {
                     // Toggled on: ensure a container_properties row exists.
-                    sqlx::query(
-                        "INSERT INTO container_properties (item_id) VALUES ($1) ON CONFLICT DO NOTHING",
-                    )
-                    .bind(id)
-                    .execute(&mut **tx)
-                    .await?;
+                    sqlx::query("INSERT INTO container_properties (item_id) VALUES ($1) ON CONFLICT DO NOTHING")
+                        .bind(id)
+                        .execute(&mut **tx)
+                        .await?;
                 } else {
                     // Toggled off: remove the extension row.
                     sqlx::query("DELETE FROM container_properties WHERE item_id = $1")
@@ -418,7 +410,6 @@ impl Projector {
                         .execute(&mut **tx)
                         .await?;
                 }
-
             } else if field == "is_fungible" {
                 let value = change.new.as_bool()
                     .or_else(|| change.new.as_str().and_then(|s| s.parse::<bool>().ok()))
@@ -434,12 +425,10 @@ impl Projector {
                     .await?;
                 if value {
                     // Toggled on: ensure a fungible_properties row exists.
-                    sqlx::query(
-                        "INSERT INTO fungible_properties (item_id) VALUES ($1) ON CONFLICT DO NOTHING",
-                    )
-                    .bind(id)
-                    .execute(&mut **tx)
-                    .await?;
+                    sqlx::query("INSERT INTO fungible_properties (item_id) VALUES ($1) ON CONFLICT DO NOTHING")
+                        .bind(id)
+                        .execute(&mut **tx)
+                        .await?;
                 } else {
                     // Toggled off: remove the extension row.
                     sqlx::query("DELETE FROM fungible_properties WHERE item_id = $1")
@@ -447,7 +436,6 @@ impl Projector {
                         .execute(&mut **tx)
                         .await?;
                 }
-
             } else if field == "system_barcode" {
                 let value = change.new.as_str().map(|s| s.to_string());
                 sqlx::query("UPDATE items SET system_barcode = $1, updated_by = $2 WHERE id = $3")
@@ -456,20 +444,15 @@ impl Projector {
                     .bind(id)
                     .execute(&mut **tx)
                     .await?;
-
             } else if field == "external_codes" {
-                let jsonb_value: Option<&serde_json::Value> = if change.new.is_null() {
-                    None
-                } else {
-                    Some(&change.new)
-                };
+                let jsonb_value: Option<&serde_json::Value> =
+                    if change.new.is_null() { None } else { Some(&change.new) };
                 sqlx::query("UPDATE items SET external_codes = $1, updated_by = $2 WHERE id = $3")
                     .bind(jsonb_value)
                     .bind(actor_id)
                     .bind(id)
                     .execute(&mut **tx)
                     .await?;
-
             } else if field == "acquisition_date" || field == "warranty_expiry" {
                 let value = change.new.as_str().map(|s| s.to_string());
                 let query = format!("UPDATE items SET {field} = $1::date, updated_by = $2 WHERE id = $3");
@@ -479,7 +462,6 @@ impl Projector {
                     .bind(id)
                     .execute(&mut **tx)
                     .await?;
-
             } else {
                 tracing::warn!(field, "Ignoring unknown field in ItemUpdated projection");
             }
@@ -504,12 +486,10 @@ impl Projector {
         actor_id: Uuid,
     ) -> AppResult<()> {
         // Get the old path for cascading
-        let old_path: Option<String> = sqlx::query_scalar(
-            "SELECT container_path::text FROM items WHERE id = $1",
-        )
-        .bind(id)
-        .fetch_optional(&mut **tx)
-        .await?;
+        let old_path: Option<String> = sqlx::query_scalar("SELECT container_path::text FROM items WHERE id = $1")
+            .bind(id)
+            .fetch_optional(&mut **tx)
+            .await?;
 
         // Update the moved item itself
         sqlx::query(
@@ -561,17 +541,18 @@ impl Projector {
             (Some(cid), Some(path)) => (cid, path.clone()),
             _ => {
                 // Fetch current container info from the item row
-                let row: Option<(Option<Uuid>, Option<String>)> = sqlx::query_as(
-                    "SELECT parent_id, container_path::text FROM items WHERE id = $1",
-                )
-                .bind(id)
-                .fetch_optional(&mut **tx)
-                .await?;
+                let row: Option<(Option<Uuid>, Option<String>)> =
+                    sqlx::query_as("SELECT parent_id, container_path::text FROM items WHERE id = $1")
+                        .bind(id)
+                        .fetch_optional(&mut **tx)
+                        .await?;
                 match row {
                     Some((Some(pid), Some(path))) => (pid, path),
-                    _ => return Err(AppError::Internal(
-                        "Cannot revert move: missing destination info and no current parent".into(),
-                    )),
+                    _ => {
+                        return Err(AppError::Internal(
+                            "Cannot revert move: missing destination info and no current parent".into(),
+                        ))
+                    }
                 }
             }
         };
@@ -593,11 +574,12 @@ impl Projector {
         id: Uuid,
         actor_id: Uuid,
     ) -> AppResult<()> {
-        let result = sqlx::query("UPDATE items SET is_deleted = TRUE, deleted_at = NOW(), updated_by = $1 WHERE id = $2")
-            .bind(actor_id)
-            .bind(id)
-            .execute(&mut **tx)
-            .await?;
+        let result =
+            sqlx::query("UPDATE items SET is_deleted = TRUE, deleted_at = NOW(), updated_by = $1 WHERE id = $2")
+                .bind(actor_id)
+                .bind(id)
+                .execute(&mut **tx)
+                .await?;
         if result.rows_affected() == 0 {
             tracing::warn!(item_id = %id, "project_item_deleted: UPDATE affected 0 rows — item may already be deleted or missing");
         }
@@ -609,11 +591,12 @@ impl Projector {
         id: Uuid,
         actor_id: Uuid,
     ) -> AppResult<()> {
-        let result = sqlx::query("UPDATE items SET is_deleted = FALSE, deleted_at = NULL, updated_by = $1 WHERE id = $2")
-            .bind(actor_id)
-            .bind(id)
-            .execute(&mut **tx)
-            .await?;
+        let result =
+            sqlx::query("UPDATE items SET is_deleted = FALSE, deleted_at = NULL, updated_by = $1 WHERE id = $2")
+                .bind(actor_id)
+                .bind(id)
+                .execute(&mut **tx)
+                .await?;
         if result.rows_affected() == 0 {
             tracing::warn!(item_id = %id, "project_item_restored: UPDATE affected 0 rows — item may be missing from projection");
         }
@@ -809,8 +792,7 @@ impl Projector {
         let mut remaining: Vec<(&String, &String)> = data.label_renames.iter().collect();
         let mut sorted: Vec<(&String, &String)> = Vec::with_capacity(remaining.len());
         while !remaining.is_empty() {
-            let old_labels: std::collections::HashSet<&str> =
-                remaining.iter().map(|(old, _)| old.as_str()).collect();
+            let old_labels: std::collections::HashSet<&str> = remaining.iter().map(|(old, _)| old.as_str()).collect();
             let (ready, blocked): (Vec<_>, Vec<_>) = remaining
                 .into_iter()
                 .partition(|(_, new)| !old_labels.contains(new.as_str()));
@@ -855,14 +837,12 @@ impl Projector {
             Some(&data.barcode)
         };
 
-        sqlx::query(
-            "UPDATE items SET system_barcode = $1, updated_by = $2 WHERE id = $3",
-        )
-        .bind(barcode)
-        .bind(actor_id)
-        .bind(id)
-        .execute(&mut **tx)
-        .await?;
+        sqlx::query("UPDATE items SET system_barcode = $1, updated_by = $2 WHERE id = $3")
+            .bind(barcode)
+            .bind(actor_id)
+            .bind(id)
+            .execute(&mut **tx)
+            .await?;
 
         Ok(())
     }
@@ -976,7 +956,10 @@ impl Projector {
         }
 
         if skipped > 0 {
-            tracing::warn!(skipped, "rebuild_all: {skipped} events skipped due to deserialization errors");
+            tracing::warn!(
+                skipped,
+                "rebuild_all: {skipped} events skipped due to deserialization errors"
+            );
         }
 
         tx.commit().await?;

@@ -48,11 +48,7 @@ async fn find_active_by_username() {
     let ctx = common::setup().await;
     let state = &ctx.state;
 
-    let found = state
-        .user_queries
-        .find_active_by_username("testadmin")
-        .await
-        .unwrap();
+    let found = state.user_queries.find_active_by_username("testadmin").await.unwrap();
     assert!(found.is_some());
     assert_eq!(found.unwrap().id, ctx.admin_id);
 }
@@ -87,19 +83,11 @@ async fn invite_token_lifecycle() {
     let state = &ctx.state;
 
     // Create invite
-    let invite = state
-        .token_repository
-        .create_invite(ctx.admin_id, 7)
-        .await
-        .unwrap();
+    let invite = state.token_repository.create_invite(ctx.admin_id, 7).await.unwrap();
     assert!(!invite.code.is_empty());
 
     // Find it
-    let found = state
-        .token_repository
-        .find_valid_invite(&invite.code)
-        .await
-        .unwrap();
+    let found = state.token_repository.find_valid_invite(&invite.code).await.unwrap();
     assert!(found.is_some());
 
     // Mark used in a transaction
@@ -112,11 +100,7 @@ async fn invite_token_lifecycle() {
     tx.commit().await.unwrap();
 
     // Should no longer be valid
-    let found = state
-        .token_repository
-        .find_valid_invite(&invite.code)
-        .await
-        .unwrap();
+    let found = state.token_repository.find_valid_invite(&invite.code).await.unwrap();
     assert!(found.is_none());
 }
 
@@ -134,11 +118,7 @@ async fn refresh_token_issue_and_revoke() {
     assert!(!issued.raw_token.is_empty());
 
     // Revoke all for user
-    state
-        .token_repository
-        .revoke_all_for_user(ctx.admin_id)
-        .await
-        .unwrap();
+    state.token_repository.revoke_all_for_user(ctx.admin_id).await.unwrap();
 
     // Verify: issue a new one and revoke by hash
     let issued2 = state

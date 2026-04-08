@@ -8,13 +8,13 @@ use serde::Deserialize;
 use std::sync::Arc;
 use uuid::Uuid;
 
+use crate::api::item_routes::validate_create_request;
 use crate::auth::middleware::AuthUser;
 use crate::errors::{AppError, AppResult};
 use crate::models::camera::*;
 use crate::models::event::EventMetadata;
 use crate::models::item::{CreateItemRequest, MoveItemRequest};
 use crate::models::session::*;
-use crate::api::item_routes::validate_create_request;
 use crate::AppState;
 
 pub fn router() -> Router<Arc<AppState>> {
@@ -49,18 +49,15 @@ async fn start_session(
 
     // Validate initial container if provided.
     let initial_container_id = if let Some(container_id) = req.initial_container_id {
-        let is_container: Option<bool> = sqlx::query_scalar(
-            "SELECT is_container FROM items WHERE id = $1 AND is_deleted = FALSE",
-        )
-        .bind(container_id)
-        .fetch_optional(&state.pool)
-        .await?
-        .ok_or_else(|| AppError::NotFound(format!("Container {container_id} not found")))?;
+        let is_container: Option<bool> =
+            sqlx::query_scalar("SELECT is_container FROM items WHERE id = $1 AND is_deleted = FALSE")
+                .bind(container_id)
+                .fetch_optional(&state.pool)
+                .await?
+                .ok_or_else(|| AppError::NotFound(format!("Container {container_id} not found")))?;
 
         if !is_container.unwrap_or(false) {
-            return Err(AppError::BadRequest(format!(
-                "Item {container_id} is not a container"
-            )));
+            return Err(AppError::BadRequest(format!("Item {container_id} is not a container")));
         }
         Some(container_id)
     } else {
@@ -85,13 +82,16 @@ async fn start_session(
         }
     }
 
-    let session = state.session_repository.create(
-        session_id,
-        auth.user_id,
-        req.device_id.as_deref(),
-        req.notes.as_deref(),
-        initial_container_id,
-    ).await?;
+    let session = state
+        .session_repository
+        .create(
+            session_id,
+            auth.user_id,
+            req.device_id.as_deref(),
+            req.notes.as_deref(),
+            initial_container_id,
+        )
+        .await?;
     Ok((StatusCode::CREATED, Json(session)))
 }
 
@@ -131,7 +131,10 @@ async fn submit_batch(
 ) -> AppResult<Json<StockerBatchResponse>> {
     auth.require_role("member")?;
     // Validate session exists and belongs to user
-    let session = state.session_repository.get_active_for_user(session_id, auth.user_id).await?;
+    let session = state
+        .session_repository
+        .get_active_for_user(session_id, auth.user_id)
+        .await?;
 
     if req.events.len() > state.config.max_batch_size {
         return Err(AppError::BadRequest(format!(
@@ -171,17 +174,33 @@ async fn submit_batch(
 
             // CB-6: Count inline per result type rather than a fragile +1/-1 dance.
             match &result {
-                StockerBatchResult::Created { .. } => { items_scanned += 1; items_created += 1; }
-                StockerBatchResult::Moved { .. } => { items_scanned += 1; items_moved += 1; }
+                StockerBatchResult::Created { .. } => {
+                    items_scanned += 1;
+                    items_created += 1;
+                }
+                StockerBatchResult::Moved { .. } => {
+                    items_scanned += 1;
+                    items_moved += 1;
+                }
                 StockerBatchResult::ContextSet { .. } | StockerBatchResult::Resolved { .. } => {} // not a physical scan
             }
             results.push(result);
         }
 
         // Update session stats within the same transaction
-        state.session_repository.update_stats_in_tx(
-            &mut tx, session_id, active_container_id, active_item_id, items_scanned, items_created, items_moved, items_errored,
-        ).await?;
+        state
+            .session_repository
+            .update_stats_in_tx(
+                &mut tx,
+                session_id,
+                active_container_id,
+                active_item_id,
+                items_scanned,
+                items_created,
+                items_moved,
+                items_errored,
+            )
+            .await?;
 
         tx.commit().await?;
     } else {
@@ -202,8 +221,14 @@ async fn submit_batch(
                 Ok(batch_result) => {
                     // CB-6: Count inline per result type.
                     match &batch_result {
-                        StockerBatchResult::Created { .. } => { items_scanned += 1; items_created += 1; }
-                        StockerBatchResult::Moved { .. } => { items_scanned += 1; items_moved += 1; }
+                        StockerBatchResult::Created { .. } => {
+                            items_scanned += 1;
+                            items_created += 1;
+                        }
+                        StockerBatchResult::Moved { .. } => {
+                            items_scanned += 1;
+                            items_moved += 1;
+                        }
                         StockerBatchResult::ContextSet { .. } | StockerBatchResult::Resolved { .. } => {}
                     }
                     results.push(batch_result);
@@ -220,9 +245,18 @@ async fn submit_batch(
         }
 
         // Update session stats
-        state.session_repository.update_stats(
-            session_id, active_container_id, active_item_id, items_scanned, items_created, items_moved, items_errored,
-        ).await?;
+        state
+            .session_repository
+            .update_stats(
+                session_id,
+                active_container_id,
+                active_item_id,
+                items_scanned,
+                items_created,
+                items_moved,
+                items_errored,
+            )
+            .await?;
     }
 
     Ok(Json(StockerBatchResponse {
@@ -289,18 +323,15 @@ async fn process_batch_event_in_tx(
     };
     match event {
         StockerBatchEvent::SetContext { container_id, .. } => {
-            let is_container: Option<bool> = sqlx::query_scalar(
-                "SELECT is_container FROM items WHERE id = $1 AND is_deleted = FALSE",
-            )
-            .bind(container_id)
-            .fetch_optional(&mut **tx)
-            .await?
-            .ok_or_else(|| AppError::NotFound(format!("Container {container_id} not found")))?;
+            let is_container: Option<bool> =
+                sqlx::query_scalar("SELECT is_container FROM items WHERE id = $1 AND is_deleted = FALSE")
+                    .bind(container_id)
+                    .fetch_optional(&mut **tx)
+                    .await?
+                    .ok_or_else(|| AppError::NotFound(format!("Container {container_id} not found")))?;
 
             if !is_container.unwrap_or(false) {
-                return Err(AppError::BadRequest(format!(
-                    "Item {container_id} is not a container"
-                )));
+                return Err(AppError::BadRequest(format!("Item {container_id} is not a container")));
             }
 
             *active_container_id = Some(*container_id);
@@ -312,21 +343,17 @@ async fn process_batch_event_in_tx(
             })
         }
         StockerBatchEvent::MoveItem {
-            item_id,
-            coordinate,
-            ..
+            item_id, coordinate, ..
         } => {
-            let container_id = active_container_id.ok_or_else(|| {
-                AppError::BadRequest("No active container set. Send set_context first.".into())
-            })?;
+            let container_id = active_container_id
+                .ok_or_else(|| AppError::BadRequest("No active container set. Send set_context first.".into()))?;
 
             // Validate the item exists and is not deleted.
-            let exists: bool = sqlx::query_scalar(
-                "SELECT EXISTS(SELECT 1 FROM items WHERE id = $1 AND is_deleted = FALSE)",
-            )
-            .bind(item_id)
-            .fetch_one(&mut **tx)
-            .await?;
+            let exists: bool =
+                sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM items WHERE id = $1 AND is_deleted = FALSE)")
+                    .bind(item_id)
+                    .fetch_one(&mut **tx)
+                    .await?;
 
             if !exists {
                 return Err(AppError::NotFound(format!("Item {item_id} not found")));
@@ -368,9 +395,8 @@ async fn process_batch_event_in_tx(
             container_type_id,
             ..
         } => {
-            let container_id = active_container_id.ok_or_else(|| {
-                AppError::BadRequest("No active container set. Send set_context first.".into())
-            })?;
+            let container_id = active_container_id
+                .ok_or_else(|| AppError::BadRequest("No active container set. Send set_context first.".into()))?;
 
             let item_id = Uuid::new_v4();
 
@@ -382,7 +408,8 @@ async fn process_batch_event_in_tx(
             } else if barcode.chars().count() > 32 {
                 // M-29: Validate barcode length (same as direct assignment endpoint)
                 return Err(AppError::BadRequest(format!(
-                    "Barcode exceeds 32 characters: '{}'", barcode
+                    "Barcode exceeds 32 characters: '{}'",
+                    barcode
                 )));
             } else {
                 Some(barcode.clone())
@@ -470,7 +497,11 @@ async fn end_session(
 ) -> AppResult<Json<ScanSession>> {
     auth.require_role("member")?;
     // Revoke all camera tokens when session ends — log but don't block on failure.
-    if let Err(e) = state.session_repository.revoke_all_camera_tokens(id, auth.user_id).await {
+    if let Err(e) = state
+        .session_repository
+        .revoke_all_camera_tokens(id, auth.user_id)
+        .await
+    {
         tracing::warn!("Failed to revoke camera tokens for session {id}: {e}");
     }
     let session = state.session_repository.end_session(id, auth.user_id).await?;
@@ -492,7 +523,10 @@ async fn create_camera_link(
 ) -> AppResult<(StatusCode, Json<CameraLinkResponse>)> {
     auth.require_role("member")?;
     // Verify session exists, belongs to user, and is active
-    let _session = state.session_repository.get_active_for_user(session_id, auth.user_id).await?;
+    let _session = state
+        .session_repository
+        .get_active_for_user(session_id, auth.user_id)
+        .await?;
 
     let req = body.map(|b| b.0).unwrap_or(CreateCameraLinkRequest {
         device_name: None,
@@ -512,7 +546,8 @@ async fn create_camera_link(
         }
     }
 
-    let hours = req.expires_in_hours
+    let hours = req
+        .expires_in_hours
         .unwrap_or(DEFAULT_CAMERA_TOKEN_HOURS)
         .clamp(1, MAX_CAMERA_TOKEN_HOURS);
     let expires_at = chrono::Utc::now() + chrono::Duration::hours(i64::from(hours));
@@ -522,20 +557,26 @@ async fn create_camera_link(
     let plain_token = hex::encode(token_bytes);
     let token_hash = crate::auth::jwt::hash_refresh_token(&plain_token);
 
-    let ct = state.session_repository.create_camera_token(
-        session_id,
-        auth.user_id,
-        &token_hash,
-        req.device_name.as_deref(),
-        expires_at,
-    ).await?;
+    let ct = state
+        .session_repository
+        .create_camera_token(
+            session_id,
+            auth.user_id,
+            &token_hash,
+            req.device_name.as_deref(),
+            expires_at,
+        )
+        .await?;
 
-    Ok((StatusCode::CREATED, Json(CameraLinkResponse {
-        token: plain_token,
-        session_id: ct.session_id,
-        expires_at: ct.expires_at,
-        device_name: ct.device_name,
-    })))
+    Ok((
+        StatusCode::CREATED,
+        Json(CameraLinkResponse {
+            token: plain_token,
+            session_id: ct.session_id,
+            expires_at: ct.expires_at,
+            device_name: ct.device_name,
+        }),
+    ))
 }
 
 /// List active camera links for a session.
@@ -559,7 +600,10 @@ async fn revoke_camera_link(
     auth.require_role("member")?;
     // Verify session belongs to user
     let _session = state.session_repository.get_for_user(session_id, auth.user_id).await?;
-    state.session_repository.revoke_camera_token(token_id, auth.user_id).await?;
+    state
+        .session_repository
+        .revoke_camera_token(token_id, auth.user_id)
+        .await?;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -619,11 +663,10 @@ async fn camera_upload(
     }
 
     // Determine target: active_item_id first, then fall back to active_container_id
-    let target_item_id = session.active_item_id
+    let target_item_id = session
+        .active_item_id
         .or(session.active_container_id)
-        .ok_or_else(|| AppError::BadRequest(
-            "No active item or container in session. Scan an item first.".into()
-        ))?;
+        .ok_or_else(|| AppError::BadRequest("No active item or container in session. Scan an item first.".into()))?;
 
     let mut file_data: Option<(String, Vec<u8>)> = None;
     let mut caption: Option<String> = None;
@@ -708,13 +751,12 @@ async fn camera_upload(
 
     // Count images on the item to return in response.
     // jsonb_array_length returns INT4; cast to INT8 so sqlx binds to i64.
-    let image_count: i64 = sqlx::query_scalar(
-        "SELECT jsonb_array_length(COALESCE(images, '[]'::jsonb))::bigint FROM items WHERE id = $1",
-    )
-    .bind(target_item_id)
-    .fetch_one(&state.pool)
-    .await
-    .unwrap_or(0);
+    let image_count: i64 =
+        sqlx::query_scalar("SELECT jsonb_array_length(COALESCE(images, '[]'::jsonb))::bigint FROM items WHERE id = $1")
+            .bind(target_item_id)
+            .fetch_one(&state.pool)
+            .await
+            .unwrap_or(0);
 
     tracing::info!(
         session_id = %ct.session_id,
@@ -723,9 +765,12 @@ async fn camera_upload(
         "Camera image uploaded"
     );
 
-    Ok((StatusCode::CREATED, Json(CameraUploadResponse {
-        item_id: target_item_id,
-        image_url: url,
-        image_count: image_count as usize,
-    })))
+    Ok((
+        StatusCode::CREATED,
+        Json(CameraUploadResponse {
+            item_id: target_item_id,
+            image_url: url,
+            image_count: image_count as usize,
+        }),
+    ))
 }

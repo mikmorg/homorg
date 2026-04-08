@@ -14,9 +14,9 @@ pub struct SearchQueries {
 
 #[derive(Debug, Deserialize, Default)]
 pub struct SearchParams {
-    pub q: Option<String>,          // full-text / fuzzy query
-    pub path: Option<String>,       // LTREE lquery pattern
-    pub category: Option<String>,   // category name (exact)
+    pub q: Option<String>,        // full-text / fuzzy query
+    pub path: Option<String>,     // LTREE lquery pattern
+    pub category: Option<String>, // category name (exact)
     pub condition: Option<String>,
     pub container_id: Option<Uuid>, // restrict to subtree
     pub tags: Option<String>,       // comma-separated tag names
@@ -29,10 +29,7 @@ pub struct SearchParams {
 
 /// Escape ILIKE special characters (`\`, `%`, `_`) so user input is treated literally.
 fn escape_ilike(input: &str) -> String {
-    input
-        .replace('\\', "\\\\")
-        .replace('%', "\\%")
-        .replace('_', "\\_")
+    input.replace('\\', "\\\\").replace('%', "\\%").replace('_', "\\_")
 }
 
 impl SearchQueries {
@@ -48,7 +45,10 @@ impl SearchQueries {
 
         // Parse tags
         let tags: Option<Vec<String>> = params.tags.as_ref().map(|t| {
-            t.split(',').map(|s| s.trim().to_string()).filter(|s| !s.is_empty()).collect()
+            t.split(',')
+                .map(|s| s.trim().to_string())
+                .filter(|s| !s.is_empty())
+                .collect()
         });
 
         // Escape ILIKE wildcards so user input is literal

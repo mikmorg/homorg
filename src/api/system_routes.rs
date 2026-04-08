@@ -38,9 +38,7 @@ struct HealthResponse {
 /// Liveness check with DB connectivity status.
 /// Returns 200 when healthy, 503 when the database is unreachable.
 async fn health(State(state): State<Arc<AppState>>) -> (StatusCode, Json<HealthResponse>) {
-    let db_status = sqlx::query_scalar::<_, i32>("SELECT 1")
-        .fetch_one(&state.pool)
-        .await;
+    let db_status = sqlx::query_scalar::<_, i32>("SELECT 1").fetch_one(&state.pool).await;
 
     let (status_code, status, database) = match db_status {
         Ok(_) => (StatusCode::OK, "ok".to_string(), "connected".to_string()),
@@ -58,30 +56,28 @@ async fn health(State(state): State<Arc<AppState>>) -> (StatusCode, Json<HealthR
     // Leaking this flag is acceptable for the initial setup UX flow;
     // the /auth/setup endpoint is locked after first use regardless.
     let setup_required = if status_code == StatusCode::OK {
-        let count = sqlx::query_scalar::<_, i64>(
-            "SELECT COUNT(*) FROM users WHERE is_active = TRUE",
-        )
-        .fetch_one(&state.pool)
-        .await
-        .unwrap_or(1);
+        let count = sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM users WHERE is_active = TRUE")
+            .fetch_one(&state.pool)
+            .await
+            .unwrap_or(1);
         Some(count == 0)
     } else {
         None
     };
 
-    (status_code, Json(HealthResponse {
-        status,
-        database,
-        version: env!("CARGO_PKG_VERSION"),
-        setup_required,
-    }))
+    (
+        status_code,
+        Json(HealthResponse {
+            status,
+            database,
+            version: env!("CARGO_PKG_VERSION"),
+            setup_required,
+        }),
+    )
 }
 
 /// System statistics.
-async fn stats(
-    State(state): State<Arc<AppState>>,
-    _auth: AuthUser,
-) -> AppResult<Json<StatsResponse>> {
+async fn stats(State(state): State<Arc<AppState>>, _auth: AuthUser) -> AppResult<Json<StatsResponse>> {
     let stats = state.stats_queries.get_stats().await?;
     Ok(Json(stats))
 }
@@ -107,17 +103,17 @@ async fn metrics(State(state): State<Arc<AppState>>, _auth: AuthUser) -> impl In
         in_progress,
     );
     (
-        [(axum::http::header::CONTENT_TYPE, "text/plain; version=0.0.4; charset=utf-8")],
+        [(
+            axum::http::header::CONTENT_TYPE,
+            "text/plain; version=0.0.4; charset=utf-8",
+        )],
         body,
     )
 }
 
 /// Replay event store and rebuild the items projection table.
 /// Long-running — returns 202 Accepted and processes in background.
-async fn rebuild_projections(
-    State(state): State<Arc<AppState>>,
-    auth: AuthUser,
-) -> AppResult<StatusCode> {
+async fn rebuild_projections(State(state): State<Arc<AppState>>, auth: AuthUser) -> AppResult<StatusCode> {
     auth.require_role("admin")?;
 
     // API-5: Guard against launching two simultaneous rebuilds.
@@ -155,10 +151,7 @@ struct RebuildStatusResponse {
     in_progress: bool,
 }
 
-async fn rebuild_status(
-    State(state): State<Arc<AppState>>,
-    auth: AuthUser,
-) -> AppResult<Json<RebuildStatusResponse>> {
+async fn rebuild_status(State(state): State<Arc<AppState>>, auth: AuthUser) -> AppResult<Json<RebuildStatusResponse>> {
     auth.require_role("admin")?;
     Ok(Json(RebuildStatusResponse {
         in_progress: state.rebuild_in_progress.load(Ordering::Relaxed),

@@ -3,8 +3,7 @@ use uuid::Uuid;
 
 use crate::errors::{AppError, AppResult};
 use crate::models::taxonomy::{
-    Category, CreateCategoryRequest, CreateTagRequest, RenameTagRequest, Tag,
-    UpdateCategoryRequest,
+    Category, CreateCategoryRequest, CreateTagRequest, RenameTagRequest, Tag, UpdateCategoryRequest,
 };
 
 /// Read/write query handler for tags and categories.
@@ -204,16 +203,12 @@ impl TaxonomyQueries {
     pub async fn create_category(&self, req: &CreateCategoryRequest) -> AppResult<Category> {
         // Validate parent exists for a friendlier error than a raw FK violation.
         if let Some(parent_id) = req.parent_category_id {
-            let exists: bool = sqlx::query_scalar(
-                "SELECT EXISTS(SELECT 1 FROM categories WHERE id = $1)",
-            )
-            .bind(parent_id)
-            .fetch_one(&self.pool)
-            .await?;
+            let exists: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM categories WHERE id = $1)")
+                .bind(parent_id)
+                .fetch_one(&self.pool)
+                .await?;
             if !exists {
-                return Err(AppError::NotFound(format!(
-                    "Parent category {parent_id} not found"
-                )));
+                return Err(AppError::NotFound(format!("Parent category {parent_id} not found")));
             }
         }
 
@@ -233,9 +228,7 @@ impl TaxonomyQueries {
         .map_err(|e| {
             if let sqlx::Error::Database(ref db_err) = e {
                 if db_err.constraint() == Some("uq_categories_name") {
-                    return AppError::Conflict(format!(
-                        "Category '{}' already exists", req.name
-                    ));
+                    return AppError::Conflict(format!("Category '{}' already exists", req.name));
                 }
             }
             AppError::Database(e)
@@ -245,18 +238,12 @@ impl TaxonomyQueries {
 
     /// Update a category name, description, or parent.
     /// Sending an empty description clears it to NULL.
-    pub async fn update_category(
-        &self,
-        id: Uuid,
-        req: &UpdateCategoryRequest,
-    ) -> AppResult<Category> {
+    pub async fn update_category(&self, id: Uuid, req: &UpdateCategoryRequest) -> AppResult<Category> {
         // Pre-check: reject self-referencing parent for a clear error message.
         // The DB trigger check_category_no_cycle() also enforces cycle prevention.
         if let Some(Some(parent_id)) = req.parent_category_id {
             if parent_id == id {
-                return Err(AppError::BadRequest(
-                    "Category cannot be its own parent".into(),
-                ));
+                return Err(AppError::BadRequest("Category cannot be its own parent".into()));
             }
         }
 

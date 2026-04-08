@@ -7,14 +7,12 @@ use uuid::Uuid;
 
 /// Root container ("Everything") — the invisible top of the LTREE.
 pub const ROOT_ID: Uuid = Uuid::from_bytes([
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01,
 ]);
 
 /// Users container — parent of all per-user containers.
 pub const USERS_ID: Uuid = Uuid::from_bytes([
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x02,
 ]);
 
 // ── LTREE / node_id constants ───────────────────────────────────────────
@@ -51,8 +49,7 @@ pub const MAX_DISPLAY_NAME_LEN: usize = 128;
 pub fn is_valid_username(u: &str) -> bool {
     let len = u.len();
     (USERNAME_MIN_LEN..=USERNAME_MAX_LEN).contains(&len)
-        && u.chars()
-            .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+        && u.chars().all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
         && u.starts_with(|c: char| c.is_ascii_alphanumeric())
 }
 
@@ -89,9 +86,7 @@ pub const MAX_IMAGES_PER_ITEM: usize = 50;
 
 /// Allowed values for the `condition` field.
 /// Must match the CHECK constraint in migration 0003_items.sql.
-pub const ALLOWED_CONDITIONS: &[&str] = &[
-    "new", "like_new", "good", "fair", "poor", "broken",
-];
+pub const ALLOWED_CONDITIONS: &[&str] = &["new", "like_new", "good", "fair", "poor", "broken"];
 
 /// Returns `true` if the condition value is valid (or absent).
 pub fn is_valid_condition(condition: Option<&str>) -> bool {

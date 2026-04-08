@@ -1,12 +1,12 @@
 use std::sync::Arc;
 
 use axum::extract::DefaultBodyLimit;
+use axum::http::{header, HeaderValue, Method};
 use tower_http::compression::CompressionLayer;
-use tower_http::cors::{CorsLayer};
+use tower_http::cors::CorsLayer;
 use tower_http::request_id::{MakeRequestUuid, PropagateRequestIdLayer, SetRequestIdLayer};
 use tower_http::set_header::SetResponseHeaderLayer;
 use tower_http::trace::TraceLayer;
-use axum::http::{header, HeaderValue, Method};
 use tracing::Level;
 use tracing_subscriber::EnvFilter;
 
@@ -25,17 +25,11 @@ async fn main() {
     let config = AppConfig::from_env().expect("Failed to load configuration");
 
     // Initialize tracing (JSON format if LOG_FORMAT=json)
-    let env_filter =
-        EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("homorg=debug,info"));
+    let env_filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("homorg=debug,info"));
     if config.log_format == "json" {
-        tracing_subscriber::fmt()
-            .json()
-            .with_env_filter(env_filter)
-            .init();
+        tracing_subscriber::fmt().json().with_env_filter(env_filter).init();
     } else {
-        tracing_subscriber::fmt()
-            .with_env_filter(env_filter)
-            .init();
+        tracing_subscriber::fmt().with_env_filter(env_filter).init();
     }
 
     tracing::info!("Starting Homorg daemon on {}", config.listen_addr);
@@ -43,9 +37,7 @@ async fn main() {
     // Create database pool and run migrations
     let pool = db::create_pool(&config).await.expect("Failed to create database pool");
 
-    db::run_migrations(&pool)
-        .await
-        .expect("Failed to run migrations");
+    db::run_migrations(&pool).await.expect("Failed to run migrations");
 
     tracing::info!("Database migrations complete");
 
@@ -117,18 +109,8 @@ async fn main() {
         // SEC-7: Restrict methods and headers for non-wildcard origins.
         CorsLayer::new()
             .allow_origin(origins)
-            .allow_methods([
-                Method::GET,
-                Method::POST,
-                Method::PUT,
-                Method::DELETE,
-                Method::OPTIONS,
-            ])
-            .allow_headers([
-                header::AUTHORIZATION,
-                header::CONTENT_TYPE,
-                header::ACCEPT,
-            ])
+            .allow_methods([Method::GET, Method::POST, Method::PUT, Method::DELETE, Method::OPTIONS])
+            .allow_headers([header::AUTHORIZATION, header::CONTENT_TYPE, header::ACCEPT])
     };
 
     // Build router with compression, body limits, request ID
@@ -182,10 +164,13 @@ async fn main() {
 
     tracing::info!("Homorg daemon listening on {}", config.listen_addr);
 
-    axum::serve(listener, app.into_make_service_with_connect_info::<std::net::SocketAddr>())
-        .with_graceful_shutdown(shutdown_signal())
-        .await
-        .expect("Server error");
+    axum::serve(
+        listener,
+        app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
+    )
+    .with_graceful_shutdown(shutdown_signal())
+    .await
+    .expect("Server error");
 
     tracing::info!("Homorg daemon shut down gracefully");
 }
@@ -195,9 +180,7 @@ async fn shutdown_signal() {
     use tokio::signal;
 
     let ctrl_c = async {
-        signal::ctrl_c()
-            .await
-            .expect("Failed to install Ctrl+C handler");
+        signal::ctrl_c().await.expect("Failed to install Ctrl+C handler");
     };
 
     #[cfg(unix)]

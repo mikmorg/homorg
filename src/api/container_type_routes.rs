@@ -21,9 +21,7 @@ const MAX_CT_SCHEMA_BYTES: usize = 65_536;
 
 fn validate_ct_name(name: &str) -> Result<(), AppError> {
     if name.is_empty() {
-        return Err(AppError::BadRequest(
-            "Container type name cannot be empty".into(),
-        ));
+        return Err(AppError::BadRequest("Container type name cannot be empty".into()));
     }
     if name.chars().count() > MAX_CT_NAME_LEN {
         return Err(AppError::BadRequest(format!(
@@ -157,10 +155,7 @@ async fn create_container_type(
 ) -> AppResult<(StatusCode, Json<ContainerType>)> {
     auth.require_role("admin")?;
     validate_create_container_type_request(&req)?;
-    let ct = state
-        .container_type_queries
-        .create(&req, auth.user_id)
-        .await?;
+    let ct = state.container_type_queries.create(&req, auth.user_id).await?;
     Ok((StatusCode::CREATED, Json(ct)))
 }
 

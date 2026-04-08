@@ -1,14 +1,14 @@
+use chrono::Utc;
 use sqlx::PgPool;
 use uuid::Uuid;
-use chrono::Utc;
 
-use crate::constants::{MAX_EXTERNAL_CODES, MAX_CODE_VALUE_LEN, MAX_CODE_TYPE_LEN};
-use crate::queries::item_queries::ITEM_FULL_SELECT;
+use crate::constants::{MAX_CODE_TYPE_LEN, MAX_CODE_VALUE_LEN, MAX_EXTERNAL_CODES};
 use crate::errors::{AppError, AppResult};
 use crate::events::projector::Projector;
 use crate::events::store::EventStore;
 use crate::models::event::*;
 use crate::models::item::*;
+use crate::queries::item_queries::ITEM_FULL_SELECT;
 
 /// Command handler for item write operations.
 #[derive(Clone)]
@@ -23,17 +23,12 @@ impl ItemCommands {
     }
 
     /// Verify an item exists and is not deleted (within a transaction).
-    async fn verify_item_exists(
-        &self,
-        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-        item_id: Uuid,
-    ) -> AppResult<()> {
-        let exists: bool = sqlx::query_scalar(
-            "SELECT EXISTS(SELECT 1 FROM items WHERE id = $1 AND is_deleted = FALSE)",
-        )
-        .bind(item_id)
-        .fetch_one(&mut **tx)
-        .await?;
+    async fn verify_item_exists(&self, tx: &mut sqlx::Transaction<'_, sqlx::Postgres>, item_id: Uuid) -> AppResult<()> {
+        let exists: bool =
+            sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM items WHERE id = $1 AND is_deleted = FALSE)")
+                .bind(item_id)
+                .fetch_one(&mut **tx)
+                .await?;
 
         if !exists {
             return Err(AppError::NotFound(format!("Item {item_id} not found")));
@@ -75,7 +70,8 @@ impl ItemCommands {
 
         if !parent.1 {
             return Err(AppError::BadRequest(format!(
-                "Item {} is not a container", req.parent_id
+                "Item {} is not a container",
+                req.parent_id
             )));
         }
 
@@ -111,9 +107,15 @@ impl ItemCommands {
         let parent_path = parent.2.unwrap_or_else(|| "n_root".to_string());
         let container_path = format!("{}.{}", parent_path, node_id);
 
-        let external_codes: Vec<serde_json::Value> = req.external_codes
+        let external_codes: Vec<serde_json::Value> = req
+            .external_codes
             .as_ref()
-            .map(|codes| codes.iter().map(|c| serde_json::json!({"type": c.code_type, "value": c.value})).collect())
+            .map(|codes| {
+                codes
+                    .iter()
+                    .map(|c| serde_json::json!({"type": c.code_type, "value": c.value}))
+                    .collect()
+            })
             .unwrap_or_default();
 
         let event = DomainEvent::ItemCreated(Box::new(ItemCreatedData {
@@ -149,15 +151,16 @@ impl ItemCommands {
             container_type_id: req.container_type_id,
         }));
 
-        let stored = self.event_store.append_in_tx(tx, id, &event, actor_id, metadata).await?;
+        let stored = self
+            .event_store
+            .append_in_tx(tx, id, &event, actor_id, metadata)
+            .await?;
         Projector::apply(tx, id, &event, actor_id).await.map_err(|e| {
             // DI-6: node_id UNIQUE collision → 409 instead of opaque 500.
             // DI-7: system_barcode concurrent-insert race → 409 instead of opaque 500.
             if let AppError::Database(sqlx::Error::Database(ref db_err)) = e {
                 if db_err.constraint() == Some("items_node_id_key") {
-                    return AppError::Conflict(
-                        "node_id collision detected — retry with a new item UUID".into(),
-                    );
+                    return AppError::Conflict("node_id collision detected — retry with a new item UUID".into());
                 }
                 if db_err.constraint() == Some("idx_items_system_barcode_live") {
                     return AppError::Conflict(format!(
@@ -185,9 +188,9 @@ impl ItemCommands {
         // Fetch current state to compute diffs (inside tx to prevent TOCTOU).
         // Use the full JOIN query so extension-table fields (fungible_unit, location_schema…)
         // are populated on the Item struct.
-        let current = sqlx::query_as::<_, Item>(
-            &format!("SELECT {ITEM_FULL_SELECT} WHERE i.id = $1 AND i.is_deleted = FALSE FOR UPDATE OF i"),
-        )
+        let current = sqlx::query_as::<_, Item>(&format!(
+            "SELECT {ITEM_FULL_SELECT} WHERE i.id = $1 AND i.is_deleted = FALSE FOR UPDATE OF i"
+        ))
         .bind(item_id)
         .fetch_optional(&mut *tx)
         .await?
@@ -240,7 +243,9 @@ impl ItemCommands {
             ($field:ident, $current_val:expr) => {
                 if let Some(ref inner) = req.$field {
                     use rust_decimal::prelude::ToPrimitive;
-                    let old_f64: Option<f64> = $current_val.as_ref().and_then(|d: &rust_decimal::Decimal| d.to_f64());
+                    let old_f64: Option<f64> = $current_val
+                        .as_ref()
+                        .and_then(|d: &rust_decimal::Decimal| d.to_f64());
                     match inner {
                         None => {
                             // Clearing to NULL — only record change if currently set
@@ -321,7 +326,7 @@ impl ItemCommands {
 
         // Mutual exclusivity: reject if the update would result in is_container AND is_fungible both being true.
         let will_be_container = req.is_container.unwrap_or(current.is_container);
-        let will_be_fungible  = req.is_fungible.unwrap_or(current.is_fungible);
+        let will_be_fungible = req.is_fungible.unwrap_or(current.is_fungible);
         if will_be_container && will_be_fungible {
             return Err(AppError::BadRequest(
                 "An item cannot be both a container and fungible".into(),
@@ -335,12 +340,11 @@ impl ItemCommands {
         // Guard: cannot toggle is_container to false if children exist
         if let Some(is_container_change) = changes.iter().find(|c| c.field == "is_container") {
             if is_container_change.new == serde_json::Value::Bool(false) && current.is_container {
-                let child_count: i64 = sqlx::query_scalar(
-                    "SELECT COUNT(*) FROM items WHERE parent_id = $1 AND is_deleted = FALSE",
-                )
-                .bind(item_id)
-                .fetch_one(&mut *tx)
-                .await?;
+                let child_count: i64 =
+                    sqlx::query_scalar("SELECT COUNT(*) FROM items WHERE parent_id = $1 AND is_deleted = FALSE")
+                        .bind(item_id)
+                        .fetch_one(&mut *tx)
+                        .await?;
 
                 if child_count > 0 {
                     return Err(AppError::Conflict(format!(
@@ -352,15 +356,20 @@ impl ItemCommands {
 
         let event = DomainEvent::ItemUpdated(ItemUpdatedData { changes });
 
-        let stored = self.event_store.append_in_tx(&mut tx, item_id, &event, actor_id, metadata).await?;
-        Projector::apply(&mut tx, item_id, &event, actor_id).await.map_err(|e| {
-            if let AppError::Database(sqlx::Error::Database(ref db_err)) = e {
-                if db_err.constraint() == Some("idx_items_system_barcode_live") {
-                    return AppError::Conflict("Barcode already exists".into());
+        let stored = self
+            .event_store
+            .append_in_tx(&mut tx, item_id, &event, actor_id, metadata)
+            .await?;
+        Projector::apply(&mut tx, item_id, &event, actor_id)
+            .await
+            .map_err(|e| {
+                if let AppError::Database(sqlx::Error::Database(ref db_err)) = e {
+                    if db_err.constraint() == Some("idx_items_system_barcode_live") {
+                        return AppError::Conflict("Barcode already exists".into());
+                    }
                 }
-            }
-            e
-        })?;
+                e
+            })?;
         tx.commit().await?;
 
         Ok(stored)
@@ -407,15 +416,14 @@ impl ItemCommands {
 
         if !dest.1 {
             return Err(AppError::BadRequest(format!(
-                "Destination {} is not a container", req.container_id
+                "Destination {} is not a container",
+                req.container_id
             )));
         }
 
         // H-4: Idempotency — reject no-op moves (item is already in the target container).
         if item.1 == Some(req.container_id) {
-            return Err(AppError::BadRequest(
-                "Item is already in this container".into(),
-            ));
+            return Err(AppError::BadRequest("Item is already in this container".into()));
         }
 
         // Circular reference check: destination must not be a descendant of the moved item.
@@ -450,7 +458,10 @@ impl ItemCommands {
             from_coordinate: item.5,
         });
 
-        let stored = self.event_store.append_in_tx(tx, item_id, &event, actor_id, metadata).await?;
+        let stored = self
+            .event_store
+            .append_in_tx(tx, item_id, &event, actor_id, metadata)
+            .await?;
         Projector::apply(tx, item_id, &event, actor_id).await?;
 
         Ok(stored)
@@ -478,12 +489,11 @@ impl ItemCommands {
 
         // Guard: prevent deleting a non-empty container
         if row.1 {
-            let child_count: i64 = sqlx::query_scalar(
-                "SELECT COUNT(*) FROM items WHERE parent_id = $1 AND is_deleted = FALSE",
-            )
-            .bind(item_id)
-            .fetch_one(&mut *tx)
-            .await?;
+            let child_count: i64 =
+                sqlx::query_scalar("SELECT COUNT(*) FROM items WHERE parent_id = $1 AND is_deleted = FALSE")
+                    .bind(item_id)
+                    .fetch_one(&mut *tx)
+                    .await?;
 
             if child_count > 0 {
                 return Err(AppError::Conflict(format!(
@@ -494,7 +504,10 @@ impl ItemCommands {
 
         let event = DomainEvent::ItemDeleted(ItemDeletedData { reason });
 
-        let stored = self.event_store.append_in_tx(&mut tx, item_id, &event, actor_id, metadata).await?;
+        let stored = self
+            .event_store
+            .append_in_tx(&mut tx, item_id, &event, actor_id, metadata)
+            .await?;
         Projector::apply(&mut tx, item_id, &event, actor_id).await?;
         tx.commit().await?;
 
@@ -534,14 +547,18 @@ impl ItemCommands {
 
             if !parent_ok {
                 return Err(AppError::Conflict(
-                    "Cannot restore item: parent container is deleted or missing. Move to an active container first.".into(),
+                    "Cannot restore item: parent container is deleted or missing. Move to an active container first."
+                        .into(),
                 ));
             }
         }
 
         let event = DomainEvent::ItemRestored(ItemRestoredData { from_event_id: None });
 
-        let stored = self.event_store.append_in_tx(&mut tx, item_id, &event, actor_id, metadata).await?;
+        let stored = self
+            .event_store
+            .append_in_tx(&mut tx, item_id, &event, actor_id, metadata)
+            .await?;
         Projector::apply(&mut tx, item_id, &event, actor_id).await?;
         tx.commit().await?;
 
@@ -578,7 +595,10 @@ impl ItemCommands {
             )));
         }
 
-        let stored = self.event_store.append_in_tx(&mut tx, item_id, &event, actor_id, metadata).await?;
+        let stored = self
+            .event_store
+            .append_in_tx(&mut tx, item_id, &event, actor_id, metadata)
+            .await?;
         Projector::apply(&mut tx, item_id, &event, actor_id).await?;
         tx.commit().await?;
 
@@ -598,16 +618,14 @@ impl ItemCommands {
 
         // Look up caption/order for this image so undo can restore it.
         // G3: FOR UPDATE serializes concurrent remove+add to prevent races around MAX_IMAGES.
-        let images_json: serde_json::Value = sqlx::query_scalar(
-            "SELECT images FROM items WHERE id = $1 AND is_deleted = FALSE FOR UPDATE",
-        )
-        .bind(item_id)
-        .fetch_optional(&mut *tx)
-        .await?
-        .ok_or_else(|| AppError::NotFound(format!("Item {item_id} not found")))?;
-        let images: Vec<crate::models::item::ImageEntry> =
-            serde_json::from_value(images_json)
-                .map_err(|e| AppError::Internal(format!("Failed to parse images JSON for item {item_id}: {e}")))?;
+        let images_json: serde_json::Value =
+            sqlx::query_scalar("SELECT images FROM items WHERE id = $1 AND is_deleted = FALSE FOR UPDATE")
+                .bind(item_id)
+                .fetch_optional(&mut *tx)
+                .await?
+                .ok_or_else(|| AppError::NotFound(format!("Item {item_id} not found")))?;
+        let images: Vec<crate::models::item::ImageEntry> = serde_json::from_value(images_json)
+            .map_err(|e| AppError::Internal(format!("Failed to parse images JSON for item {item_id}: {e}")))?;
         let (caption, order) = images
             .iter()
             .find(|e| e.path == path)
@@ -615,7 +633,10 @@ impl ItemCommands {
             .ok_or_else(|| AppError::NotFound(format!("Image '{}' not found on item {item_id}", path)))?;
 
         let event = DomainEvent::ItemImageRemoved(ItemImageRemovedData { path, caption, order });
-        let stored = self.event_store.append_in_tx(&mut tx, item_id, &event, actor_id, metadata).await?;
+        let stored = self
+            .event_store
+            .append_in_tx(&mut tx, item_id, &event, actor_id, metadata)
+            .await?;
         Projector::apply(&mut tx, item_id, &event, actor_id).await?;
         tx.commit().await?;
 
@@ -636,16 +657,15 @@ impl ItemCommands {
 
         // Resolve image path inside the transaction.
         // G3: FOR UPDATE serializes concurrent remove+add to prevent races around MAX_IMAGES.
-        let images_json: serde_json::Value = sqlx::query_scalar(
-            "SELECT images FROM items WHERE id = $1 AND is_deleted = FALSE FOR UPDATE",
-        )
-        .bind(item_id)
-        .fetch_optional(&mut *tx)
-        .await?
-        .ok_or_else(|| AppError::NotFound(format!("Item {item_id} not found")))?;
+        let images_json: serde_json::Value =
+            sqlx::query_scalar("SELECT images FROM items WHERE id = $1 AND is_deleted = FALSE FOR UPDATE")
+                .bind(item_id)
+                .fetch_optional(&mut *tx)
+                .await?
+                .ok_or_else(|| AppError::NotFound(format!("Item {item_id} not found")))?;
 
-        let images: Vec<crate::models::item::ImageEntry> = serde_json::from_value(images_json)
-            .map_err(|_| AppError::Internal("Failed to parse images".into()))?;
+        let images: Vec<crate::models::item::ImageEntry> =
+            serde_json::from_value(images_json).map_err(|_| AppError::Internal("Failed to parse images".into()))?;
 
         let entry = images
             .get(index)
@@ -654,9 +674,16 @@ impl ItemCommands {
         let path = entry.path.clone();
         let caption = entry.caption.clone();
         let order = Some(entry.order);
-        let event = DomainEvent::ItemImageRemoved(ItemImageRemovedData { path: path.clone(), caption, order });
+        let event = DomainEvent::ItemImageRemoved(ItemImageRemovedData {
+            path: path.clone(),
+            caption,
+            order,
+        });
 
-        let stored = self.event_store.append_in_tx(&mut tx, item_id, &event, actor_id, metadata).await?;
+        let stored = self
+            .event_store
+            .append_in_tx(&mut tx, item_id, &event, actor_id, metadata)
+            .await?;
         Projector::apply(&mut tx, item_id, &event, actor_id).await?;
         tx.commit().await?;
 
@@ -704,7 +731,10 @@ impl ItemCommands {
         // I5: Normalize code_type to uppercase so "upc", "UPC", "Upc" all resolve to the same code.
         let code_type = code_type.to_uppercase();
         let event = DomainEvent::ItemExternalCodeAdded(ExternalCodeData { code_type, value });
-        let stored = self.event_store.append_in_tx(&mut tx, item_id, &event, actor_id, metadata).await?;
+        let stored = self
+            .event_store
+            .append_in_tx(&mut tx, item_id, &event, actor_id, metadata)
+            .await?;
         Projector::apply(&mut tx, item_id, &event, actor_id).await?;
         tx.commit().await?;
 
@@ -752,7 +782,10 @@ impl ItemCommands {
         // I5: Normalize to uppercase to match the storage convention applied on add.
         let code_type = code_type.to_uppercase();
         let event = DomainEvent::ItemExternalCodeRemoved(ExternalCodeData { code_type, value });
-        let stored = self.event_store.append_in_tx(&mut tx, item_id, &event, actor_id, metadata).await?;
+        let stored = self
+            .event_store
+            .append_in_tx(&mut tx, item_id, &event, actor_id, metadata)
+            .await?;
         Projector::apply(&mut tx, item_id, &event, actor_id).await?;
         tx.commit().await?;
 
@@ -788,7 +821,8 @@ impl ItemCommands {
         // surface as an opaque 500 error.
         if req.new_quantity < 0 {
             return Err(AppError::BadRequest(format!(
-                "New quantity must be >= 0 (got {})", req.new_quantity
+                "New quantity must be >= 0 (got {})",
+                req.new_quantity
             )));
         }
 
@@ -798,7 +832,10 @@ impl ItemCommands {
             reason: req.reason.clone(),
         });
 
-        let stored = self.event_store.append_in_tx(&mut tx, item_id, &event, actor_id, metadata).await?;
+        let stored = self
+            .event_store
+            .append_in_tx(&mut tx, item_id, &event, actor_id, metadata)
+            .await?;
         Projector::apply(&mut tx, item_id, &event, actor_id).await?;
         tx.commit().await?;
 
@@ -830,7 +867,10 @@ impl ItemCommands {
             label_renames,
         });
 
-        let stored = self.event_store.append_in_tx(&mut tx, container_id, &event, actor_id, metadata).await?;
+        let stored = self
+            .event_store
+            .append_in_tx(&mut tx, container_id, &event, actor_id, metadata)
+            .await?;
         Projector::apply(&mut tx, container_id, &event, actor_id).await?;
         tx.commit().await?;
 
@@ -891,10 +931,7 @@ mod tests {
         let first = chars.next().unwrap();
         assert!(first.is_ascii_alphabetic() || first == '_');
         for c in chars {
-            assert!(
-                c.is_ascii_alphanumeric() || c == '_',
-                "invalid ltree char: {c}"
-            );
+            assert!(c.is_ascii_alphanumeric() || c == '_', "invalid ltree char: {c}");
         }
     }
 }

@@ -32,10 +32,7 @@ impl UserQueries {
     }
 
     /// Count all users within a transaction (for advisory-locked setup).
-    pub async fn count_in_tx(
-        &self,
-        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-    ) -> AppResult<i64> {
+    pub async fn count_in_tx(&self, tx: &mut sqlx::Transaction<'_, sqlx::Postgres>) -> AppResult<i64> {
         let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM users")
             .fetch_one(&mut **tx)
             .await?;
@@ -44,15 +41,10 @@ impl UserQueries {
 
     /// Count active (non-system) users within a transaction.
     /// Excludes is_active=FALSE rows (e.g. the seeded system actor).
-    pub async fn count_active_in_tx(
-        &self,
-        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
-    ) -> AppResult<i64> {
-        let count: i64 = sqlx::query_scalar(
-            "SELECT COUNT(*) FROM users WHERE is_active = TRUE",
-        )
-        .fetch_one(&mut **tx)
-        .await?;
+    pub async fn count_active_in_tx(&self, tx: &mut sqlx::Transaction<'_, sqlx::Postgres>) -> AppResult<i64> {
+        let count: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM users WHERE is_active = TRUE")
+            .fetch_one(&mut **tx)
+            .await?;
         Ok(count)
     }
 
@@ -67,12 +59,10 @@ impl UserQueries {
 
     /// Find an active user by username (for login).
     pub async fn find_active_by_username(&self, username: &str) -> AppResult<Option<User>> {
-        let user = sqlx::query_as::<_, User>(
-            "SELECT * FROM users WHERE username = $1 AND is_active = TRUE",
-        )
-        .bind(username)
-        .fetch_optional(&self.pool)
-        .await?;
+        let user = sqlx::query_as::<_, User>("SELECT * FROM users WHERE username = $1 AND is_active = TRUE")
+            .bind(username)
+            .fetch_optional(&self.pool)
+            .await?;
         Ok(user)
     }
 
@@ -82,23 +72,19 @@ impl UserQueries {
         tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
         id: Uuid,
     ) -> AppResult<Option<User>> {
-        let user = sqlx::query_as::<_, User>(
-            "SELECT * FROM users WHERE id = $1 AND is_active = TRUE",
-        )
-        .bind(id)
-        .fetch_optional(&mut **tx)
-        .await?;
+        let user = sqlx::query_as::<_, User>("SELECT * FROM users WHERE id = $1 AND is_active = TRUE")
+            .bind(id)
+            .fetch_optional(&mut **tx)
+            .await?;
         Ok(user)
     }
 
     /// Check if a username already exists.
     pub async fn username_exists(&self, username: &str) -> AppResult<bool> {
-        let exists: bool = sqlx::query_scalar(
-            "SELECT EXISTS(SELECT 1 FROM users WHERE username = $1)",
-        )
-        .bind(username)
-        .fetch_one(&self.pool)
-        .await?;
+        let exists: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM users WHERE username = $1)")
+            .bind(username)
+            .fetch_one(&self.pool)
+            .await?;
         Ok(exists)
     }
 
@@ -108,12 +94,10 @@ impl UserQueries {
         tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
         username: &str,
     ) -> AppResult<bool> {
-        let exists: bool = sqlx::query_scalar(
-            "SELECT EXISTS(SELECT 1 FROM users WHERE username = $1)",
-        )
-        .bind(username)
-        .fetch_one(&mut **tx)
-        .await?;
+        let exists: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM users WHERE username = $1)")
+            .bind(username)
+            .fetch_one(&mut **tx)
+            .await?;
         Ok(exists)
     }
 

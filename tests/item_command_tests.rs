@@ -470,12 +470,11 @@ async fn delete_item_soft_deletes() {
     assert_eq!(stored.event_type, "ItemDeleted");
 
     // Verify via raw query since get_by_id may filter deleted items
-    let row: (bool,) =
-        sqlx::query_as("SELECT is_deleted FROM items WHERE id = $1")
-            .bind(item_id)
-            .fetch_one(&state.pool)
-            .await
-            .unwrap();
+    let row: (bool,) = sqlx::query_as("SELECT is_deleted FROM items WHERE id = $1")
+        .bind(item_id)
+        .fetch_one(&state.pool)
+        .await
+        .unwrap();
     assert!(row.0);
 }
 
@@ -552,12 +551,11 @@ async fn restore_item_happy_path() {
         .unwrap();
     assert_eq!(stored.event_type, "ItemRestored");
 
-    let row: (bool,) =
-        sqlx::query_as("SELECT is_deleted FROM items WHERE id = $1")
-            .bind(item_id)
-            .fetch_one(&state.pool)
-            .await
-            .unwrap();
+    let row: (bool,) = sqlx::query_as("SELECT is_deleted FROM items WHERE id = $1")
+        .bind(item_id)
+        .fetch_one(&state.pool)
+        .await
+        .unwrap();
     assert!(!row.0);
 }
 
@@ -727,7 +725,13 @@ async fn update_container_schema() {
     });
     let stored = state
         .item_commands
-        .update_container_schema(container_id, schema.clone(), std::collections::HashMap::new(), ctx.admin_id, &metadata)
+        .update_container_schema(
+            container_id,
+            schema.clone(),
+            std::collections::HashMap::new(),
+            ctx.admin_id,
+            &metadata,
+        )
         .await
         .unwrap();
     assert_eq!(stored.event_type, "ContainerSchemaUpdated");
@@ -747,11 +751,22 @@ async fn schema_label_rename_cascades_to_children() {
     let container_id = Uuid::new_v4();
     let bc = state.barcode_commands.generate_barcode().await.unwrap();
     let req = common::make_item_request(&bc.barcode, ROOT_ID, "Box", true);
-    state.item_commands.create_item(container_id, &req, ctx.admin_id, &metadata).await.unwrap();
+    state
+        .item_commands
+        .create_item(container_id, &req, ctx.admin_id, &metadata)
+        .await
+        .unwrap();
 
     let schema = serde_json::json!({ "type": "abstract", "labels": ["Shelf A", "Shelf B"] });
-    state.item_commands
-        .update_container_schema(container_id, schema, std::collections::HashMap::new(), ctx.admin_id, &metadata)
+    state
+        .item_commands
+        .update_container_schema(
+            container_id,
+            schema,
+            std::collections::HashMap::new(),
+            ctx.admin_id,
+            &metadata,
+        )
         .await
         .unwrap();
 
@@ -760,13 +775,18 @@ async fn schema_label_rename_cascades_to_children() {
     let bc2 = state.barcode_commands.generate_barcode().await.unwrap();
     let mut child_req = common::make_item_request(&bc2.barcode, container_id, "Widget", false);
     child_req.coordinate = Some(serde_json::json!({ "type": "abstract", "value": "Shelf A" }));
-    state.item_commands.create_item(child_id, &child_req, ctx.admin_id, &metadata).await.unwrap();
+    state
+        .item_commands
+        .create_item(child_id, &child_req, ctx.admin_id, &metadata)
+        .await
+        .unwrap();
 
     // Rename "Shelf A" → "Top Shelf"
     let new_schema = serde_json::json!({ "type": "abstract", "labels": ["Top Shelf", "Shelf B"] });
     let mut renames = std::collections::HashMap::new();
     renames.insert("Shelf A".to_string(), "Top Shelf".to_string());
-    state.item_commands
+    state
+        .item_commands
         .update_container_schema(container_id, new_schema, renames, ctx.admin_id, &metadata)
         .await
         .unwrap();
@@ -790,11 +810,22 @@ async fn schema_label_deletion_does_not_corrupt_other_children() {
     let container_id = Uuid::new_v4();
     let bc = state.barcode_commands.generate_barcode().await.unwrap();
     let req = common::make_item_request(&bc.barcode, ROOT_ID, "Cabinet", true);
-    state.item_commands.create_item(container_id, &req, ctx.admin_id, &metadata).await.unwrap();
+    state
+        .item_commands
+        .create_item(container_id, &req, ctx.admin_id, &metadata)
+        .await
+        .unwrap();
 
     let schema = serde_json::json!({ "type": "abstract", "labels": ["A", "B", "C"] });
-    state.item_commands
-        .update_container_schema(container_id, schema, std::collections::HashMap::new(), ctx.admin_id, &metadata)
+    state
+        .item_commands
+        .update_container_schema(
+            container_id,
+            schema,
+            std::collections::HashMap::new(),
+            ctx.admin_id,
+            &metadata,
+        )
         .await
         .unwrap();
 
@@ -803,27 +834,48 @@ async fn schema_label_deletion_does_not_corrupt_other_children() {
     let bc2 = state.barcode_commands.generate_barcode().await.unwrap();
     let mut req_b = common::make_item_request(&bc2.barcode, container_id, "ItemB", false);
     req_b.coordinate = Some(serde_json::json!({ "type": "abstract", "value": "B" }));
-    state.item_commands.create_item(child_b, &req_b, ctx.admin_id, &metadata).await.unwrap();
+    state
+        .item_commands
+        .create_item(child_b, &req_b, ctx.admin_id, &metadata)
+        .await
+        .unwrap();
 
     let child_c = Uuid::new_v4();
     let bc3 = state.barcode_commands.generate_barcode().await.unwrap();
     let mut req_c = common::make_item_request(&bc3.barcode, container_id, "ItemC", false);
     req_c.coordinate = Some(serde_json::json!({ "type": "abstract", "value": "C" }));
-    state.item_commands.create_item(child_c, &req_c, ctx.admin_id, &metadata).await.unwrap();
+    state
+        .item_commands
+        .create_item(child_c, &req_c, ctx.admin_id, &metadata)
+        .await
+        .unwrap();
 
     // Delete "A" from schema (no renames — pure deletion)
     let new_schema = serde_json::json!({ "type": "abstract", "labels": ["B", "C"] });
-    state.item_commands
-        .update_container_schema(container_id, new_schema, std::collections::HashMap::new(), ctx.admin_id, &metadata)
+    state
+        .item_commands
+        .update_container_schema(
+            container_id,
+            new_schema,
+            std::collections::HashMap::new(),
+            ctx.admin_id,
+            &metadata,
+        )
         .await
         .unwrap();
 
     // Child at "B" must still be at "B", child at "C" must still be at "C"
     let b = state.item_queries.get_by_id(child_b).await.unwrap();
-    assert_eq!(b.item.coordinate, Some(serde_json::json!({ "type": "abstract", "value": "B" })));
+    assert_eq!(
+        b.item.coordinate,
+        Some(serde_json::json!({ "type": "abstract", "value": "B" }))
+    );
 
     let c = state.item_queries.get_by_id(child_c).await.unwrap();
-    assert_eq!(c.item.coordinate, Some(serde_json::json!({ "type": "abstract", "value": "C" })));
+    assert_eq!(
+        c.item.coordinate,
+        Some(serde_json::json!({ "type": "abstract", "value": "C" }))
+    );
 }
 
 // ── External codes ──────────────────────────────────────────────────────
@@ -840,7 +892,12 @@ async fn add_external_code_stores_with_uppercase_type() {
     let bc = state.barcode_commands.generate_barcode().await.unwrap();
     state
         .item_commands
-        .create_item(item_id, &common::make_item_request(&bc.barcode, ROOT_ID, "Coded Item", false), ctx.admin_id, &metadata)
+        .create_item(
+            item_id,
+            &common::make_item_request(&bc.barcode, ROOT_ID, "Coded Item", false),
+            ctx.admin_id,
+            &metadata,
+        )
         .await
         .unwrap();
 
@@ -868,7 +925,12 @@ async fn add_external_code_deduplicates() {
     let bc = state.barcode_commands.generate_barcode().await.unwrap();
     state
         .item_commands
-        .create_item(item_id, &common::make_item_request(&bc.barcode, ROOT_ID, "Dup Item", false), ctx.admin_id, &metadata)
+        .create_item(
+            item_id,
+            &common::make_item_request(&bc.barcode, ROOT_ID, "Dup Item", false),
+            ctx.admin_id,
+            &metadata,
+        )
         .await
         .unwrap();
 
@@ -902,7 +964,12 @@ async fn add_external_code_enforces_max() {
     let bc = state.barcode_commands.generate_barcode().await.unwrap();
     state
         .item_commands
-        .create_item(item_id, &common::make_item_request(&bc.barcode, ROOT_ID, "Many Codes", false), ctx.admin_id, &metadata)
+        .create_item(
+            item_id,
+            &common::make_item_request(&bc.barcode, ROOT_ID, "Many Codes", false),
+            ctx.admin_id,
+            &metadata,
+        )
         .await
         .unwrap();
 
@@ -939,7 +1006,12 @@ async fn remove_external_code_removes_from_item() {
     let bc = state.barcode_commands.generate_barcode().await.unwrap();
     state
         .item_commands
-        .create_item(item_id, &common::make_item_request(&bc.barcode, ROOT_ID, "Remove Code", false), ctx.admin_id, &metadata)
+        .create_item(
+            item_id,
+            &common::make_item_request(&bc.barcode, ROOT_ID, "Remove Code", false),
+            ctx.admin_id,
+            &metadata,
+        )
         .await
         .unwrap();
 
@@ -971,7 +1043,12 @@ async fn remove_external_code_not_found_returns_error() {
     let bc = state.barcode_commands.generate_barcode().await.unwrap();
     state
         .item_commands
-        .create_item(item_id, &common::make_item_request(&bc.barcode, ROOT_ID, "No Code", false), ctx.admin_id, &metadata)
+        .create_item(
+            item_id,
+            &common::make_item_request(&bc.barcode, ROOT_ID, "No Code", false),
+            ctx.admin_id,
+            &metadata,
+        )
         .await
         .unwrap();
 
@@ -995,13 +1072,25 @@ async fn add_image_stores_in_item() {
     let bc = state.barcode_commands.generate_barcode().await.unwrap();
     state
         .item_commands
-        .create_item(item_id, &common::make_item_request(&bc.barcode, ROOT_ID, "With Image", false), ctx.admin_id, &metadata)
+        .create_item(
+            item_id,
+            &common::make_item_request(&bc.barcode, ROOT_ID, "With Image", false),
+            ctx.admin_id,
+            &metadata,
+        )
         .await
         .unwrap();
 
     state
         .item_commands
-        .add_image(item_id, "uploads/img.jpg".into(), Some("Caption".into()), 0, ctx.admin_id, &metadata)
+        .add_image(
+            item_id,
+            "uploads/img.jpg".into(),
+            Some("Caption".into()),
+            0,
+            ctx.admin_id,
+            &metadata,
+        )
         .await
         .unwrap();
 
@@ -1023,13 +1112,25 @@ async fn remove_image_by_path_removes_from_item() {
     let bc = state.barcode_commands.generate_barcode().await.unwrap();
     state
         .item_commands
-        .create_item(item_id, &common::make_item_request(&bc.barcode, ROOT_ID, "Image Removal", false), ctx.admin_id, &metadata)
+        .create_item(
+            item_id,
+            &common::make_item_request(&bc.barcode, ROOT_ID, "Image Removal", false),
+            ctx.admin_id,
+            &metadata,
+        )
         .await
         .unwrap();
 
     state
         .item_commands
-        .add_image(item_id, "uploads/remove_me.jpg".into(), None, 0, ctx.admin_id, &metadata)
+        .add_image(
+            item_id,
+            "uploads/remove_me.jpg".into(),
+            None,
+            0,
+            ctx.admin_id,
+            &metadata,
+        )
         .await
         .unwrap();
 
@@ -1055,7 +1156,12 @@ async fn remove_image_by_index_removes_correct_entry() {
     let bc = state.barcode_commands.generate_barcode().await.unwrap();
     state
         .item_commands
-        .create_item(item_id, &common::make_item_request(&bc.barcode, ROOT_ID, "Two Images", false), ctx.admin_id, &metadata)
+        .create_item(
+            item_id,
+            &common::make_item_request(&bc.barcode, ROOT_ID, "Two Images", false),
+            ctx.admin_id,
+            &metadata,
+        )
         .await
         .unwrap();
 
@@ -1094,7 +1200,12 @@ async fn add_image_enforces_max_images_limit() {
     let bc = state.barcode_commands.generate_barcode().await.unwrap();
     state
         .item_commands
-        .create_item(item_id, &common::make_item_request(&bc.barcode, ROOT_ID, "Max Images", false), ctx.admin_id, &metadata)
+        .create_item(
+            item_id,
+            &common::make_item_request(&bc.barcode, ROOT_ID, "Max Images", false),
+            ctx.admin_id,
+            &metadata,
+        )
         .await
         .unwrap();
 
@@ -1102,7 +1213,14 @@ async fn add_image_enforces_max_images_limit() {
     for i in 0..homorg::constants::MAX_IMAGES_PER_ITEM {
         state
             .item_commands
-            .add_image(item_id, format!("uploads/{i}.jpg"), None, i as i32, ctx.admin_id, &metadata)
+            .add_image(
+                item_id,
+                format!("uploads/{i}.jpg"),
+                None,
+                i as i32,
+                ctx.admin_id,
+                &metadata,
+            )
             .await
             .unwrap_or_else(|e| panic!("image {i} failed: {e}"));
     }
@@ -1110,7 +1228,14 @@ async fn add_image_enforces_max_images_limit() {
     // The 51st should fail.
     let result = state
         .item_commands
-        .add_image(item_id, "uploads/overflow.jpg".into(), None, 50, ctx.admin_id, &metadata)
+        .add_image(
+            item_id,
+            "uploads/overflow.jpg".into(),
+            None,
+            50,
+            ctx.admin_id,
+            &metadata,
+        )
         .await;
     assert!(result.is_err(), "expected error when exceeding MAX_IMAGES_PER_ITEM");
 

@@ -81,8 +81,7 @@ pub async fn setup() -> TestContext {
 
     // Temp dir for storage
     let tmpdir = tempfile::tempdir().expect("Failed to create temp dir");
-    let storage: Arc<dyn StorageBackend> =
-        Arc::new(LocalStorage::new(tmpdir.path().to_str().unwrap()));
+    let storage: Arc<dyn StorageBackend> = Arc::new(LocalStorage::new(tmpdir.path().to_str().unwrap()));
 
     // Build AppState
     let event_store = EventStore::new(pool.clone());
@@ -139,11 +138,7 @@ fn test_config(database_url: &str) -> AppConfig {
         db_idle_timeout_secs: 600,
         db_max_lifetime_secs: 1800,
         max_upload_bytes: 10_485_760,
-        allowed_image_mimes: vec![
-            "image/jpeg".into(),
-            "image/png".into(),
-            "image/webp".into(),
-        ],
+        allowed_image_mimes: vec!["image/jpeg".into(), "image/png".into(), "image/webp".into()],
         rate_limit_enabled: false,
         rate_limit_rps: 100,
         rate_limit_burst: 200,

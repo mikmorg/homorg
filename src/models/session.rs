@@ -66,10 +66,7 @@ pub enum StockerBatchEvent {
         container_type_id: Option<Uuid>,
     },
     #[serde(rename = "resolve")]
-    Resolve {
-        barcode: String,
-        scanned_at: DateTime<Utc>,
-    },
+    Resolve { barcode: String, scanned_at: DateTime<Utc> },
 }
 
 #[derive(Debug, Clone, Deserialize)]
@@ -151,7 +148,9 @@ mod tests {
         );
         let ev: StockerBatchEvent = serde_json::from_str(&json).unwrap();
         match ev {
-            StockerBatchEvent::MoveItem { item_id, coordinate, .. } => {
+            StockerBatchEvent::MoveItem {
+                item_id, coordinate, ..
+            } => {
                 assert_eq!(item_id.to_string(), ID1);
                 assert!(coordinate.is_some());
             }
@@ -174,7 +173,12 @@ mod tests {
         let json = format!(r#"{{"type":"create_and_place","barcode":"HOM-000001","scanned_at":"{TS}"}}"#);
         let ev: StockerBatchEvent = serde_json::from_str(&json).unwrap();
         match ev {
-            StockerBatchEvent::CreateAndPlace { barcode, name, is_container, .. } => {
+            StockerBatchEvent::CreateAndPlace {
+                barcode,
+                name,
+                is_container,
+                ..
+            } => {
                 assert_eq!(barcode, "HOM-000001");
                 assert!(name.is_none());
                 assert!(is_container.is_none());
@@ -193,7 +197,13 @@ mod tests {
         );
         let ev: StockerBatchEvent = serde_json::from_str(&json).unwrap();
         match ev {
-            StockerBatchEvent::CreateAndPlace { name, tags, is_fungible, fungible_quantity, .. } => {
+            StockerBatchEvent::CreateAndPlace {
+                name,
+                tags,
+                is_fungible,
+                fungible_quantity,
+                ..
+            } => {
                 assert_eq!(name.as_deref(), Some("Widget"));
                 assert_eq!(tags.as_deref(), Some(["new".to_string(), "sale".to_string()].as_ref()));
                 assert_eq!(is_fungible, Some(true));
@@ -230,7 +240,11 @@ mod tests {
     #[test]
     fn serialize_context_set() {
         let id = Uuid::parse_str(ID1).unwrap();
-        let r = StockerBatchResult::ContextSet { index: 0, status: "ok".into(), container_id: id };
+        let r = StockerBatchResult::ContextSet {
+            index: 0,
+            status: "ok".into(),
+            container_id: id,
+        };
         let v: serde_json::Value = serde_json::to_value(&r).unwrap();
         assert_eq!(v["type"], "context_set");
         assert_eq!(v["container_id"].as_str().unwrap(), ID1);
@@ -240,7 +254,11 @@ mod tests {
     #[test]
     fn serialize_moved() {
         let id = Uuid::parse_str(ID1).unwrap();
-        let r = StockerBatchResult::Moved { index: 1, status: "ok".into(), event_id: id };
+        let r = StockerBatchResult::Moved {
+            index: 1,
+            status: "ok".into(),
+            event_id: id,
+        };
         let v: serde_json::Value = serde_json::to_value(&r).unwrap();
         assert_eq!(v["type"], "moved");
         assert_eq!(v["event_id"].as_str().unwrap(), ID1);
@@ -251,8 +269,11 @@ mod tests {
         let ev_id = Uuid::parse_str(ID1).unwrap();
         let item_id = Uuid::parse_str(ID2).unwrap();
         let r = StockerBatchResult::Created {
-            index: 2, status: "ok".into(),
-            event_id: ev_id, item_id, needs_details: true,
+            index: 2,
+            status: "ok".into(),
+            event_id: ev_id,
+            item_id,
+            needs_details: true,
         };
         let v: serde_json::Value = serde_json::to_value(&r).unwrap();
         assert_eq!(v["type"], "created");

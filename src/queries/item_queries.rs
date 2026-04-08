@@ -74,9 +74,7 @@ impl ItemQueries {
 
     /// Get full item detail by ID, including ancestor breadcrumbs.
     pub async fn get_by_id(&self, id: Uuid) -> AppResult<ItemDetail> {
-        let sql = format!(
-            "SELECT {ITEM_FULL_SELECT} WHERE i.id = $1 AND i.is_deleted = FALSE"
-        );
+        let sql = format!("SELECT {ITEM_FULL_SELECT} WHERE i.id = $1 AND i.is_deleted = FALSE");
         let item = sqlx::query_as::<_, Item>(&sql)
             .bind(id)
             .fetch_optional(&self.pool)
@@ -90,16 +88,12 @@ impl ItemQueries {
 
     /// Get full item detail by system barcode.
     pub async fn get_by_barcode(&self, barcode: &str) -> AppResult<ItemDetail> {
-        let sql = format!(
-            "SELECT {ITEM_FULL_SELECT} WHERE i.system_barcode = $1 AND i.is_deleted = FALSE"
-        );
+        let sql = format!("SELECT {ITEM_FULL_SELECT} WHERE i.system_barcode = $1 AND i.is_deleted = FALSE");
         let item = sqlx::query_as::<_, Item>(&sql)
             .bind(barcode)
             .fetch_optional(&self.pool)
             .await?
-            .ok_or_else(|| {
-                AppError::NotFound(format!("Item with barcode '{barcode}' not found"))
-            })?;
+            .ok_or_else(|| AppError::NotFound(format!("Item with barcode '{barcode}' not found")))?;
 
         let ancestors = resolve_ancestors(&self.pool, &item.container_path).await?;
 
@@ -107,12 +101,7 @@ impl ItemQueries {
     }
 
     /// Get paginated event history for an item.
-    pub async fn get_history(
-        &self,
-        item_id: Uuid,
-        after_seq: Option<i64>,
-        limit: i64,
-    ) -> AppResult<Vec<StoredEvent>> {
+    pub async fn get_history(&self, item_id: Uuid, after_seq: Option<i64>, limit: i64) -> AppResult<Vec<StoredEvent>> {
         let from = after_seq.unwrap_or(0);
         let rows = sqlx::query_as::<_, StoredEvent>(
             r#"
@@ -133,24 +122,21 @@ impl ItemQueries {
 
     /// Get the images array for an item.
     pub async fn get_images(&self, item_id: Uuid) -> AppResult<Vec<ImageEntry>> {
-        let images_json: serde_json::Value = sqlx::query_scalar(
-            "SELECT images FROM items WHERE id = $1 AND is_deleted = FALSE",
-        )
-        .bind(item_id)
-        .fetch_optional(&self.pool)
-        .await?
-        .ok_or_else(|| AppError::NotFound(format!("Item {item_id} not found")))?;
+        let images_json: serde_json::Value =
+            sqlx::query_scalar("SELECT images FROM items WHERE id = $1 AND is_deleted = FALSE")
+                .bind(item_id)
+                .fetch_optional(&self.pool)
+                .await?
+                .ok_or_else(|| AppError::NotFound(format!("Item {item_id} not found")))?;
 
         // IQ-1: A NULL images column (items that have never had images) deserializes as
         // Value::Null via sqlx.  Calling from_value(Null) would fail; return empty Vec instead.
         let images: Vec<ImageEntry> = if images_json.is_null() {
             vec![]
         } else {
-            serde_json::from_value(images_json)
-                .map_err(|_| AppError::Internal("Failed to parse images".into()))?
+            serde_json::from_value(images_json).map_err(|_| AppError::Internal("Failed to parse images".into()))?
         };
 
         Ok(images)
     }
 }
-

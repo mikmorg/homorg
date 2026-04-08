@@ -25,10 +25,7 @@ async fn undo_event(
     Path(event_id): Path<Uuid>,
 ) -> AppResult<Json<StoredEvent>> {
     auth.require_role("member")?;
-    let event = state
-        .undo_commands
-        .undo_event(event_id, auth.user_id)
-        .await?;
+    let event = state.undo_commands.undo_event(event_id, auth.user_id).await?;
     Ok(Json(event))
 }
 

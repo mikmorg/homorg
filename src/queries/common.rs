@@ -7,10 +7,7 @@ use crate::models::item::AncestorEntry;
 
 /// Resolve ancestor breadcrumbs from an LTREE path string.
 /// Uses a single batch query instead of N+1 per-label queries.
-pub async fn resolve_ancestors(
-    pool: &PgPool,
-    path: &Option<String>,
-) -> AppResult<Vec<AncestorEntry>> {
+pub async fn resolve_ancestors(pool: &PgPool, path: &Option<String>) -> AppResult<Vec<AncestorEntry>> {
     let path_str = match path {
         Some(p) => p,
         None => return Ok(vec![]),

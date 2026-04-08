@@ -14,17 +14,13 @@ use crate::errors::{AppError, AppResult};
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Claims {
     pub sub: Uuid,   // user id
-    pub aud: String,  // audience
+    pub aud: String, // audience
     pub iat: i64,
     pub exp: i64,
 }
 
 /// Generate a JWT access token.
-pub fn create_access_token(
-    user_id: Uuid,
-    secret: &str,
-    ttl_secs: u64,
-) -> AppResult<String> {
+pub fn create_access_token(user_id: Uuid, secret: &str, ttl_secs: u64) -> AppResult<String> {
     let now = Utc::now();
     let claims = Claims {
         sub: user_id,
@@ -44,12 +40,8 @@ pub fn create_access_token(
 pub fn decode_access_token(token: &str, secret: &str) -> AppResult<Claims> {
     let mut validation = Validation::default();
     validation.set_audience(&[JWT_AUDIENCE]);
-    let data = decode::<Claims>(
-        token,
-        &DecodingKey::from_secret(secret.as_bytes()),
-        &validation,
-    )
-    .map_err(|_| AppError::Unauthorized)?;
+    let data = decode::<Claims>(token, &DecodingKey::from_secret(secret.as_bytes()), &validation)
+        .map_err(|_| AppError::Unauthorized)?;
     Ok(data.claims)
 }
 

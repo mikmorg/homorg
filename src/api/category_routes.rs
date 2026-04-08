@@ -20,19 +20,11 @@ const MAX_CATEGORY_DESC_LEN: usize = 10_000;
 pub fn router() -> Router<Arc<AppState>> {
     Router::new()
         .route("/", get(list_categories).post(create_category))
-        .route(
-            "/{id}",
-            get(get_category)
-                .put(update_category)
-                .delete(delete_category),
-        )
+        .route("/{id}", get(get_category).put(update_category).delete(delete_category))
 }
 
 /// List all categories with their item counts.
-async fn list_categories(
-    State(state): State<Arc<AppState>>,
-    _auth: AuthUser,
-) -> AppResult<Json<Vec<Category>>> {
+async fn list_categories(State(state): State<Arc<AppState>>, _auth: AuthUser) -> AppResult<Json<Vec<Category>>> {
     let categories = state.taxonomy_queries.list_categories().await?;
     Ok(Json(categories))
 }

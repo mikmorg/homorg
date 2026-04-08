@@ -1,7 +1,4 @@
-use axum::{
-    extract::FromRequestParts,
-    http::request::Parts,
-};
+use axum::{extract::FromRequestParts, http::request::Parts};
 use std::sync::Arc;
 
 use crate::auth::jwt::{decode_access_token, Claims};
@@ -47,20 +44,16 @@ impl FromRequestParts<Arc<crate::AppState>> for AuthUser {
 
         async move {
             let header = auth_header.ok_or(AppError::Unauthorized)?;
-            let token = header
-                .strip_prefix("Bearer ")
-                .ok_or(AppError::Unauthorized)?;
+            let token = header.strip_prefix("Bearer ").ok_or(AppError::Unauthorized)?;
 
             let claims: Claims = decode_access_token(token, &config.jwt_secret)?;
 
             // Verify user is still active and fetch authoritative role from DB
-            let row: Option<(bool, String)> = sqlx::query_as(
-                "SELECT is_active, role FROM users WHERE id = $1",
-            )
-            .bind(claims.sub)
-            .fetch_optional(&pool)
-            .await
-            .map_err(AppError::Database)?;
+            let row: Option<(bool, String)> = sqlx::query_as("SELECT is_active, role FROM users WHERE id = $1")
+                .bind(claims.sub)
+                .fetch_optional(&pool)
+                .await
+                .map_err(AppError::Database)?;
 
             match row {
                 Some((true, role)) => Ok(AuthUser {

@@ -11,8 +11,8 @@ use uuid::Uuid;
 use crate::auth::middleware::AuthUser;
 use crate::constants::is_valid_condition;
 use crate::errors::{AppError, AppResult};
-use crate::models::event::{EventMetadata, StoredEvent};
 use crate::models::barcode::AssignBarcodeRequest;
+use crate::models::event::{EventMetadata, StoredEvent};
 use crate::models::item::*;
 use crate::AppState;
 
@@ -53,19 +53,21 @@ pub(crate) fn validate_create_request(req: &CreateItemRequest) -> Result<(), App
     // E: Validate system_barcode length up front to avoid a raw DB error from VARCHAR(32).
     if let Some(ref bc) = req.system_barcode {
         if bc.chars().count() > 32 {
-            return Err(AppError::BadRequest(
-                "system_barcode exceeds 32 characters".into(),
-            ));
+            return Err(AppError::BadRequest("system_barcode exceeds 32 characters".into()));
         }
     }
     if let Some(ref d) = req.description {
         if d.len() > MAX_DESCRIPTION_LEN {
-            return Err(AppError::BadRequest(format!("description exceeds {MAX_DESCRIPTION_LEN} bytes")));
+            return Err(AppError::BadRequest(format!(
+                "description exceeds {MAX_DESCRIPTION_LEN} bytes"
+            )));
         }
     }
     if let Some(ref c) = req.category {
         if c.chars().count() > MAX_CATEGORY_LEN {
-            return Err(AppError::BadRequest(format!("category exceeds {MAX_CATEGORY_LEN} chars")));
+            return Err(AppError::BadRequest(format!(
+                "category exceeds {MAX_CATEGORY_LEN} chars"
+            )));
         }
     }
     if let Some(ref tags) = req.tags {
@@ -80,19 +82,27 @@ pub(crate) fn validate_create_request(req: &CreateItemRequest) -> Result<(), App
     }
     if let Some(ref m) = req.metadata {
         if m.to_string().len() > MAX_METADATA_BYTES {
-            return Err(AppError::BadRequest(format!("metadata exceeds {MAX_METADATA_BYTES} bytes")));
+            return Err(AppError::BadRequest(format!(
+                "metadata exceeds {MAX_METADATA_BYTES} bytes"
+            )));
         }
     }
     if let Some(ref codes) = req.external_codes {
         if codes.len() > MAX_EXTERNAL_CODES {
-            return Err(AppError::BadRequest(format!("external_codes count exceeds {MAX_EXTERNAL_CODES}")));
+            return Err(AppError::BadRequest(format!(
+                "external_codes count exceeds {MAX_EXTERNAL_CODES}"
+            )));
         }
         for c in codes {
             if c.code_type.len() > MAX_CODE_TYPE_LEN {
-                return Err(AppError::BadRequest(format!("external code type exceeds {MAX_CODE_TYPE_LEN} chars")));
+                return Err(AppError::BadRequest(format!(
+                    "external code type exceeds {MAX_CODE_TYPE_LEN} chars"
+                )));
             }
             if c.value.len() > MAX_CODE_VALUE_LEN {
-                return Err(AppError::BadRequest(format!("external code value exceeds {MAX_CODE_VALUE_LEN} chars")));
+                return Err(AppError::BadRequest(format!(
+                    "external code value exceeds {MAX_CODE_VALUE_LEN} chars"
+                )));
             }
         }
     }
@@ -119,25 +129,39 @@ pub(crate) fn validate_create_request(req: &CreateItemRequest) -> Result<(), App
     }
     // VAL-5: Reject negative numeric values (mirrors DB CHECK constraints).
     if let Some(v) = req.weight_grams {
-        if v < 0.0 { return Err(AppError::BadRequest("weight_grams must be >= 0".into())); }
+        if v < 0.0 {
+            return Err(AppError::BadRequest("weight_grams must be >= 0".into()));
+        }
     }
     if let Some(v) = req.max_capacity_cc {
-        if v < 0.0 { return Err(AppError::BadRequest("max_capacity_cc must be >= 0".into())); }
+        if v < 0.0 {
+            return Err(AppError::BadRequest("max_capacity_cc must be >= 0".into()));
+        }
     }
     if let Some(v) = req.max_weight_grams {
-        if v < 0.0 { return Err(AppError::BadRequest("max_weight_grams must be >= 0".into())); }
+        if v < 0.0 {
+            return Err(AppError::BadRequest("max_weight_grams must be >= 0".into()));
+        }
     }
     if let Some(v) = req.acquisition_cost {
-        if v < rust_decimal::Decimal::ZERO { return Err(AppError::BadRequest("acquisition_cost must be >= 0".into())); }
+        if v < rust_decimal::Decimal::ZERO {
+            return Err(AppError::BadRequest("acquisition_cost must be >= 0".into()));
+        }
     }
     if let Some(v) = req.current_value {
-        if v < rust_decimal::Decimal::ZERO { return Err(AppError::BadRequest("current_value must be >= 0".into())); }
+        if v < rust_decimal::Decimal::ZERO {
+            return Err(AppError::BadRequest("current_value must be >= 0".into()));
+        }
     }
     if let Some(v) = req.fungible_quantity {
-        if v < 0 { return Err(AppError::BadRequest("fungible_quantity must be >= 0".into())); }
+        if v < 0 {
+            return Err(AppError::BadRequest("fungible_quantity must be >= 0".into()));
+        }
     }
     if let Some(v) = req.depreciation_rate {
-        if v < rust_decimal::Decimal::ZERO { return Err(AppError::BadRequest("depreciation_rate must be >= 0".into())); }
+        if v < rust_decimal::Decimal::ZERO {
+            return Err(AppError::BadRequest("depreciation_rate must be >= 0".into()));
+        }
     }
     Ok(())
 }
@@ -155,12 +179,16 @@ fn validate_update_request(req: &UpdateItemRequest) -> Result<(), AppError> {
     }
     if let Some(ref d) = req.description {
         if d.len() > MAX_DESCRIPTION_LEN {
-            return Err(AppError::BadRequest(format!("description exceeds {MAX_DESCRIPTION_LEN} bytes")));
+            return Err(AppError::BadRequest(format!(
+                "description exceeds {MAX_DESCRIPTION_LEN} bytes"
+            )));
         }
     }
     if let Some(ref c) = req.category {
         if c.chars().count() > MAX_CATEGORY_LEN {
-            return Err(AppError::BadRequest(format!("category exceeds {MAX_CATEGORY_LEN} chars")));
+            return Err(AppError::BadRequest(format!(
+                "category exceeds {MAX_CATEGORY_LEN} chars"
+            )));
         }
     }
     if let Some(ref tags) = req.tags {
@@ -175,7 +203,9 @@ fn validate_update_request(req: &UpdateItemRequest) -> Result<(), AppError> {
     }
     if let Some(ref m) = req.metadata {
         if m.to_string().len() > MAX_METADATA_BYTES {
-            return Err(AppError::BadRequest(format!("metadata exceeds {MAX_METADATA_BYTES} bytes")));
+            return Err(AppError::BadRequest(format!(
+                "metadata exceeds {MAX_METADATA_BYTES} bytes"
+            )));
         }
     }
     // VAL-2: Reject invalid condition values before they hit the DB CHECK constraint.
@@ -191,22 +221,34 @@ fn validate_update_request(req: &UpdateItemRequest) -> Result<(), AppError> {
     // VAL-5: Reject negative numeric values (mirrors DB CHECK constraints).
     // Double-Option: Some(Some(v)) = set value, Some(None) = clear, None = no change.
     if let Some(Some(v)) = req.weight_grams {
-        if v < 0.0 { return Err(AppError::BadRequest("weight_grams must be >= 0".into())); }
+        if v < 0.0 {
+            return Err(AppError::BadRequest("weight_grams must be >= 0".into()));
+        }
     }
     if let Some(Some(v)) = req.max_capacity_cc {
-        if v < 0.0 { return Err(AppError::BadRequest("max_capacity_cc must be >= 0".into())); }
+        if v < 0.0 {
+            return Err(AppError::BadRequest("max_capacity_cc must be >= 0".into()));
+        }
     }
     if let Some(Some(v)) = req.max_weight_grams {
-        if v < 0.0 { return Err(AppError::BadRequest("max_weight_grams must be >= 0".into())); }
+        if v < 0.0 {
+            return Err(AppError::BadRequest("max_weight_grams must be >= 0".into()));
+        }
     }
     if let Some(Some(v)) = req.acquisition_cost {
-        if v < rust_decimal::Decimal::ZERO { return Err(AppError::BadRequest("acquisition_cost must be >= 0".into())); }
+        if v < rust_decimal::Decimal::ZERO {
+            return Err(AppError::BadRequest("acquisition_cost must be >= 0".into()));
+        }
     }
     if let Some(Some(v)) = req.current_value {
-        if v < rust_decimal::Decimal::ZERO { return Err(AppError::BadRequest("current_value must be >= 0".into())); }
+        if v < rust_decimal::Decimal::ZERO {
+            return Err(AppError::BadRequest("current_value must be >= 0".into()));
+        }
     }
     if let Some(Some(v)) = req.depreciation_rate {
-        if v < rust_decimal::Decimal::ZERO { return Err(AppError::BadRequest("depreciation_rate must be >= 0".into())); }
+        if v < rust_decimal::Decimal::ZERO {
+            return Err(AppError::BadRequest("depreciation_rate must be >= 0".into()));
+        }
     }
     // VAL-4: Reject container-specific fields when explicitly disabling container status.
     // Only block when a *value* is being set (Some(Some(_))), not when clearing (Some(None)).
@@ -242,10 +284,7 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/{id}/images", post(upload_image))
         .route("/{id}/images/{idx}", delete(remove_image))
         .route("/{id}/external-codes", post(add_external_code))
-        .route(
-            "/{id}/external-codes/{code_type}/{value}",
-            delete(remove_external_code),
-        )
+        .route("/{id}/external-codes/{code_type}/{value}", delete(remove_external_code))
         .route("/{id}/quantity", post(adjust_quantity))
         .route("/{id}/barcode", post(assign_barcode))
 }
@@ -320,10 +359,7 @@ async fn restore_item(
 ) -> AppResult<Json<StoredEvent>> {
     auth.require_role("member")?;
     let metadata = EventMetadata::default();
-    let event = state
-        .item_commands
-        .restore_item(id, auth.user_id, &metadata)
-        .await?;
+    let event = state.item_commands.restore_item(id, auth.user_id, &metadata).await?;
     Ok(Json(event))
 }
 
@@ -336,10 +372,7 @@ async fn move_item(
 ) -> AppResult<Json<StoredEvent>> {
     auth.require_role("member")?;
     let metadata = EventMetadata::default();
-    let event = state
-        .item_commands
-        .move_item(id, &req, auth.user_id, &metadata)
-        .await?;
+    let event = state.item_commands.move_item(id, &req, auth.user_id, &metadata).await?;
     Ok(Json(event))
 }
 
@@ -415,12 +448,7 @@ async fn upload_image(
                 })?;
 
                 // Verify the detected MIME is in the configured allow-list.
-                if !state
-                    .config
-                    .allowed_image_mimes
-                    .iter()
-                    .any(|m| m == detected_mime)
-                {
+                if !state.config.allowed_image_mimes.iter().any(|m| m == detected_mime) {
                     return Err(AppError::BadRequest(format!(
                         "File content type '{detected_mime}' is not allowed. \
                          Allowed: {}",

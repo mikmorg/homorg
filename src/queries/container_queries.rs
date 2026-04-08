@@ -68,7 +68,11 @@ impl ContainerQueries {
             "system_barcode" => "i.system_barcode",
             _ => "i.name",
         };
-        let order_dir = if sort_dir.unwrap_or("asc") == "desc" { "DESC" } else { "ASC" };
+        let order_dir = if sort_dir.unwrap_or("asc") == "desc" {
+            "DESC"
+        } else {
+            "ASC"
+        };
         // CB-2: Cursor comparison operator must match sort direction.
         let cursor_op = if order_dir == "DESC" { "<" } else { ">" };
 
@@ -76,9 +80,7 @@ impl ContainerQueries {
         let cursor_subquery = match sort_by.unwrap_or("name") {
             "created_at" | "updated_at" => {
                 let col = sort_by.unwrap_or("created_at");
-                format!(
-                    "OR (i.{col}, i.id) {cursor_op} (SELECT {col}, id FROM items WHERE id = $2)"
-                )
+                format!("OR (i.{col}, i.id) {cursor_op} (SELECT {col}, id FROM items WHERE id = $2)")
             }
             _ => {
                 // The inner subquery must use the `i2` alias (the cursor row), not the
@@ -134,8 +136,7 @@ impl ContainerQueries {
         .await?
         .ok_or_else(|| AppError::NotFound(format!("Container {container_id} not found")))?;
 
-        let path = container_path
-            .ok_or_else(|| AppError::Internal("Container has no path".into()))?;
+        let path = container_path.ok_or_else(|| AppError::Internal("Container has no path".into()))?;
 
         let path_depth = path.split('.').count() as i32;
 
@@ -182,13 +183,12 @@ impl ContainerQueries {
 
     /// Get ancestor breadcrumb path for a container.
     pub async fn get_ancestors(&self, container_id: Uuid) -> AppResult<Vec<crate::models::item::AncestorEntry>> {
-        let path: Option<String> = sqlx::query_scalar(
-            "SELECT container_path::text FROM items WHERE id = $1 AND is_deleted = FALSE",
-        )
-        .bind(container_id)
-        .fetch_optional(&self.pool)
-        .await?
-        .ok_or_else(|| AppError::NotFound(format!("Item {container_id} not found")))?;
+        let path: Option<String> =
+            sqlx::query_scalar("SELECT container_path::text FROM items WHERE id = $1 AND is_deleted = FALSE")
+                .bind(container_id)
+                .fetch_optional(&self.pool)
+                .await?
+                .ok_or_else(|| AppError::NotFound(format!("Item {container_id} not found")))?;
 
         resolve_ancestors(&self.pool, &path).await
     }
