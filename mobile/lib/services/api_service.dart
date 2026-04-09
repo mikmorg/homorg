@@ -17,13 +17,15 @@ class ApiException implements Exception {
 
 class ApiService {
   final CameraConnection connection;
+  final http.Client _client;
 
-  ApiService(this.connection);
+  ApiService(this.connection, {http.Client? client})
+      : _client = client ?? http.Client();
 
   Future<SessionStatus> getStatus() async {
     late http.Response response;
     try {
-      response = await http
+      response = await _client
           .get(Uri.parse(connection.statusUrl))
           .timeout(const Duration(seconds: 10));
     } on SocketException {
@@ -49,7 +51,7 @@ class ApiService {
     late http.StreamedResponse streamed;
     try {
       streamed =
-          await request.send().timeout(const Duration(seconds: 30));
+          await _client.send(request).timeout(const Duration(seconds: 30));
     } on SocketException {
       throw const ApiException('Cannot reach server during upload');
     } on Exception {

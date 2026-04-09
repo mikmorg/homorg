@@ -86,7 +86,6 @@ class _ConnectScreenState extends State<ConnectScreen> {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final canConnect = _urlController.text.trim().isNotEmpty;
 
     return Scaffold(
       body: SafeArea(
@@ -151,11 +150,14 @@ class _ConnectScreenState extends State<ConnectScreen> {
               const SizedBox(height: 16),
               ListenableBuilder(
                 listenable: _urlController,
-                builder: (_, __) => FilledButton.icon(
+                builder: (_, __) {
+                  final canConnect = _urlController.text.trim().isNotEmpty;
+                  return FilledButton.icon(
                   onPressed: canConnect ? () => _connect(_urlController.text) : null,
                   icon: const Icon(Icons.link),
                   label: const Text('Connect'),
-                ),
+                );
+                },
               ),
               if (_recentUrls.isNotEmpty) ...[
                 const SizedBox(height: 32),

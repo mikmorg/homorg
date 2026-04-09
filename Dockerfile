@@ -8,6 +8,7 @@ RUN cargo build --release 2>/dev/null || true
 # Now copy real source and rebuild
 COPY src/ src/
 COPY migrations/ migrations/
+COPY templates/ templates/
 RUN cargo build --release
 
 # --- Runtime stage ---

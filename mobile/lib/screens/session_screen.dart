@@ -7,10 +7,13 @@ import 'package:image_picker/image_picker.dart';
 import '../models/camera_models.dart';
 import '../services/api_service.dart';
 
+typedef ApiServiceFactory = ApiService Function(CameraConnection);
+
 class SessionScreen extends StatefulWidget {
   final CameraConnection connection;
+  final ApiServiceFactory? apiServiceFactory;
 
-  const SessionScreen({super.key, required this.connection});
+  const SessionScreen({super.key, required this.connection, this.apiServiceFactory});
 
   @override
   State<SessionScreen> createState() => _SessionScreenState();
@@ -33,7 +36,9 @@ class _SessionScreenState extends State<SessionScreen> {
   @override
   void initState() {
     super.initState();
-    _api = ApiService(widget.connection);
+    _api = widget.apiServiceFactory != null
+        ? widget.apiServiceFactory!(widget.connection)
+        : ApiService(widget.connection);
     _fetchStatus();
     _pollTimer =
         Timer.periodic(const Duration(seconds: 3), (_) => _fetchStatus());
