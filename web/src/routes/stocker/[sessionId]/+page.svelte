@@ -49,7 +49,7 @@
 	let pollTimer: ReturnType<typeof setInterval> | null = $state(null);
 	let flushing: boolean = $state(false);
 	const FLUSH_INTERVAL_MS = 2000;
-	const POLL_INTERVAL_MS = 3000;
+	const POLL_INTERVAL_MS = 10000;
 	let lastKnownPhotoCount: number = $state(0);
 
 	// SC-2: Track in-flight barcodes to prevent duplicate processing when the
@@ -129,7 +129,7 @@
 					const item = await api.items.get(s.active_container_id);
 					setContext({
 						containerId: s.active_container_id,
-						containerName: item.item.name ?? 'Unnamed'
+						containerName: item.name ?? 'Unnamed'
 					});
 				} catch {
 					// Container may have been deleted; proceed without context
@@ -140,7 +140,7 @@
 			if (s.active_item_id) {
 				try {
 					const item = await api.items.get(s.active_item_id);
-					activeItemName = item.item.name ?? '';
+					activeItemName = item.name ?? '';
 				} catch { /* ignore */ }
 			}
 
@@ -524,7 +524,7 @@
 					const item = await api.items.get(s.active_container_id);
 					setContext({
 						containerId: s.active_container_id,
-						containerName: item.item.name ?? 'Unnamed'
+						containerName: item.name ?? 'Unnamed'
 					});
 				} catch { /* ignore */ }
 			}
@@ -533,7 +533,7 @@
 			if (s.active_item_id && s.active_item_id !== $stockerStore.activeItemId) {
 				try {
 					const item = await api.items.get(s.active_item_id);
-					activeItemName = item.item.name ?? '';
+					activeItemName = item.name ?? '';
 				} catch { /* ignore */ }
 			}
 		} catch { /* ignore poll failures silently */ }
@@ -925,7 +925,7 @@
 			</div>
 			<div class="min-w-0 flex-1">
 				<p class="text-xs text-slate-400">Active item</p>
-				<p class="truncate text-sm font-medium text-emerald-300">{activeItemName || $stockerStore.activeItemId?.slice(0, 12) + '…'}</p>
+				<p class="truncate text-sm font-medium text-emerald-300">{activeItemName || 'Unnamed item'}</p>
 			</div>
 			<svg class="h-4 w-4 flex-shrink-0 text-slate-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
 				<path d="M9 18l6-6-6-6" />
