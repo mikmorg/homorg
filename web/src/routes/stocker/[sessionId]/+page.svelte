@@ -3,7 +3,7 @@
 	import { page } from '$app/state';
 	import { goto, beforeNavigate } from '$app/navigation';
 	import { api, QueuedError } from '$api/client.js';
-	import type { BarcodeResolution, CameraToken, Item, ItemSummary, StockerBatchEvent, ExternalCode } from '$api/types.js';
+	import type { BarcodeResolution, CameraToken, Item, ItemSummary, ScanSession, StoredEvent, StockerBatchEvent, ExternalCode } from '$api/types.js';
 	import { detectBarcodeType, STANDARD_CODE_TYPES, STANDARD_CODE_TYPE_VALUES } from '$lib/barcode-type.js';
 	import QRCode from 'qrcode';
 	import { onScan, scannerState, startSerialScanner, startCameraScanner, startHidScanner } from '$scanner/index.js';
@@ -132,6 +132,9 @@
 					// Container may have been deleted; proceed without context
 				}
 			}
+
+			// Load recent session history into scan log
+			await loadSessionHistory(s);
 		} catch {
 			error = 'Session not found.';
 			loading = false;
@@ -412,6 +415,71 @@
 			},
 			...scanLog
 		].slice(0, 100);
+	}
+
+	// ── Load session history on mount ────────────────────────────────────────
+	async function loadSessionHistory(s: ScanSession) {
+		try {
+			// Fetch recent events for this session from the global event log
+			const allRecent = await api.events.list({ limit: 100 });
+			const sessionEvents = allRecent.filter(
+				e => e.metadata?.session_id === s.id
+			);
+			// Also fetch history for the active item (camera uploads may lack session_id)
+			let itemEvents: StoredEvent[] = [];
+			if (s.active_item_id) {
+				try {
+					itemEvents = await api.items.history(s.active_item_id, { limit: 20 });
+				} catch { /* ignore */ }
+			}
+
+			// Merge and deduplicate by event_id, newest first
+			const seen = new Set<string>();
+			const merged: StoredEvent[] = [];
+			for (const e of [...sessionEvents, ...itemEvents]) {
+				if (!seen.has(e.event_id)) {
+					seen.add(e.event_id);
+					merged.push(e);
+				}
+			}
+			merged.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+
+			// Populate scan log from history
+			for (const e of merged.slice(0, 50)) {
+				const data = e.event_data as Record<string, unknown>;
+				const name = (data?.name as string) ?? (data?.item_name as string) ?? '';
+				let type: ScanLogEntry['type'] = 'success';
+				let message = '';
+
+				switch (e.event_type) {
+					case 'ItemCreated':
+						type = 'create';
+						message = `Created: ${name || 'item'}`;
+						break;
+					case 'ItemMoved':
+						message = `Moved: ${name || 'item'}`;
+						break;
+					case 'ItemImageAdded':
+						message = `Photo added${name ? ': ' + name : ''}`;
+						break;
+					case 'ItemUpdated':
+						message = `Updated: ${name || 'item'}`;
+						break;
+					case 'ItemDeleted':
+						type = 'error';
+						message = `Deleted: ${name || 'item'}`;
+						break;
+					default:
+						message = e.event_type.replace(/([A-Z])/g, ' $1').trim();
+				}
+
+				addLog(
+					e.aggregate_id.slice(0, 8),
+					type,
+					message
+				);
+			}
+		} catch { /* ignore history load failure */ }
 	}
 
 	// ── Session polling (picks up camera uploads and external changes) ──────
