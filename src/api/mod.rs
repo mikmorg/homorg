@@ -12,9 +12,12 @@ pub mod undo_routes;
 pub mod user_routes;
 
 use crate::config::AppConfig;
+use crate::openapi::ApiDoc;
 use crate::AppState;
 use axum::{middleware, Router};
 use std::{net::IpAddr, sync::Arc};
+use utoipa::OpenApi;
+use utoipa_swagger_ui::SwaggerUi;
 use tower::util::option_layer;
 use tower_governor::{governor::GovernorConfigBuilder, key_extractor::KeyExtractor, GovernorError, GovernorLayer};
 use tower_http::services::ServeDir;
@@ -69,6 +72,7 @@ pub fn build_router(state: Arc<AppState>, config: &AppConfig) -> Router {
                 .per_second(config.rate_limit_rps)
                 .burst_size(config.rate_limit_burst)
                 .key_extractor(ClientIpKeyExtractor)
+                .use_headers()
                 .finish()
                 .expect("Failed to build auth rate limiter config"),
         );
@@ -77,6 +81,7 @@ pub fn build_router(state: Arc<AppState>, config: &AppConfig) -> Router {
                 .per_second(config.rate_limit_rps * 10)
                 .burst_size(config.rate_limit_burst * 5)
                 .key_extractor(ClientIpKeyExtractor)
+                .use_headers()
                 .finish()
                 .expect("Failed to build API rate limiter config"),
         );
@@ -86,6 +91,7 @@ pub fn build_router(state: Arc<AppState>, config: &AppConfig) -> Router {
                 .per_second(1)
                 .burst_size(5)
                 .key_extractor(ClientIpKeyExtractor)
+                .use_headers()
                 .finish()
                 .expect("Failed to build PDF rate limiter config"),
         );
@@ -121,6 +127,8 @@ pub fn build_router(state: Arc<AppState>, config: &AppConfig) -> Router {
         // Images are household inventory photos — not sensitive. No auth required
         // so standard browser <img src> tags work without fetch+blob workarounds.
         .nest_service("/files", ServeDir::new(&config.storage_path))
+        // OpenAPI spec and Swagger UI
+        .merge(SwaggerUi::new("/api/docs").url("/api/openapi.json", ApiDoc::openapi()))
         .layer(middleware::from_fn(crate::metrics::track_request))
         .with_state(state)
 }

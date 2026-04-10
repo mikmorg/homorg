@@ -144,8 +144,8 @@ async fn main() {
         .layer(PropagateRequestIdLayer::x_request_id())
         .layer(CompressionLayer::new())
         .layer(TimeoutLayer::with_status_code(
-            std::time::Duration::from_secs(config.request_timeout_secs),
             axum::http::StatusCode::GATEWAY_TIMEOUT,
+            std::time::Duration::from_secs(config.request_timeout_secs),
         ))
         .layer(trace_layer)
         .layer(SetRequestIdLayer::x_request_id(MakeRequestUuid))

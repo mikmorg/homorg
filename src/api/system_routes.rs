@@ -25,21 +25,29 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/admin/rebuild-status", get(rebuild_status))
 }
 
-#[derive(Debug, Serialize)]
-struct HealthResponse {
-    status: String,
-    database: String,
-    /// OP-3: Include version so operators can confirm which build is running.
-    version: &'static str,
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+pub struct HealthResponse {
+    pub status: String,
+    pub database: String,
+    /// Build version so operators can confirm which build is running.
+    pub version: &'static str,
     /// True when no users exist yet — the client should redirect to /setup.
-    /// Only included when the database is reachable (avoids leaking state on errors).
     #[serde(skip_serializing_if = "Option::is_none")]
-    setup_required: Option<bool>,
+    pub setup_required: Option<bool>,
 }
 
 /// Liveness check with DB connectivity status.
 /// Returns 200 when healthy, 503 when the database is unreachable.
-async fn health(State(state): State<Arc<AppState>>) -> (StatusCode, Json<HealthResponse>) {
+#[utoipa::path(
+    get,
+    path = "/health",
+    tag = "system",
+    responses(
+        (status = 200, description = "Healthy", body = HealthResponse),
+        (status = 503, description = "Database unreachable", body = HealthResponse),
+    )
+)]
+pub async fn health(State(state): State<Arc<AppState>>) -> (StatusCode, Json<HealthResponse>) {
     let db_status = sqlx::query_scalar::<_, i32>("SELECT 1").fetch_one(&state.pool).await;
 
     let (status_code, status, database) = match db_status {
@@ -55,8 +63,6 @@ async fn health(State(state): State<Arc<AppState>>) -> (StatusCode, Json<HealthR
     };
 
     // H-5: Only check setup_required when DB is reachable.
-    // Leaking this flag is acceptable for the initial setup UX flow;
-    // the /auth/setup endpoint is locked after first use regardless.
     let setup_required = if status_code == StatusCode::OK {
         let count = sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM users WHERE is_active = TRUE")
             .fetch_one(&state.pool)
@@ -80,32 +86,49 @@ async fn health(State(state): State<Arc<AppState>>) -> (StatusCode, Json<HealthR
 
 /// Liveness probe — always returns 200 if the process is running.
 /// Use for Kubernetes livenessProbe or basic load-balancer health.
-async fn health_live() -> (StatusCode, Json<serde_json::Value>) {
+#[utoipa::path(
+    get,
+    path = "/health/live",
+    tag = "system",
+    responses(
+        (status = 200, description = "Process is alive"),
+    )
+)]
+pub async fn health_live() -> (StatusCode, Json<serde_json::Value>) {
     (
         StatusCode::OK,
         Json(serde_json::json!({ "status": "alive" })),
     )
 }
 
-#[derive(Debug, Serialize)]
-struct ReadinessResponse {
-    status: String,
-    database: DatabaseHealth,
-    storage: String,
-    version: &'static str,
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+pub struct ReadinessResponse {
+    pub status: String,
+    pub database: DatabaseHealth,
+    pub storage: String,
+    pub version: &'static str,
 }
 
-#[derive(Debug, Serialize)]
-struct DatabaseHealth {
-    connected: bool,
-    pool_size: u32,
-    pool_idle: u32,
-    pool_active: u32,
+#[derive(Debug, Serialize, utoipa::ToSchema)]
+pub struct DatabaseHealth {
+    pub connected: bool,
+    pub pool_size: u32,
+    pub pool_idle: u32,
+    pub pool_active: u32,
 }
 
 /// Readiness probe — returns 200 only when all dependencies are healthy.
 /// Use for Kubernetes readinessProbe or load-balancer backend health.
-async fn health_ready(State(state): State<Arc<AppState>>) -> (StatusCode, Json<ReadinessResponse>) {
+#[utoipa::path(
+    get,
+    path = "/health/ready",
+    tag = "system",
+    responses(
+        (status = 200, description = "All dependencies healthy", body = ReadinessResponse),
+        (status = 503, description = "One or more dependencies unhealthy", body = ReadinessResponse),
+    )
+)]
+pub async fn health_ready(State(state): State<Arc<AppState>>) -> (StatusCode, Json<ReadinessResponse>) {
     // DB connectivity check
     let db_ok = sqlx::query_scalar::<_, i32>("SELECT 1")
         .fetch_one(&state.pool)

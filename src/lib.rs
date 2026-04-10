@@ -9,6 +9,7 @@ pub mod events;
 pub mod label_gen;
 pub mod metrics;
 pub mod models;
+pub mod openapi;
 pub mod queries;
 pub mod storage;
 

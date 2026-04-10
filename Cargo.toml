@@ -50,6 +50,10 @@ tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
 metrics = "0.24"
 metrics-exporter-prometheus = { version = "0.16", default-features = false }
 
+# OpenAPI
+utoipa = { version = "5", features = ["axum_extras", "uuid", "chrono"] }
+utoipa-swagger-ui = { version = "9", features = ["axum"] }
+
 # Utilities
 thiserror = "2"
 hex = "0.4"

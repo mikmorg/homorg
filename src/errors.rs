@@ -1,16 +1,16 @@
 use axum::{
-    http::StatusCode,
+    http::{header, StatusCode},
     response::{IntoResponse, Response},
     Json,
 };
 use serde::Serialize;
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, utoipa::ToSchema)]
 pub struct ErrorResponse {
     pub error: ErrorBody,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, utoipa::ToSchema)]
 pub struct ErrorBody {
     pub code: String,
     pub message: String,
@@ -18,7 +18,7 @@ pub struct ErrorBody {
     pub details: Vec<FieldError>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Serialize, utoipa::ToSchema)]
 pub struct FieldError {
     pub field: String,
     pub message: String,
@@ -138,7 +138,26 @@ impl IntoResponse for AppError {
             },
         };
 
-        (status, Json(body)).into_response()
+        let mut response = (status, Json(body)).into_response();
+
+        // Add Retry-After header for retryable status codes
+        match status {
+            StatusCode::CONFLICT => {
+                response.headers_mut().insert(
+                    header::RETRY_AFTER,
+                    "1".parse().unwrap(),
+                );
+            }
+            StatusCode::SERVICE_UNAVAILABLE => {
+                response.headers_mut().insert(
+                    header::RETRY_AFTER,
+                    "5".parse().unwrap(),
+                );
+            }
+            _ => {}
+        }
+
+        response
     }
 }
 
@@ -233,5 +252,18 @@ mod tests {
     #[test]
     fn error_code_forbidden() {
         assert_eq!(AppError::Forbidden.error_code(), "FORBIDDEN");
+    }
+
+    #[test]
+    fn conflict_includes_retry_after_header() {
+        let resp = AppError::Conflict("retry".into()).into_response();
+        assert_eq!(resp.status(), StatusCode::CONFLICT);
+        assert_eq!(resp.headers().get("retry-after").unwrap(), "1");
+    }
+
+    #[test]
+    fn not_found_has_no_retry_after() {
+        let resp = AppError::NotFound("x".into()).into_response();
+        assert!(resp.headers().get("retry-after").is_none());
     }
 }
