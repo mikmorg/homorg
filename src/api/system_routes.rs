@@ -1,16 +1,18 @@
 use axum::{
-    extract::State,
+    extract::{Query, State},
     http::StatusCode,
     response::IntoResponse,
     routing::{get, post},
     Json, Router,
 };
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use std::sync::{atomic::Ordering, Arc};
+use uuid::Uuid;
 
 use crate::auth::middleware::AuthUser;
 use crate::errors::{AppError, AppResult};
 use crate::events::projector::Projector;
+use crate::models::event::StoredEvent;
 use crate::queries::stats_queries::StatsResponse;
 use crate::AppState;
 
@@ -21,6 +23,7 @@ pub fn router() -> Router<Arc<AppState>> {
         .route("/health/ready", get(health_ready))
         .route("/metrics", get(metrics))
         .route("/stats", get(stats))
+        .route("/events", get(list_events))
         .route("/admin/rebuild-projections", post(rebuild_projections))
         .route("/admin/rebuild-status", get(rebuild_status))
 }
@@ -169,6 +172,33 @@ pub async fn health_ready(State(state): State<Arc<AppState>>) -> (StatusCode, Js
             version: env!("CARGO_PKG_VERSION"),
         }),
     )
+}
+
+#[derive(Debug, Deserialize)]
+struct EventLogQuery {
+    before_id: Option<i64>,
+    limit: Option<i64>,
+    event_type: Option<String>,
+    actor_id: Option<Uuid>,
+}
+
+/// Paginated global event log, newest first.
+async fn list_events(
+    State(state): State<Arc<AppState>>,
+    _auth: AuthUser,
+    Query(q): Query<EventLogQuery>,
+) -> AppResult<Json<Vec<StoredEvent>>> {
+    let limit = q.limit.unwrap_or(50).clamp(1, 200);
+    let events = state
+        .event_store
+        .get_events_recent(
+            q.event_type.as_deref(),
+            q.actor_id,
+            q.before_id,
+            limit,
+        )
+        .await?;
+    Ok(Json(events))
 }
 
 /// System statistics.

@@ -354,6 +354,11 @@ export const users = {
 
 // ─── System ──────────────────────────────────────────────────────────────────
 
+export const events = {
+	list: (params?: { before_id?: number; limit?: number; event_type?: string; actor_id?: string }) =>
+		get$<StoredEvent[]>('/events', params as Record<string, unknown>)
+};
+
 export const system = {
 	health: () => get$<HealthResponse>('/health'),
 	stats: () => get$<StatsResponse>('/stats'),
@@ -362,4 +367,4 @@ export const system = {
 };
 
 // ─── Convenience aggregate ───────────────────────────────────────────────────
-export const api = { auth, items, containers, barcodes, stocker, search, undo, categories, tags, containerTypes, users, system };
+export const api = { auth, items, containers, barcodes, stocker, search, undo, events, categories, tags, containerTypes, users, system };

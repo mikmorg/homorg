@@ -115,6 +115,19 @@
 				return;
 			}
 			setSession(s);
+
+			// Restore container context from server state on page load/refresh
+			if (s.active_container_id && !context.containerId) {
+				try {
+					const item = await api.items.get(s.active_container_id);
+					setContext({
+						containerId: s.active_container_id,
+						containerName: item.item.name ?? 'Unnamed'
+					});
+				} catch {
+					// Container may have been deleted; proceed without context
+				}
+			}
 		} catch {
 			error = 'Session not found.';
 			loading = false;
@@ -559,8 +572,14 @@
 	}
 
 	function getCameraUrl(token: string): string {
-		const base = typeof window !== 'undefined' ? window.location.origin : '';
-		return `${base}/api/v1/stocker/camera/${token}`;
+		// Camera URLs must reach the backend directly — the mobile app
+		// can't use the Vite dev proxy. In dev mode (:5173) rewrite to :8080;
+		// in production the frontend is served by the backend on the same port.
+		const loc = typeof window !== 'undefined' ? window.location : null;
+		if (!loc) return `/api/v1/stocker/camera/${token}`;
+		const port = loc.port === '5173' ? '8080' : loc.port;
+		const host = port ? `${loc.hostname}:${port}` : loc.hostname;
+		return `${loc.protocol}//${host}/api/v1/stocker/camera/${token}`;
 	}
 
 	// ── End session ──────────────────────────────────────────────────────────

@@ -148,6 +148,35 @@ impl EventStore {
         Ok(rows)
     }
 
+    /// Paginated event log in reverse chronological order (newest first).
+    pub async fn get_events_recent(
+        &self,
+        event_type_filter: Option<&str>,
+        actor_id_filter: Option<Uuid>,
+        before_id: Option<i64>,
+        limit: i64,
+    ) -> AppResult<Vec<StoredEvent>> {
+        let limit = limit.min(1000);
+        let rows = sqlx::query_as::<_, StoredEvent>(
+            r#"
+            SELECT id, event_id, aggregate_id, aggregate_type, event_type, event_data, metadata, actor_id, created_at, sequence_number, schema_version
+            FROM event_store
+            WHERE ($1::bigint IS NULL OR id < $1)
+              AND ($2::text IS NULL OR event_type = $2)
+              AND ($3::uuid IS NULL OR actor_id = $3)
+            ORDER BY id DESC
+            LIMIT $4
+            "#,
+        )
+        .bind(before_id)
+        .bind(event_type_filter)
+        .bind(actor_id_filter)
+        .bind(limit)
+        .fetch_all(&self.pool)
+        .await?;
+        Ok(rows)
+    }
+
     /// Look up a single event by its event_id (UUID).
     pub async fn get_event_by_id(&self, event_id: Uuid) -> AppResult<StoredEvent> {
         sqlx::query_as::<_, StoredEvent>(

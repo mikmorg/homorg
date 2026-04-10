@@ -60,7 +60,7 @@ class ApiService {
 
     final response = await http.Response.fromStream(streamed);
 
-    if (response.statusCode == 200) {
+    if (response.statusCode == 200 || response.statusCode == 201) {
       final json = jsonDecode(response.body) as Map<String, dynamic>;
       return UploadResult.fromJson(json);
     }
@@ -71,7 +71,10 @@ class ApiService {
   void _throwForStatus(http.Response response) {
     switch (response.statusCode) {
       case 401:
-        throw const ApiException('Token expired or invalid', statusCode: 401);
+        throw const ApiException(
+          'Token expired or invalid — generate a new camera link',
+          statusCode: 401,
+        );
       case 400:
         String msg = 'Bad request';
         try {

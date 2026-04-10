@@ -93,6 +93,19 @@
 			</a>
 
 			<a
+				href="/journal"
+				class="nav-tab"
+				class:nav-tab-active={isActive('/journal')}
+				aria-label="Journal"
+			>
+				<svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+					<path d="M12 8v4l3 3" />
+					<circle cx="12" cy="12" r="9" />
+				</svg>
+				<span class="text-xs">Journal</span>
+			</a>
+
+			<a
 				href="/search"
 				class="nav-tab"
 				class:nav-tab-active={isActive('/search')}

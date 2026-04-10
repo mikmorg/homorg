@@ -552,17 +552,16 @@ async fn create_camera_link(
         .clamp(1, MAX_CAMERA_TOKEN_HOURS);
     let expires_at = chrono::Utc::now() + chrono::Duration::hours(i64::from(hours));
 
-    // Generate a cryptographically random token; store only the hash.
+    // Generate a cryptographically random token.
     let token_bytes: [u8; 32] = rand::random();
-    let plain_token = hex::encode(token_bytes);
-    let token_hash = crate::auth::jwt::hash_refresh_token(&plain_token);
+    let token = hex::encode(token_bytes);
 
     let ct = state
         .session_repository
         .create_camera_token(
             session_id,
             auth.user_id,
-            &token_hash,
+            &token,
             req.device_name.as_deref(),
             expires_at,
         )
@@ -571,7 +570,7 @@ async fn create_camera_link(
     Ok((
         StatusCode::CREATED,
         Json(CameraLinkResponse {
-            token: plain_token,
+            token,
             session_id: ct.session_id,
             expires_at: ct.expires_at,
             device_name: ct.device_name,
@@ -623,8 +622,7 @@ async fn camera_status(
     Path(token): Path<String>,
 ) -> AppResult<Json<CameraSessionStatus>> {
     validate_camera_token_format(&token)?;
-    let token_hash = crate::auth::jwt::hash_refresh_token(&token);
-    let ct = state.session_repository.get_camera_token(&token_hash).await?;
+    let ct = state.session_repository.get_camera_token(&token).await?;
     let session = state.session_repository.get_session_by_id(ct.session_id).await?;
 
     Ok(Json(CameraSessionStatus {
@@ -652,10 +650,8 @@ async fn camera_upload(
     Path(token): Path<String>,
     mut multipart: Multipart,
 ) -> AppResult<(StatusCode, Json<CameraUploadResponse>)> {
-    // Validate and hash camera token
     validate_camera_token_format(&token)?;
-    let token_hash = crate::auth::jwt::hash_refresh_token(&token);
-    let ct = state.session_repository.get_camera_token(&token_hash).await?;
+    let ct = state.session_repository.get_camera_token(&token).await?;
     let session = state.session_repository.get_session_by_id(ct.session_id).await?;
 
     if session.ended_at.is_some() {
@@ -765,8 +761,9 @@ async fn camera_upload(
         "Camera image uploaded"
     );
 
+    // Return 200 (not 201) for camera uploads — the mobile app expects 200.
     Ok((
-        StatusCode::CREATED,
+        StatusCode::OK,
         Json(CameraUploadResponse {
             item_id: target_item_id,
             image_url: url,
