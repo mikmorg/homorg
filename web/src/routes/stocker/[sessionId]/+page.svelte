@@ -32,6 +32,8 @@
 		type: 'success' | 'context' | 'create' | 'error';
 		message: string;
 		item?: Item;
+		itemId?: string;
+		imageUrl?: string;
 		timestamp: number;
 	}
 
@@ -40,6 +42,7 @@
 	let loading: boolean = $state(true);
 	let ending: boolean = $state(false);
 	let error: string = $state('');
+	let activeItemName: string = $state('');
 
 	let pendingBatch: StockerBatchEvent[] = $state([]);
 	let flushTimer: ReturnType<typeof setInterval> | null = $state(null);
@@ -131,6 +134,14 @@
 				} catch {
 					// Container may have been deleted; proceed without context
 				}
+			}
+
+			// Fetch active item name
+			if (s.active_item_id) {
+				try {
+					const item = await api.items.get(s.active_item_id);
+					activeItemName = item.item.name ?? '';
+				} catch { /* ignore */ }
 			}
 
 			// Load recent session history into scan log
@@ -403,7 +414,7 @@
 		}
 	}
 
-	function addLog(barcode: string, type: ScanLogEntry['type'], message: string, item?: Item) {
+	function addLog(barcode: string, type: ScanLogEntry['type'], message: string, item?: Item, extra?: { itemId?: string; imageUrl?: string }) {
 		scanLog = [
 			{
 				id: ++logIdCounter,
@@ -411,6 +422,8 @@
 				type,
 				message,
 				item,
+				itemId: extra?.itemId ?? item?.id,
+				imageUrl: extra?.imageUrl,
 				timestamp: Date.now()
 			},
 			...scanLog
@@ -451,6 +464,8 @@
 				let type: ScanLogEntry['type'] = 'success';
 				let message = '';
 
+				const imageUrl = (data?.url as string) ?? (data?.image_url as string) ?? undefined;
+
 				switch (e.event_type) {
 					case 'ItemCreated':
 						type = 'create';
@@ -476,7 +491,9 @@
 				addLog(
 					e.aggregate_id.slice(0, 8),
 					type,
-					message
+					message,
+					undefined,
+					{ itemId: e.aggregate_id, imageUrl }
 				);
 			}
 		} catch { /* ignore history load failure */ }
@@ -509,6 +526,14 @@
 						containerId: s.active_container_id,
 						containerName: item.item.name ?? 'Unnamed'
 					});
+				} catch { /* ignore */ }
+			}
+
+			// Sync active item name if changed
+			if (s.active_item_id && s.active_item_id !== $stockerStore.activeItemId) {
+				try {
+					const item = await api.items.get(s.active_item_id);
+					activeItemName = item.item.name ?? '';
 				} catch { /* ignore */ }
 			}
 		} catch { /* ignore poll failures silently */ }
@@ -887,6 +912,27 @@
 		{/if}
 	</button>
 
+	<!-- ── Active item ──────────────────────────────────────────────────── -->
+	{#if $stockerStore.activeItemId}
+		<a
+			href="/browse/item/{$stockerStore.activeItemId}"
+			class="flex items-center gap-3 border-b border-slate-800 px-4 py-2 hover:bg-slate-800/60 transition-colors"
+		>
+			<div class="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-lg bg-emerald-500/20 text-emerald-400">
+				<svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+					<path d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4" />
+				</svg>
+			</div>
+			<div class="min-w-0 flex-1">
+				<p class="text-xs text-slate-400">Active item</p>
+				<p class="truncate text-sm font-medium text-emerald-300">{activeItemName || $stockerStore.activeItemId?.slice(0, 12) + '…'}</p>
+			</div>
+			<svg class="h-4 w-4 flex-shrink-0 text-slate-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+				<path d="M9 18l6-6-6-6" />
+			</svg>
+		</a>
+	{/if}
+
 	<!-- ── Scan log ──────────────────────────────────────────────────────── -->
 	<div class="flex-1 overflow-y-auto font-mono text-sm">
 		{#if scanLog.length === 0}
@@ -896,9 +942,20 @@
 			</div>
 		{:else}
 			{#each scanLog as entry (entry.id)}
-				<div class="scan-line {logClass(entry.type)} flex items-baseline gap-3 px-4 py-2">
-					<span class="w-24 flex-shrink-0 truncate text-xs opacity-60">{entry.barcode}</span>
-					<span class="flex-1 truncate">{entry.message}</span>
+				<div class="scan-line {logClass(entry.type)} flex items-center gap-3 px-4 py-2">
+					{#if entry.imageUrl}
+						<a href={entry.imageUrl} target="_blank" class="flex-shrink-0">
+							<img src={entry.imageUrl} alt="" class="h-8 w-8 rounded object-cover border border-slate-700" />
+						</a>
+					{/if}
+					<span class="w-20 flex-shrink-0 truncate text-xs opacity-60">{entry.barcode}</span>
+					{#if entry.itemId}
+						<a href="/browse/item/{entry.itemId}" class="flex-1 truncate hover:text-emerald-400 transition-colors">
+							{entry.message}
+						</a>
+					{:else}
+						<span class="flex-1 truncate">{entry.message}</span>
+					{/if}
 				</div>
 			{/each}
 		{/if}
