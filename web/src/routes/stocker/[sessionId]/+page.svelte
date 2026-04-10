@@ -43,8 +43,11 @@
 
 	let pendingBatch: StockerBatchEvent[] = $state([]);
 	let flushTimer: ReturnType<typeof setInterval> | null = $state(null);
+	let pollTimer: ReturnType<typeof setInterval> | null = $state(null);
 	let flushing: boolean = $state(false);
 	const FLUSH_INTERVAL_MS = 2000;
+	const POLL_INTERVAL_MS = 3000;
+	let lastKnownPhotoCount: number = $state(0);
 
 	// SC-2: Track in-flight barcodes to prevent duplicate processing when the
 	// same barcode fires twice before the first async resolve completes.
@@ -115,6 +118,7 @@
 				return;
 			}
 			setSession(s);
+			lastKnownPhotoCount = s.items_scanned + s.items_created;
 
 			// Restore container context from server state on page load/refresh
 			if (s.active_container_id && !context.containerId) {
@@ -137,6 +141,9 @@
 
 		// Start flush timer
 		flushTimer = setInterval(flushBatch, FLUSH_INTERVAL_MS);
+
+		// Poll session state to pick up camera uploads and external changes
+		pollTimer = setInterval(pollSession, POLL_INTERVAL_MS);
 	});
 
 	// H-11: Flush pending batch before navigation so events aren't lost.
@@ -157,6 +164,7 @@
 
 	onDestroy(() => {
 		if (flushTimer) clearInterval(flushTimer);
+		if (pollTimer) clearInterval(pollTimer);
 		unregisterScan();
 	});
 
@@ -404,6 +412,38 @@
 			},
 			...scanLog
 		].slice(0, 100);
+	}
+
+	// ── Session polling (picks up camera uploads and external changes) ──────
+	async function pollSession() {
+		try {
+			const s = await api.stocker.getSession(sessionId);
+			if (s.ended_at) {
+				error = 'Session ended';
+				if (pollTimer) clearInterval(pollTimer);
+				return;
+			}
+			setSession(s);
+
+			// Detect new photos from camera
+			const totalPhotos = s.items_scanned + s.items_created;
+			if (lastKnownPhotoCount > 0 && totalPhotos > lastKnownPhotoCount) {
+				const newCount = totalPhotos - lastKnownPhotoCount;
+				addLog('camera', 'success', `${newCount} photo${newCount > 1 ? 's' : ''} uploaded via camera`);
+			}
+			lastKnownPhotoCount = totalPhotos;
+
+			// Sync container context if changed externally
+			if (s.active_container_id && s.active_container_id !== context.containerId) {
+				try {
+					const item = await api.items.get(s.active_container_id);
+					setContext({
+						containerId: s.active_container_id,
+						containerName: item.item.name ?? 'Unnamed'
+					});
+				} catch { /* ignore */ }
+			}
+		} catch { /* ignore poll failures silently */ }
 	}
 
 	// ── Batch flush ──────────────────────────────────────────────────────────
