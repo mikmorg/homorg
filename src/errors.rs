@@ -1,5 +1,5 @@
 use axum::{
-    http::{header, StatusCode},
+    http::{header, HeaderValue, StatusCode},
     response::{IntoResponse, Response},
     Json,
 };
@@ -73,12 +73,13 @@ impl AppError {
 
 impl IntoResponse for AppError {
     fn into_response(self) -> Response {
-        let (status, code, message, details) = match &self {
-            AppError::NotFound(msg) => (StatusCode::NOT_FOUND, "NOT_FOUND", msg.clone(), vec![]),
-            AppError::Conflict(msg) => (StatusCode::CONFLICT, "CONFLICT", msg.clone(), vec![]),
+        let code = self.error_code();
+
+        let (status, message, details) = match &self {
+            AppError::NotFound(msg) => (StatusCode::NOT_FOUND, msg.clone(), vec![]),
+            AppError::Conflict(msg) => (StatusCode::CONFLICT, msg.clone(), vec![]),
             AppError::Validation(fields) => (
                 StatusCode::UNPROCESSABLE_ENTITY,
-                "VALIDATION_ERROR",
                 "One or more fields failed validation".to_string(),
                 fields
                     .iter()
@@ -90,22 +91,19 @@ impl IntoResponse for AppError {
             ),
             AppError::Unauthorized => (
                 StatusCode::UNAUTHORIZED,
-                "UNAUTHORIZED",
                 "Authentication required".to_string(),
                 vec![],
             ),
             AppError::Forbidden => (
                 StatusCode::FORBIDDEN,
-                "FORBIDDEN",
                 "Insufficient permissions".to_string(),
                 vec![],
             ),
-            AppError::BadRequest(msg) => (StatusCode::BAD_REQUEST, "BAD_REQUEST", msg.clone(), vec![]),
+            AppError::BadRequest(msg) => (StatusCode::BAD_REQUEST, msg.clone(), vec![]),
             AppError::Database(e) => {
                 tracing::error!(error = %e, "Database error");
                 (
                     StatusCode::INTERNAL_SERVER_ERROR,
-                    "INTERNAL_ERROR",
                     "An internal error occurred".to_string(),
                     vec![],
                 )
@@ -114,7 +112,6 @@ impl IntoResponse for AppError {
                 tracing::error!(error = %msg, "Storage error");
                 (
                     StatusCode::INTERNAL_SERVER_ERROR,
-                    "STORAGE_ERROR",
                     "An internal storage error occurred".to_string(),
                     vec![],
                 )
@@ -123,7 +120,6 @@ impl IntoResponse for AppError {
                 tracing::error!(error = %msg, "Internal error");
                 (
                     StatusCode::INTERNAL_SERVER_ERROR,
-                    "INTERNAL_ERROR",
                     "An internal error occurred".to_string(),
                     vec![],
                 )
@@ -140,19 +136,12 @@ impl IntoResponse for AppError {
 
         let mut response = (status, Json(body)).into_response();
 
-        // Add Retry-After header for retryable status codes
         match status {
             StatusCode::CONFLICT => {
-                response.headers_mut().insert(
-                    header::RETRY_AFTER,
-                    "1".parse().unwrap(),
-                );
+                response.headers_mut().insert(header::RETRY_AFTER, HeaderValue::from_static("1"));
             }
             StatusCode::SERVICE_UNAVAILABLE => {
-                response.headers_mut().insert(
-                    header::RETRY_AFTER,
-                    "5".parse().unwrap(),
-                );
+                response.headers_mut().insert(header::RETRY_AFTER, HeaderValue::from_static("5"));
             }
             _ => {}
         }

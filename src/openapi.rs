@@ -31,14 +31,6 @@ use crate::errors;
     )),
     tags(
         (name = "system", description = "Health checks and system status"),
-        (name = "auth", description = "Authentication and authorization"),
-        (name = "items", description = "Item CRUD operations"),
-        (name = "containers", description = "Container hierarchy navigation"),
-        (name = "barcodes", description = "Barcode generation and resolution"),
-        (name = "stocker", description = "Batch scanning sessions"),
-        (name = "search", description = "Full-text and fuzzy search"),
-        (name = "users", description = "User management (admin)"),
-        (name = "taxonomy", description = "Tags, categories, and container types"),
     )
 )]
 pub struct ApiDoc;

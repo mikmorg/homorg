@@ -52,9 +52,7 @@ async fn main() {
 
     // Build shared state via constructor
     let event_store = EventStore::new(pool.clone());
-    let mut app_state = AppState::new(config.clone(), pool, event_store, storage);
-    app_state.metrics_handle = Some(metrics_handle);
-    let state = Arc::new(app_state);
+    let state = Arc::new(AppState::new(config.clone(), pool, event_store, storage, Some(metrics_handle)));
 
     // Run initial token/session cleanup and start periodic background task
     {

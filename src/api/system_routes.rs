@@ -129,21 +129,16 @@ pub struct DatabaseHealth {
     )
 )]
 pub async fn health_ready(State(state): State<Arc<AppState>>) -> (StatusCode, Json<ReadinessResponse>) {
-    // DB connectivity check
-    let db_ok = sqlx::query_scalar::<_, i32>("SELECT 1")
-        .fetch_one(&state.pool)
-        .await
-        .is_ok();
+    let (db_result, storage_result) = tokio::join!(
+        sqlx::query_scalar::<_, i32>("SELECT 1").fetch_one(&state.pool),
+        tokio::fs::metadata(&state.config.storage_path),
+    );
+    let db_ok = db_result.is_ok();
+    let storage_ok = storage_result.map(|m| m.is_dir()).unwrap_or(false);
 
     let pool_size = state.pool.size();
     let pool_idle = state.pool.num_idle() as u32;
     let pool_active = pool_size.saturating_sub(pool_idle);
-
-    // Storage check: verify base path exists and is writable
-    let storage_ok = tokio::fs::metadata(&state.config.storage_path)
-        .await
-        .map(|m| m.is_dir())
-        .unwrap_or(false);
 
     let all_ok = db_ok && storage_ok;
     let status_code = if all_ok {

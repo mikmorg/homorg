@@ -5,6 +5,29 @@ use uuid::Uuid;
 use crate::config::AppConfig;
 use crate::errors::{AppError, AppResult};
 
+/// Normalize a file extension to a known image type, or "bin" for unknown.
+/// Used by all storage backends to prevent content-type confusion.
+fn sanitize_extension(filename: &str) -> &'static str {
+    let raw = Path::new(filename)
+        .extension()
+        .and_then(|e| e.to_str())
+        .unwrap_or("bin")
+        .to_ascii_lowercase();
+    match raw.as_str() {
+        "jpg" | "jpeg" => "jpg",
+        "png" => "png",
+        "gif" => "gif",
+        "webp" => "webp",
+        "avif" => "avif",
+        "heic" => "heic",
+        "heif" => "heif",
+        "svg" => "svg",
+        "bmp" => "bmp",
+        "tiff" | "tif" => "tiff",
+        _ => "bin",
+    }
+}
+
 /// Trait for pluggable storage backends (local filesystem, S3, etc.)
 #[async_trait::async_trait]
 pub trait StorageBackend: Send + Sync {
@@ -43,19 +66,7 @@ impl StorageBackend for LocalStorage {
             .map_err(|e| AppError::Storage(format!("Failed to create item directory: {e}")))?;
 
         let file_id = Uuid::new_v4();
-        let raw_ext = Path::new(filename)
-            .extension()
-            .and_then(|e| e.to_str())
-            .unwrap_or("bin")
-            .to_ascii_lowercase();
-        // ST-1: Only allow known image extensions to prevent content-type confusion
-        // if the storage directory is ever served directly by a reverse proxy.
-        let ext = match raw_ext.as_str() {
-            "jpg" | "jpeg" | "png" | "gif" | "webp" | "avif" | "heic" | "heif" | "svg" | "bmp" | "tiff" | "tif" => {
-                &raw_ext
-            }
-            _ => "bin",
-        };
+        let ext = sanitize_extension(filename);
         let storage_filename = format!("{file_id}.{ext}");
         let file_path = dir.join(&storage_filename);
 
@@ -385,10 +396,7 @@ impl S3Storage {
 #[async_trait::async_trait]
 impl StorageBackend for S3Storage {
     async fn upload(&self, item_id: Uuid, filename: &str, data: &[u8]) -> AppResult<String> {
-        let ext = Path::new(filename)
-            .extension()
-            .and_then(|e| e.to_str())
-            .unwrap_or("bin");
+        let ext = sanitize_extension(filename);
         let file_id = Uuid::new_v4();
         let key = format!("{}/{item_id}/{file_id}.{ext}", self.prefix);
 
@@ -428,7 +436,10 @@ pub async fn create_storage(config: &AppConfig) -> Result<std::sync::Arc<dyn Sto
         }
         #[cfg(not(feature = "s3"))]
         "s3" => Err("S3 storage backend requires the 's3' feature flag. Rebuild with --features s3".into()),
-        "local" | _ => {
+        backend => {
+            if backend != "local" {
+                tracing::warn!("Unknown STORAGE_BACKEND '{backend}', falling back to local");
+            }
             let local = LocalStorage::new(&config.storage_path);
             local.init().await.map_err(|e| format!("Failed to initialize local storage: {e}"))?;
             tracing::info!("Using local storage backend (path={})", config.storage_path);

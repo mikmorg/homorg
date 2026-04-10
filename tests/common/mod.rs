@@ -85,7 +85,7 @@ pub async fn setup() -> TestContext {
 
     // Build AppState
     let event_store = EventStore::new(pool.clone());
-    let state = Arc::new(AppState::new(config, pool, event_store, storage));
+    let state = Arc::new(AppState::new(config, pool, event_store, storage, None));
 
     // Seed an admin user
     let admin_id = seed_admin_user(&state).await;
@@ -142,6 +142,13 @@ fn test_config(database_url: &str) -> AppConfig {
         rate_limit_enabled: false,
         rate_limit_rps: 100,
         rate_limit_burst: 200,
+        storage_backend: "local".to_string(),
+        s3_bucket: String::new(),
+        s3_region: "us-east-1".to_string(),
+        s3_endpoint: None,
+        s3_prefix: "images".to_string(),
+        request_timeout_secs: 30,
+        upload_timeout_secs: 120,
         log_format: "text".to_string(),
     }
 }

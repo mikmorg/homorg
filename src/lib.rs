@@ -64,7 +64,13 @@ pub struct AppState {
 
 impl AppState {
     #[allow(clippy::too_many_arguments)]
-    pub fn new(config: AppConfig, pool: PgPool, event_store: EventStore, storage: Arc<dyn StorageBackend>) -> Self {
+    pub fn new(
+        config: AppConfig,
+        pool: PgPool,
+        event_store: EventStore,
+        storage: Arc<dyn StorageBackend>,
+        metrics_handle: Option<metrics_exporter_prometheus::PrometheusHandle>,
+    ) -> Self {
         let item_commands = ItemCommands::new(pool.clone(), event_store.clone());
         let session_repository = SessionRepository::new(pool.clone());
         let undo_commands = UndoCommands::new(pool.clone(), event_store.clone(), session_repository.clone());
@@ -96,7 +102,7 @@ impl AppState {
             taxonomy_queries,
             storage,
             rebuild_in_progress: Arc::new(AtomicBool::new(false)),
-            metrics_handle: None,
+            metrics_handle,
             cache: cache::AppCache::new(),
         }
     }
