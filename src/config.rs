@@ -25,6 +25,9 @@ pub struct AppConfig {
     pub rate_limit_enabled: bool,
     pub rate_limit_rps: u64,
     pub rate_limit_burst: u32,
+    // Request timeout
+    pub request_timeout_secs: u64,
+    pub upload_timeout_secs: u64,
     // Logging
     pub log_format: String, // "text" or "json"
 }
@@ -103,6 +106,9 @@ impl AppConfig {
             rate_limit_enabled: env::var("RATE_LIMIT_RPS").is_ok(),
             rate_limit_rps: parse_env("RATE_LIMIT_RPS", 50u64),
             rate_limit_burst: parse_env("RATE_LIMIT_BURST", 200u32),
+            // Request timeout
+            request_timeout_secs: parse_env("REQUEST_TIMEOUT_SECS", 30u64),
+            upload_timeout_secs: parse_env("UPLOAD_TIMEOUT_SECS", 120u64),
             // Logging
             log_format: env::var("LOG_FORMAT").unwrap_or_else(|_| "text".into()),
         };
@@ -156,6 +162,8 @@ mod tests {
         std::env::remove_var("ALLOWED_IMAGE_MIMES");
         std::env::remove_var("RATE_LIMIT_RPS");
         std::env::remove_var("RATE_LIMIT_BURST");
+        std::env::remove_var("REQUEST_TIMEOUT_SECS");
+        std::env::remove_var("UPLOAD_TIMEOUT_SECS");
         std::env::remove_var("LOG_FORMAT");
 
         let config = AppConfig::from_env().unwrap();
@@ -169,6 +177,8 @@ mod tests {
         assert_eq!(config.max_upload_bytes, 10_485_760);
         assert_eq!(config.rate_limit_rps, 50);
         assert!(!config.rate_limit_enabled);
+        assert_eq!(config.request_timeout_secs, 30);
+        assert_eq!(config.upload_timeout_secs, 120);
         assert_eq!(config.log_format, "text");
     }
 

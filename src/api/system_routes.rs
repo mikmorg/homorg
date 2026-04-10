@@ -17,6 +17,8 @@ use crate::AppState;
 pub fn router() -> Router<Arc<AppState>> {
     Router::new()
         .route("/health", get(health))
+        .route("/health/live", get(health_live))
+        .route("/health/ready", get(health_ready))
         .route("/metrics", get(metrics))
         .route("/stats", get(stats))
         .route("/admin/rebuild-projections", post(rebuild_projections))
@@ -76,32 +78,113 @@ async fn health(State(state): State<Arc<AppState>>) -> (StatusCode, Json<HealthR
     )
 }
 
+/// Liveness probe — always returns 200 if the process is running.
+/// Use for Kubernetes livenessProbe or basic load-balancer health.
+async fn health_live() -> (StatusCode, Json<serde_json::Value>) {
+    (
+        StatusCode::OK,
+        Json(serde_json::json!({ "status": "alive" })),
+    )
+}
+
+#[derive(Debug, Serialize)]
+struct ReadinessResponse {
+    status: String,
+    database: DatabaseHealth,
+    storage: String,
+    version: &'static str,
+}
+
+#[derive(Debug, Serialize)]
+struct DatabaseHealth {
+    connected: bool,
+    pool_size: u32,
+    pool_idle: u32,
+    pool_active: u32,
+}
+
+/// Readiness probe — returns 200 only when all dependencies are healthy.
+/// Use for Kubernetes readinessProbe or load-balancer backend health.
+async fn health_ready(State(state): State<Arc<AppState>>) -> (StatusCode, Json<ReadinessResponse>) {
+    // DB connectivity check
+    let db_ok = sqlx::query_scalar::<_, i32>("SELECT 1")
+        .fetch_one(&state.pool)
+        .await
+        .is_ok();
+
+    let pool_size = state.pool.size();
+    let pool_idle = state.pool.num_idle() as u32;
+    let pool_active = pool_size.saturating_sub(pool_idle);
+
+    // Storage check: verify base path exists and is writable
+    let storage_ok = tokio::fs::metadata(&state.config.storage_path)
+        .await
+        .map(|m| m.is_dir())
+        .unwrap_or(false);
+
+    let all_ok = db_ok && storage_ok;
+    let status_code = if all_ok {
+        StatusCode::OK
+    } else {
+        StatusCode::SERVICE_UNAVAILABLE
+    };
+
+    (
+        status_code,
+        Json(ReadinessResponse {
+            status: if all_ok {
+                "ready".to_string()
+            } else {
+                "not_ready".to_string()
+            },
+            database: DatabaseHealth {
+                connected: db_ok,
+                pool_size,
+                pool_idle,
+                pool_active,
+            },
+            storage: if storage_ok {
+                "ok".to_string()
+            } else {
+                "unavailable".to_string()
+            },
+            version: env!("CARGO_PKG_VERSION"),
+        }),
+    )
+}
+
 /// System statistics.
 async fn stats(State(state): State<Arc<AppState>>, _auth: AuthUser) -> AppResult<Json<StatsResponse>> {
     let stats = state.stats_queries.get_stats().await?;
     Ok(Json(stats))
 }
 
-/// OP-1: Stub Prometheus-compatible metrics endpoint.
-/// Returns basic build metadata as gauges.  Replace with a real prometheus/openmetrics
-/// exporter (e.g., `metrics-exporter-prometheus`) when runtime instrumentation is added.
-/// OP-2: Requires authentication to prevent unauthenticated enumeration of server state.
+/// Prometheus-compatible metrics endpoint.
+/// Renders all registered metrics (request latency, counts, DB pool stats, etc.)
+/// plus static build info and rebuild status gauges.
+/// Requires authentication to prevent unauthenticated enumeration of server state.
 async fn metrics(State(state): State<Arc<AppState>>, _auth: AuthUser) -> impl IntoResponse {
-    let in_progress = if state.rebuild_in_progress.load(Ordering::Relaxed) {
-        1
+    // Record current DB pool stats before rendering
+    crate::metrics::record_pool_stats(&state.pool);
+
+    // Record rebuild status as a gauge
+    let in_progress = if state.rebuild_in_progress.load(Ordering::Relaxed) { 1.0 } else { 0.0 };
+    ::metrics::gauge!("homorg_rebuild_in_progress").set(in_progress);
+
+    let body = if let Some(ref handle) = state.metrics_handle {
+        let mut output = handle.render();
+        // Append static build info
+        output.push_str(&format!(
+            "\n# HELP homorg_build_info Static build information.\n\
+             # TYPE homorg_build_info gauge\n\
+             homorg_build_info{{version=\"{}\"}} 1\n",
+            env!("CARGO_PKG_VERSION"),
+        ));
+        output
     } else {
-        0
+        "# metrics recorder not installed\n".to_string()
     };
-    let body = format!(
-        "# HELP homorg_build_info Static build information.\n\
-         # TYPE homorg_build_info gauge\n\
-         homorg_build_info{{version=\"{}\"}} 1\n\
-         # HELP homorg_rebuild_in_progress Whether a projection rebuild is currently running.\n\
-         # TYPE homorg_rebuild_in_progress gauge\n\
-         homorg_rebuild_in_progress {}\n",
-        env!("CARGO_PKG_VERSION"),
-        in_progress,
-    );
+
     (
         [(
             axum::http::header::CONTENT_TYPE,

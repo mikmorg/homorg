@@ -13,7 +13,7 @@ pub mod user_routes;
 
 use crate::config::AppConfig;
 use crate::AppState;
-use axum::Router;
+use axum::{middleware, Router};
 use std::{net::IpAddr, sync::Arc};
 use tower::util::option_layer;
 use tower_governor::{governor::GovernorConfigBuilder, key_extractor::KeyExtractor, GovernorError, GovernorLayer};
@@ -121,5 +121,6 @@ pub fn build_router(state: Arc<AppState>, config: &AppConfig) -> Router {
         // Images are household inventory photos — not sensitive. No auth required
         // so standard browser <img src> tags work without fetch+blob workarounds.
         .nest_service("/files", ServeDir::new(&config.storage_path))
+        .layer(middleware::from_fn(crate::metrics::track_request))
         .with_state(state)
 }

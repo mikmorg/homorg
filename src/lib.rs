@@ -7,6 +7,7 @@ pub mod db;
 pub mod errors;
 pub mod events;
 pub mod label_gen;
+pub mod metrics;
 pub mod models;
 pub mod queries;
 pub mod storage;
@@ -53,6 +54,8 @@ pub struct AppState {
     pub storage: Arc<dyn StorageBackend>,
     /// API-5: Tracks whether a projection rebuild is currently running.
     pub rebuild_in_progress: Arc<AtomicBool>,
+    /// Prometheus metrics handle for rendering /metrics output.
+    pub metrics_handle: Option<metrics_exporter_prometheus::PrometheusHandle>,
 }
 
 impl AppState {
@@ -89,6 +92,7 @@ impl AppState {
             taxonomy_queries,
             storage,
             rebuild_in_progress: Arc::new(AtomicBool::new(false)),
+            metrics_handle: None,
         }
     }
 }

@@ -6,6 +6,7 @@ use tower_http::compression::CompressionLayer;
 use tower_http::cors::CorsLayer;
 use tower_http::request_id::{MakeRequestUuid, PropagateRequestIdLayer, SetRequestIdLayer};
 use tower_http::set_header::SetResponseHeaderLayer;
+use tower_http::timeout::TimeoutLayer;
 use tower_http::trace::TraceLayer;
 use tracing::Level;
 use tracing_subscriber::EnvFilter;
@@ -15,6 +16,7 @@ use homorg::config::AppConfig;
 use homorg::constants::{BACKGROUND_CLEANUP_INTERVAL_SECS, SESSION_IDLE_TIMEOUT_HOURS};
 use homorg::db;
 use homorg::events::store::EventStore;
+use homorg::metrics as app_metrics;
 use homorg::storage::LocalStorage;
 use homorg::AppState;
 
@@ -46,9 +48,14 @@ async fn main() {
     storage.init().await.expect("Failed to initialize storage");
     let storage: Arc<dyn homorg::storage::StorageBackend> = Arc::new(storage);
 
+    // Install Prometheus metrics recorder
+    let metrics_handle = app_metrics::install_recorder();
+
     // Build shared state via constructor
     let event_store = EventStore::new(pool.clone());
-    let state = Arc::new(AppState::new(config.clone(), pool, event_store, storage));
+    let mut app_state = AppState::new(config.clone(), pool, event_store, storage);
+    app_state.metrics_handle = Some(metrics_handle);
+    let state = Arc::new(app_state);
 
     // Run initial token/session cleanup and start periodic background task
     {
@@ -136,6 +143,10 @@ async fn main() {
         .layer(DefaultBodyLimit::max(config.max_upload_bytes))
         .layer(PropagateRequestIdLayer::x_request_id())
         .layer(CompressionLayer::new())
+        .layer(TimeoutLayer::with_status_code(
+            std::time::Duration::from_secs(config.request_timeout_secs),
+            axum::http::StatusCode::GATEWAY_TIMEOUT,
+        ))
         .layer(trace_layer)
         .layer(SetRequestIdLayer::x_request_id(MakeRequestUuid))
         // M-9: Security response headers
