@@ -71,7 +71,13 @@
 
 	function itemName(e: StoredEvent): string {
 		const data = e.event_data as Record<string, unknown>;
-		return (data?.name as string) ?? (data?.item_name as string) ?? '';
+		return (data?.name as string) ?? (data?.item_name as string) ?? (data?.barcode as string) ?? '';
+	}
+
+	const NON_ITEM_EVENTS = new Set(['BarcodeGenerated']);
+
+	function hasItemLink(e: StoredEvent): boolean {
+		return !NON_ITEM_EVENTS.has(e.event_type);
 	}
 
 	function imageUrl(e: StoredEvent): string | null {
@@ -192,18 +198,26 @@
 								{eventLabel(event.event_type)}
 							</span>
 							{#if itemName(event)}
-								<a href="/browse/item/{event.aggregate_id}" class="truncate text-sm text-slate-400 hover:text-emerald-400 transition-colors">
-									{itemName(event)}
-								</a>
+								{#if hasItemLink(event)}
+									<a href="/browse/item/{event.aggregate_id}" class="truncate text-sm text-slate-400 hover:text-emerald-400 transition-colors">
+										{itemName(event)}
+									</a>
+								{:else}
+									<span class="truncate text-sm text-slate-400">{itemName(event)}</span>
+								{/if}
 							{/if}
 						</div>
 
 						<div class="mt-0.5 flex flex-wrap items-center gap-2 text-xs text-slate-500">
 							<time title={fullTime(event.created_at)}>{timeAgo(event.created_at)}</time>
 							<span>·</span>
-							<a href="/browse/item/{event.aggregate_id}" class="hover:text-emerald-400 transition-colors" title={event.aggregate_id}>
-								{event.aggregate_id.slice(0, 8)}
-							</a>
+							{#if hasItemLink(event)}
+								<a href="/browse/item/{event.aggregate_id}" class="hover:text-emerald-400 transition-colors" title={event.aggregate_id}>
+									{event.aggregate_id.slice(0, 8)}
+								</a>
+							{:else}
+								<span title={event.aggregate_id}>{event.aggregate_id.slice(0, 8)}</span>
+							{/if}
 							{#if event.metadata?.session_id}
 								<a href="/stocker/{event.metadata.session_id}" class="rounded bg-slate-800 px-1.5 py-0.5 text-[10px] text-slate-400 hover:text-emerald-400 transition-colors">
 									session
