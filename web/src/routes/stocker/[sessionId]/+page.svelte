@@ -51,7 +51,6 @@
 	let flushing: boolean = $state(false);
 	const FLUSH_INTERVAL_MS = 2000;
 	const POLL_INTERVAL_MS = 10000;
-	let lastKnownPhotoCount: number = $state(0);
 
 	// SC-2: Track in-flight barcodes to prevent duplicate processing when the
 	// same barcode fires twice before the first async resolve completes.
@@ -133,7 +132,6 @@
 				return;
 			}
 			setSession(s);
-			lastKnownPhotoCount = s.items_scanned + s.items_created;
 
 			// Restore container context from server state on page load/refresh
 			if (s.active_container_id && !context.containerId) {
@@ -524,14 +522,6 @@
 				return;
 			}
 			setSession(s);
-
-			// Detect new photos from camera
-			const totalPhotos = s.items_scanned + s.items_created;
-			if (lastKnownPhotoCount > 0 && totalPhotos > lastKnownPhotoCount) {
-				const newCount = totalPhotos - lastKnownPhotoCount;
-				addLog('camera', 'success', `${newCount} photo${newCount > 1 ? 's' : ''} uploaded via camera`);
-			}
-			lastKnownPhotoCount = totalPhotos;
 
 			// Sync container context if changed externally
 			if (s.active_container_id && s.active_container_id !== context.containerId) {
