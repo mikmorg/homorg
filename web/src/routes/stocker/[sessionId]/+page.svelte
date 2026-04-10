@@ -77,14 +77,25 @@
 	// context instead of setting it as the new active container.
 	let containerMoveMode: boolean = $state(false);
 
-	// Load recents and reset search state whenever the picker opens
+	// Load recents and all containers whenever the picker opens
 	$effect(() => {
 		if (showContainerPicker) {
 			pickerRecents = getRecentContainers();
 			pickerQuery = '';
-			pickerResults = [];
+			loadAllContainers();
 		}
 	});
+
+	async function loadAllContainers() {
+		pickerLoading = true;
+		try {
+			pickerResults = await api.search.query({ q: '', is_container: true, limit: 50 });
+		} catch {
+			pickerResults = [];
+		} finally {
+			pickerLoading = false;
+		}
+	}
 
 	// Scanner modal
 	let showScannerSettings: boolean = $state(false);
@@ -646,7 +657,7 @@
 
 	async function searchContainers() {
 		if (!pickerQuery.trim()) {
-			pickerResults = [];
+			await loadAllContainers();
 			return;
 		}
 		pickerLoading = true;
@@ -1169,10 +1180,10 @@
 				<div class="h-5 w-5 animate-spin rounded-full border-2 border-slate-600 border-t-indigo-500"></div>
 			</div>
 		{:else if !pickerQuery.trim()}
-			<!-- No query: show recent containers -->
+			<!-- No query: show recents then all containers -->
 			{#if pickerRecents.length > 0}
 				<p class="mb-2 px-1 text-xs font-medium uppercase tracking-wide text-slate-500">Recent</p>
-				<div class="space-y-1">
+				<div class="space-y-1 mb-4">
 					{#each pickerRecents as rc (rc.id)}
 						<button
 							class="flex w-full items-center gap-3 rounded-lg px-3 py-3 text-left transition-colors hover:bg-slate-800"
@@ -1189,8 +1200,29 @@
 						</button>
 					{/each}
 				</div>
-			{:else}
-				<p class="py-8 text-center text-sm text-slate-500">Search for a container or scan one</p>
+			{/if}
+			{#if pickerResults.length > 0}
+				<p class="mb-2 px-1 text-xs font-medium uppercase tracking-wide text-slate-500">All containers</p>
+				<div class="space-y-1">
+					{#each pickerResults as item (item.id)}
+						<button
+							class="flex w-full items-center gap-3 rounded-lg px-3 py-3 text-left transition-colors hover:bg-slate-800"
+							onclick={() => pickContainer(item)}
+						>
+							<div class="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-md bg-indigo-500/20 text-indigo-400 text-xs">
+								<svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+									<path d="M21 8a2 2 0 0 0-1.5-1.937A2 2 0 0 0 18 5.5V5a2 2 0 0 0-2-2H8a2 2 0 0 0-2 2v.5A2 2 0 0 0 4.5 6.063 2 2 0 0 0 3 8v9a3 3 0 0 0 3 3h12a3 3 0 0 0 3-3z" />
+								</svg>
+							</div>
+							<div class="min-w-0">
+								<p class="truncate font-medium text-slate-100">{item.name ?? 'Unnamed'}</p>
+								{#if item.system_barcode}
+									<p class="text-xs text-slate-400 font-mono">{item.system_barcode}</p>
+								{/if}
+							</div>
+						</button>
+					{/each}
+				</div>
 			{/if}
 		{:else if pickerResults.length === 0}
 			<p class="py-8 text-center text-sm text-slate-500">No containers found</p>
