@@ -427,7 +427,7 @@
 		}
 	}
 
-	function addLog(barcode: string, type: ScanLogEntry['type'], message: string, item?: Item, extra?: { itemId?: string; imageUrl?: string }) {
+	function addLog(barcode: string, type: ScanLogEntry['type'], message: string, item?: Item, extra?: { itemId?: string; imageUrl?: string; timestamp?: number }) {
 		scanLog = [
 			{
 				id: ++logIdCounter,
@@ -437,7 +437,7 @@
 				item,
 				itemId: extra?.itemId ?? item?.id,
 				imageUrl: extra?.imageUrl,
-				timestamp: Date.now()
+				timestamp: extra?.timestamp ?? Date.now()
 			},
 			...scanLog
 		].slice(0, 100);
@@ -471,8 +471,9 @@
 			}
 			merged.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
 
-			// Populate scan log from history
-			for (const e of merged.slice(0, 50)) {
+			// Populate scan log from history (iterate oldest-first so newest ends on top)
+			const history = merged.slice(0, 50).reverse();
+			for (const e of history) {
 				const data = e.event_data as Record<string, unknown>;
 				const name = (data?.name as string) ?? (data?.item_name as string) ?? '';
 				let type: ScanLogEntry['type'] = 'success';
@@ -507,7 +508,7 @@
 					type,
 					message,
 					undefined,
-					{ itemId: e.aggregate_id, imageUrl }
+					{ itemId: e.aggregate_id, imageUrl, timestamp: new Date(e.created_at).getTime() }
 				);
 			}
 		} catch { /* ignore history load failure */ }
@@ -571,7 +572,7 @@
 						type,
 						message,
 						undefined,
-						{ itemId: evt.aggregate_id, imageUrl: imgUrl }
+						{ itemId: evt.aggregate_id, imageUrl: imgUrl, timestamp: new Date(evt.created_at).getTime() }
 					);
 				}
 			} catch { /* ignore parse errors */ }
@@ -847,6 +848,11 @@
 	function logClass(type: ScanLogEntry['type']) {
 		return `scan-line-${type}`;
 	}
+
+	function logTime(ts: number): string {
+		const d = new Date(ts);
+		return d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+	}
 </script>
 
 <svelte:head>
@@ -993,13 +999,13 @@
 			</div>
 		{:else}
 			{#each scanLog as entry (entry.id)}
-				<div class="scan-line {logClass(entry.type)} flex items-center gap-3 px-4 py-2">
+				<div class="scan-line {logClass(entry.type)} flex items-center gap-2 px-4 py-2">
+					<span class="w-14 flex-shrink-0 text-[10px] tabular-nums text-slate-600">{logTime(entry.timestamp)}</span>
 					{#if entry.imageUrl}
 						<button class="flex-shrink-0 cursor-zoom-in" onclick={() => lightboxUrl = entry.imageUrl ?? null}>
 							<img src={entry.imageUrl} alt="" class="h-8 w-8 rounded object-cover border border-slate-700 hover:border-emerald-500 transition-colors" />
 						</button>
 					{/if}
-					<span class="w-20 flex-shrink-0 truncate text-xs opacity-60">{entry.barcode}</span>
 					{#if entry.itemId}
 						<a href="/browse/item/{entry.itemId}" class="flex-1 truncate hover:text-emerald-400 transition-colors">
 							{entry.message}
