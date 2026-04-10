@@ -1,11 +1,13 @@
 use axum::{
     extract::{Json, Multipart, Path, Query, State},
     http::StatusCode,
+    response::sse::{Event, KeepAlive, Sse},
     routing::{delete, get, post, put},
     Router,
 };
 use serde::Deserialize;
 use std::sync::Arc;
+use tokio_stream::StreamExt as _;
 use uuid::Uuid;
 
 use crate::api::item_routes::validate_create_request;
@@ -25,6 +27,7 @@ pub fn router() -> Router<Arc<AppState>> {
             get(get_session),
         )
         .route("/sessions/{id}/batch", post(submit_batch))
+        .route("/sessions/{id}/stream", get(session_event_stream))
         .route("/sessions/{id}/end", put(end_session))
         // Camera link management (JWT-authenticated)
         .route("/sessions/{id}/camera-links", post(create_camera_link).get(list_camera_links))
@@ -506,6 +509,118 @@ async fn end_session(
     }
     let session = state.session_repository.end_session(id, auth.user_id).await?;
     Ok(Json(session))
+}
+
+#[derive(Debug, Deserialize)]
+struct StreamQuery {
+    token: String,
+}
+
+/// SSE stream of session events. Polls for new events every 2 seconds and
+/// pushes them to the client. Uses query-param token since EventSource
+/// doesn't support Authorization headers.
+async fn session_event_stream(
+    State(state): State<Arc<AppState>>,
+    Path(session_id): Path<Uuid>,
+    Query(q): Query<StreamQuery>,
+) -> AppResult<Sse<impl tokio_stream::Stream<Item = Result<Event, std::convert::Infallible>>>> {
+    // Authenticate via query param token (EventSource can't set headers)
+    let claims = crate::auth::jwt::decode_access_token(&q.token, &state.config.jwt_secret)?;
+    let user_id = claims.sub;
+
+    // Verify session exists and belongs to user
+    let _session = state
+        .session_repository
+        .get_active_for_user(session_id, user_id)
+        .await?;
+
+    // Track the last event ID we've sent
+    let last_event_id = Arc::new(tokio::sync::Mutex::new(0i64));
+    let pool = state.pool.clone();
+    let sid = session_id.to_string();
+    let session_repo = state.session_repository.clone();
+
+    let stream = tokio_stream::wrappers::IntervalStream::new(
+        tokio::time::interval(std::time::Duration::from_secs(2)),
+    )
+    .then(move |_| {
+        let pool = pool.clone();
+        let sid = sid.clone();
+        let last_id = Arc::clone(&last_event_id);
+        let session_repo = session_repo.clone();
+        async move {
+            let mut last = last_id.lock().await;
+
+            // Check if session ended
+            if let Ok(s) = session_repo.get_session_by_id(session_id).await {
+                if s.ended_at.is_some() {
+                    return Ok(Event::default().event("session_ended").data("{}"));
+                }
+                // Send session state update
+                if let Ok(json) = serde_json::to_string(&s) {
+                    // Also fetch new events
+                    let events: Vec<crate::models::event::StoredEvent> = sqlx::query_as(
+                        r#"
+                        SELECT id, event_id, aggregate_id, aggregate_type, event_type, event_data, metadata, actor_id, created_at, sequence_number, schema_version
+                        FROM event_store
+                        WHERE metadata->>'session_id' = $1 AND id > $2
+                        ORDER BY id ASC
+                        LIMIT 50
+                        "#,
+                    )
+                    .bind(&sid)
+                    .bind(*last)
+                    .fetch_all(&pool)
+                    .await
+                    .unwrap_or_default();
+
+                    // Also get events for the active item (camera uploads lack session_id)
+                    let mut item_events: Vec<crate::models::event::StoredEvent> = Vec::new();
+                    if let Some(item_id) = s.active_item_id {
+                        item_events = sqlx::query_as(
+                            r#"
+                            SELECT id, event_id, aggregate_id, aggregate_type, event_type, event_data, metadata, actor_id, created_at, sequence_number, schema_version
+                            FROM event_store
+                            WHERE aggregate_id = $1 AND id > $2
+                            ORDER BY id ASC
+                            LIMIT 50
+                            "#,
+                        )
+                        .bind(item_id)
+                        .bind(*last)
+                        .fetch_all(&pool)
+                        .await
+                        .unwrap_or_default();
+                    }
+
+                    // Merge, deduplicate, update cursor
+                    let mut all_events = events;
+                    let seen: std::collections::HashSet<i64> = all_events.iter().map(|e| e.id).collect();
+                    for e in item_events {
+                        if !seen.contains(&e.id) {
+                            all_events.push(e);
+                        }
+                    }
+                    all_events.sort_by_key(|e| e.id);
+
+                    if let Some(newest) = all_events.last() {
+                        *last = newest.id;
+                    }
+
+                    let payload = serde_json::json!({
+                        "session": serde_json::from_str::<serde_json::Value>(&json).unwrap_or_default(),
+                        "events": all_events,
+                    });
+
+                    return Ok(Event::default().event("update").data(payload.to_string()));
+                }
+            }
+
+            Ok(Event::default().comment("ping"))
+        }
+    });
+
+    Ok(Sse::new(stream).keep_alive(KeepAlive::default()))
 }
 
 // ── Camera link management (JWT-authenticated) ──────────────────────────

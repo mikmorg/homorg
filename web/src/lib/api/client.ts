@@ -289,6 +289,10 @@ export const stocker = {
 			params: { atomic }
 		}),
 	endSession: (id: string) => put$<ScanSession>(`/stocker/sessions/${id}/end`),
+	streamSession: (id: string): EventSource => {
+		const auth = get(authStore);
+		return new EventSource(`${BASE}/stocker/sessions/${id}/stream?token=${auth?.access_token ?? ''}`);
+	},
 	// Camera link management
 	createCameraLink: (sessionId: string, body?: CreateCameraLinkRequest) =>
 		post$<CameraLinkResponse>(`/stocker/sessions/${sessionId}/camera-links`, body),

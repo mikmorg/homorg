@@ -47,10 +47,10 @@
 
 	let pendingBatch: StockerBatchEvent[] = $state([]);
 	let flushTimer: ReturnType<typeof setInterval> | null = $state(null);
-	let pollTimer: ReturnType<typeof setInterval> | null = $state(null);
+	let eventSource: EventSource | null = $state(null);
 	let flushing: boolean = $state(false);
 	const FLUSH_INTERVAL_MS = 2000;
-	const POLL_INTERVAL_MS = 10000;
+	let seenEventIds: Set<string> = new Set();
 
 	// SC-2: Track in-flight barcodes to prevent duplicate processing when the
 	// same barcode fires twice before the first async resolve completes.
@@ -166,8 +166,8 @@
 		// Start flush timer
 		flushTimer = setInterval(flushBatch, FLUSH_INTERVAL_MS);
 
-		// Poll session state to pick up camera uploads and external changes
-		pollTimer = setInterval(pollSession, POLL_INTERVAL_MS);
+		// Connect SSE stream for real-time updates
+		connectEventStream();
 	});
 
 	// H-11: Flush pending batch before navigation so events aren't lost.
@@ -188,7 +188,7 @@
 
 	onDestroy(() => {
 		if (flushTimer) clearInterval(flushTimer);
-		if (pollTimer) clearInterval(pollTimer);
+		if (eventSource) { eventSource.close(); eventSource = null; }
 		unregisterScan();
 	});
 
@@ -465,6 +465,7 @@
 			for (const e of [...sessionEvents, ...itemEvents]) {
 				if (!seen.has(e.event_id)) {
 					seen.add(e.event_id);
+					seenEventIds.add(e.event_id);
 					merged.push(e);
 				}
 			}
@@ -512,36 +513,80 @@
 		} catch { /* ignore history load failure */ }
 	}
 
-	// ── Session polling (picks up camera uploads and external changes) ──────
-	async function pollSession() {
-		try {
-			const s = await api.stocker.getSession(sessionId);
-			if (s.ended_at) {
-				error = 'Session ended';
-				if (pollTimer) clearInterval(pollTimer);
-				return;
-			}
-			setSession(s);
+	// ── SSE stream (real-time session updates) ──────────────────────────────
+	function connectEventStream() {
+		if (eventSource) eventSource.close();
+		eventSource = api.stocker.streamSession(sessionId);
 
-			// Sync container context if changed externally
-			if (s.active_container_id && s.active_container_id !== context.containerId) {
-				try {
-					const item = await api.items.get(s.active_container_id);
-					setContext({
-						containerId: s.active_container_id,
-						containerName: item.name ?? 'Unnamed'
-					});
-				} catch { /* ignore */ }
-			}
+		eventSource.addEventListener('update', async (e: MessageEvent) => {
+			try {
+				const data = JSON.parse(e.data);
+				const s = data.session as ScanSession;
+				if (s) {
+					setSession(s);
 
-			// Sync active item name if changed
-			if (s.active_item_id && s.active_item_id !== $stockerStore.activeItemId) {
-				try {
-					const item = await api.items.get(s.active_item_id);
-					activeItemName = item.name ?? '';
-				} catch { /* ignore */ }
-			}
-		} catch { /* ignore poll failures silently */ }
+					// Sync container context if changed externally
+					if (s.active_container_id && s.active_container_id !== context.containerId) {
+						try {
+							const item = await api.items.get(s.active_container_id);
+							setContext({
+								containerId: s.active_container_id,
+								containerName: item.name ?? 'Unnamed'
+							});
+						} catch { /* ignore */ }
+					}
+
+					// Sync active item name if changed
+					if (s.active_item_id && s.active_item_id !== $stockerStore.activeItemId) {
+						try {
+							const item = await api.items.get(s.active_item_id);
+							activeItemName = item.name ?? '';
+						} catch { /* ignore */ }
+					}
+				}
+
+				// Process new events into scan log
+				const newEvents = (data.events ?? []) as StoredEvent[];
+				for (const evt of newEvents) {
+					if (seenEventIds.has(evt.event_id)) continue;
+					seenEventIds.add(evt.event_id);
+
+					const evtData = evt.event_data as Record<string, unknown>;
+					const name = (evtData?.name as string) ?? (evtData?.item_name as string) ?? '';
+					const imgUrl = (evtData?.url as string) ?? (evtData?.image_url as string) ?? undefined;
+					let type: 'success' | 'context' | 'create' | 'error' = 'success';
+					let message = '';
+
+					switch (evt.event_type) {
+						case 'ItemCreated': type = 'create'; message = `Created: ${name || 'item'}`; break;
+						case 'ItemMoved': message = `Moved: ${name || 'item'}`; break;
+						case 'ItemImageAdded': message = `Photo added${name ? ': ' + name : ''}`; break;
+						case 'ItemUpdated': message = `Updated: ${name || 'item'}`; break;
+						case 'ItemDeleted': type = 'error'; message = `Deleted: ${name || 'item'}`; break;
+						default: message = evt.event_type.replace(/([A-Z])/g, ' $1').trim();
+					}
+
+					addLog(
+						evt.aggregate_id.slice(0, 8),
+						type,
+						message,
+						undefined,
+						{ itemId: evt.aggregate_id, imageUrl: imgUrl }
+					);
+				}
+			} catch { /* ignore parse errors */ }
+		});
+
+		eventSource.addEventListener('session_ended', () => {
+			error = 'Session ended';
+			if (eventSource) { eventSource.close(); eventSource = null; }
+		});
+
+		eventSource.onerror = () => {
+			// Reconnect after a delay on error
+			if (eventSource) { eventSource.close(); eventSource = null; }
+			setTimeout(connectEventStream, 5000);
+		};
 	}
 
 	// ── Batch flush ──────────────────────────────────────────────────────────

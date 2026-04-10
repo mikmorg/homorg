@@ -1242,6 +1242,7 @@ dependencies = [
  "testcontainers-modules",
  "thiserror 2.0.18",
  "tokio",
+ "tokio-stream",
  "tower",
  "tower-http",
  "tower_governor",
