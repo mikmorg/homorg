@@ -17,7 +17,6 @@ use homorg::constants::{BACKGROUND_CLEANUP_INTERVAL_SECS, SESSION_IDLE_TIMEOUT_H
 use homorg::db;
 use homorg::events::store::EventStore;
 use homorg::metrics as app_metrics;
-use homorg::storage::LocalStorage;
 use homorg::AppState;
 
 #[tokio::main]
@@ -43,10 +42,10 @@ async fn main() {
 
     tracing::info!("Database migrations complete");
 
-    // Initialize storage backend
-    let storage = LocalStorage::new(&config.storage_path);
-    storage.init().await.expect("Failed to initialize storage");
-    let storage: Arc<dyn homorg::storage::StorageBackend> = Arc::new(storage);
+    // Initialize storage backend (local or S3 based on config)
+    let storage = homorg::storage::create_storage(&config)
+        .await
+        .expect("Failed to initialize storage backend");
 
     // Install Prometheus metrics recorder
     let metrics_handle = app_metrics::install_recorder();

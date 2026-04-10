@@ -54,6 +54,12 @@ metrics-exporter-prometheus = { version = "0.16", default-features = false }
 utoipa = { version = "5", features = ["axum_extras", "uuid", "chrono"] }
 utoipa-swagger-ui = { version = "9", features = ["axum"] }
 
+# Object storage (optional — enable with --features s3)
+rust-s3 = { version = "0.35", optional = true, default-features = false, features = ["tokio-rustls-tls"] }
+
+# Caching
+moka = { version = "0.12", features = ["future"] }
+
 # Utilities
 thiserror = "2"
 hex = "0.4"
@@ -64,6 +70,10 @@ infer = "0.16"
 # Label PDF generation
 minijinja = "2"
 tempfile = "3"
+
+[features]
+default = []
+s3 = ["dep:rust-s3"]
 
 [dev-dependencies]
 tokio = { version = "1", features = ["test-util", "macros", "rt"] }

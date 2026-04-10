@@ -1,5 +1,6 @@
 pub mod api;
 pub mod auth;
+pub mod cache;
 pub mod commands;
 pub mod config;
 pub mod constants;
@@ -57,6 +58,8 @@ pub struct AppState {
     pub rebuild_in_progress: Arc<AtomicBool>,
     /// Prometheus metrics handle for rendering /metrics output.
     pub metrics_handle: Option<metrics_exporter_prometheus::PrometheusHandle>,
+    /// In-process cache for hot query paths.
+    pub cache: cache::AppCache,
 }
 
 impl AppState {
@@ -94,6 +97,7 @@ impl AppState {
             storage,
             rebuild_in_progress: Arc::new(AtomicBool::new(false)),
             metrics_handle: None,
+            cache: cache::AppCache::new(),
         }
     }
 }

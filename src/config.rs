@@ -25,6 +25,13 @@ pub struct AppConfig {
     pub rate_limit_enabled: bool,
     pub rate_limit_rps: u64,
     pub rate_limit_burst: u32,
+    // Storage backend: "local" (default) or "s3"
+    pub storage_backend: String,
+    // S3 settings (only used when storage_backend = "s3")
+    pub s3_bucket: String,
+    pub s3_region: String,
+    pub s3_endpoint: Option<String>,
+    pub s3_prefix: String,
     // Request timeout
     pub request_timeout_secs: u64,
     pub upload_timeout_secs: u64,
@@ -106,6 +113,12 @@ impl AppConfig {
             rate_limit_enabled: env::var("RATE_LIMIT_RPS").is_ok(),
             rate_limit_rps: parse_env("RATE_LIMIT_RPS", 50u64),
             rate_limit_burst: parse_env("RATE_LIMIT_BURST", 200u32),
+            // Storage backend
+            storage_backend: env::var("STORAGE_BACKEND").unwrap_or_else(|_| "local".into()),
+            s3_bucket: env::var("S3_BUCKET").unwrap_or_default(),
+            s3_region: env::var("S3_REGION").unwrap_or_else(|_| "us-east-1".into()),
+            s3_endpoint: env::var("S3_ENDPOINT").ok(),
+            s3_prefix: env::var("S3_PREFIX").unwrap_or_else(|_| "images".into()),
             // Request timeout
             request_timeout_secs: parse_env("REQUEST_TIMEOUT_SECS", 30u64),
             upload_timeout_secs: parse_env("UPLOAD_TIMEOUT_SECS", 120u64),
