@@ -305,6 +305,7 @@
 					setPendingCount(pendingBatch.length);
 					addLog(barcode, 'success', `Queued: ${item.name ?? 'Unnamed'} → ${context.containerName}`);
 					addRecentItem(item);
+					activeItemName = item.name ?? '';
 					scanSuccess();
 				}
 				break;
@@ -341,7 +342,8 @@
 						if (created) {
 							const createdItem = await api.items.get(created.item_id);
 							addRecentItem(createdItem);
-							addLog(barcode, 'success', `Created: ${barcode} → ${context.containerName}`);
+							activeItemName = createdItem.name ?? barcode;
+							addLog(barcode, 'create', `Created: ${barcode} → ${context.containerName}`, undefined, { itemId: created.item_id });
 							scanSuccess();
 						} else {
 							addLog(barcode, 'error', batchRes.errors?.[0]?.message ?? 'Create failed');
@@ -420,6 +422,7 @@
 				setPendingCount(pendingBatch.length);
 				addLog(barcode, 'success', `Queued: ${item.name ?? 'Unnamed'} → ${context.containerName}`);
 				addRecentItem(item);
+				activeItemName = item.name ?? '';
 				scanSuccess();
 				break;
 			}
@@ -613,7 +616,8 @@
 			if (created) {
 				const createdItem = await api.items.get(created.item_id);
 				addRecentItem(createdItem);
-				addLog(qcBarcode || '—', 'success', `Created: ${qcName} → ${context.containerName}`);
+				activeItemName = createdItem.name ?? qcName;
+				addLog(qcBarcode || '—', 'create', `Created: ${qcName} → ${context.containerName}`, undefined, { itemId: created.item_id });
 				scanSuccess();
 				showQuickCreate = false;
 				qcName = '';
