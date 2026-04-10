@@ -114,6 +114,222 @@ impl StorageBackend for LocalStorage {
     }
 }
 
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // ── get_url tests ──────────────────────────────────────────────────
+
+    #[test]
+    fn get_url_normal_key() {
+        let storage = LocalStorage::new("/data/images");
+        assert_eq!(storage.get_url("abc/def.jpg"), "/files/abc/def.jpg");
+    }
+
+    #[test]
+    fn get_url_sanitizes_path_traversal() {
+        let storage = LocalStorage::new("/data/images");
+        let url = storage.get_url("../../etc/passwd");
+        assert!(!url.contains(".."), "should strip path traversal: {url}");
+        assert!(url.starts_with("/files/"));
+    }
+
+    #[test]
+    fn get_url_sanitizes_backslash_traversal() {
+        let storage = LocalStorage::new("/data/images");
+        let url = storage.get_url("..\\..\\etc\\passwd");
+        assert!(!url.contains(".."), "should strip traversal: {url}");
+    }
+
+    #[test]
+    fn get_url_passthrough_clean_key() {
+        let storage = LocalStorage::new("/data/images");
+        let key = "item-uuid/file-uuid.jpg";
+        assert_eq!(storage.get_url(key), "/files/item-uuid/file-uuid.jpg");
+    }
+
+    // ── upload tests ───────────────────────────────────────────────────
+
+    #[tokio::test]
+    async fn upload_creates_file_with_allowed_extension() {
+        let tmp = tempfile::tempdir().unwrap();
+        let storage = LocalStorage::new(tmp.path().to_str().unwrap());
+        let item_id = Uuid::new_v4();
+        let data = b"fake image data";
+
+        let key = storage.upload(item_id, "photo.jpg", data).await.unwrap();
+        assert!(key.starts_with(&item_id.to_string()));
+        assert!(key.ends_with(".jpg"));
+
+        // Verify file exists on disk
+        let full_path = tmp.path().join(&key);
+        assert!(full_path.exists());
+        assert_eq!(std::fs::read(&full_path).unwrap(), data);
+    }
+
+    #[tokio::test]
+    async fn upload_rejects_unknown_extension_to_bin() {
+        let tmp = tempfile::tempdir().unwrap();
+        let storage = LocalStorage::new(tmp.path().to_str().unwrap());
+        let item_id = Uuid::new_v4();
+
+        let key = storage.upload(item_id, "script.exe", b"data").await.unwrap();
+        assert!(key.ends_with(".bin"), "unknown ext should map to .bin: {key}");
+    }
+
+    #[tokio::test]
+    async fn upload_allows_png_extension() {
+        let tmp = tempfile::tempdir().unwrap();
+        let storage = LocalStorage::new(tmp.path().to_str().unwrap());
+        let key = storage.upload(Uuid::new_v4(), "image.PNG", b"data").await.unwrap();
+        assert!(key.ends_with(".png"), "should lowercase extension: {key}");
+    }
+
+    #[tokio::test]
+    async fn upload_allows_webp_extension() {
+        let tmp = tempfile::tempdir().unwrap();
+        let storage = LocalStorage::new(tmp.path().to_str().unwrap());
+        let key = storage.upload(Uuid::new_v4(), "photo.webp", b"data").await.unwrap();
+        assert!(key.ends_with(".webp"));
+    }
+
+    #[tokio::test]
+    async fn upload_no_extension_maps_to_bin() {
+        let tmp = tempfile::tempdir().unwrap();
+        let storage = LocalStorage::new(tmp.path().to_str().unwrap());
+        let key = storage.upload(Uuid::new_v4(), "noext", b"data").await.unwrap();
+        assert!(key.ends_with(".bin"));
+    }
+
+    // ── delete tests ───────────────────────────────────────────────────
+
+    #[tokio::test]
+    async fn delete_removes_uploaded_file() {
+        let tmp = tempfile::tempdir().unwrap();
+        let storage = LocalStorage::new(tmp.path().to_str().unwrap());
+        let item_id = Uuid::new_v4();
+
+        let key = storage.upload(item_id, "photo.jpg", b"data").await.unwrap();
+        let full_path = tmp.path().join(&key);
+        assert!(full_path.exists());
+
+        storage.delete(&key).await.unwrap();
+        assert!(!full_path.exists());
+    }
+
+    #[tokio::test]
+    async fn delete_strips_files_prefix() {
+        let tmp = tempfile::tempdir().unwrap();
+        let storage = LocalStorage::new(tmp.path().to_str().unwrap());
+        let item_id = Uuid::new_v4();
+
+        let key = storage.upload(item_id, "photo.jpg", b"data").await.unwrap();
+        let url_key = format!("/files/{key}");
+
+        storage.delete(&url_key).await.unwrap();
+        assert!(!tmp.path().join(&key).exists());
+    }
+
+    #[tokio::test]
+    async fn delete_rejects_path_traversal() {
+        let tmp = tempfile::tempdir().unwrap();
+        let storage = LocalStorage::new(tmp.path().to_str().unwrap());
+
+        // Create a file outside the storage dir
+        let outside = tmp.path().parent().unwrap().join("outside.txt");
+        std::fs::write(&outside, "secret").unwrap();
+
+        let result = storage.delete("../../outside.txt").await;
+        assert!(result.is_err(), "path traversal should be rejected");
+        // File should still exist
+        assert!(outside.exists());
+        std::fs::remove_file(outside).ok();
+    }
+
+    #[tokio::test]
+    async fn delete_nonexistent_file_is_ok() {
+        let tmp = tempfile::tempdir().unwrap();
+        let storage = LocalStorage::new(tmp.path().to_str().unwrap());
+        // Deleting a key that doesn't resolve to a real file should error
+        // on canonicalize (file must exist to canonicalize)
+        let result = storage.delete("nonexistent/file.jpg").await;
+        assert!(result.is_err());
+    }
+
+    // ── init tests ─────────────────────────────────────────────────────
+
+    #[tokio::test]
+    async fn init_creates_directory() {
+        let tmp = tempfile::tempdir().unwrap();
+        let sub = tmp.path().join("nested/storage");
+        let storage = LocalStorage::new(sub.to_str().unwrap());
+        storage.init().await.unwrap();
+        assert!(sub.exists());
+        assert!(sub.is_dir());
+    }
+
+    // ── factory tests ──────────────────────────────────────────────────
+
+    #[tokio::test]
+    async fn factory_s3_without_feature_returns_error() {
+        // When compiled without s3 feature, requesting s3 backend should fail
+        #[cfg(not(feature = "s3"))]
+        {
+            let tmp = tempfile::tempdir().unwrap();
+            let mut config = test_config(tmp.path().to_str().unwrap());
+            config.storage_backend = "s3".into();
+            let result = create_storage(&config).await;
+            match result {
+                Err(msg) => assert!(msg.contains("feature flag"), "unexpected error: {msg}"),
+                Ok(_) => panic!("expected error for s3 without feature"),
+            }
+        }
+    }
+
+    #[tokio::test]
+    async fn factory_local_creates_storage() {
+        let tmp = tempfile::tempdir().unwrap();
+        let config = test_config(tmp.path().to_str().unwrap());
+        let storage = create_storage(&config).await.unwrap();
+        // Should be able to upload
+        let key = storage.upload(Uuid::new_v4(), "test.jpg", b"data").await.unwrap();
+        assert!(key.ends_with(".jpg"));
+    }
+
+    fn test_config(storage_path: &str) -> AppConfig {
+        AppConfig {
+            database_url: String::new(),
+            jwt_secret: "x".repeat(32),
+            jwt_access_ttl_secs: 900,
+            jwt_refresh_ttl_days: 30,
+            listen_addr: "0.0.0.0:8080".into(),
+            barcode_prefix: "HOM".into(),
+            barcode_pad_width: 6,
+            storage_path: storage_path.into(),
+            max_batch_size: 500,
+            cors_origins: vec!["*".into()],
+            db_max_connections: 20,
+            db_min_connections: 2,
+            db_acquire_timeout_secs: 30,
+            db_idle_timeout_secs: 600,
+            db_max_lifetime_secs: 1800,
+            max_upload_bytes: 10_485_760,
+            allowed_image_mimes: vec!["image/jpeg".into()],
+            rate_limit_enabled: false,
+            rate_limit_rps: 50,
+            rate_limit_burst: 200,
+            storage_backend: "local".into(),
+            s3_bucket: String::new(),
+            s3_region: "us-east-1".into(),
+            s3_endpoint: None,
+            s3_prefix: "images".into(),
+            request_timeout_secs: 30,
+            upload_timeout_secs: 120,
+            log_format: "text".into(),
+        }
+    }
+}
+
 // ── S3-compatible storage backend (requires `s3` feature) ─────────────
 
 #[cfg(feature = "s3")]

@@ -616,3 +616,253 @@ async fn assign_barcode(
         .await?;
     Ok(Json(event))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::models::item::{CreateItemRequest, ExternalCode};
+
+    /// Helper to create a minimal valid CreateItemRequest.
+    fn minimal_create() -> CreateItemRequest {
+        CreateItemRequest {
+            system_barcode: None,
+            parent_id: Uuid::new_v4(),
+            name: Some("Test Item".into()),
+            description: None,
+            category: None,
+            tags: None,
+            is_container: None,
+            coordinate: None,
+            location_schema: None,
+            max_capacity_cc: None,
+            max_weight_grams: None,
+            dimensions: None,
+            weight_grams: None,
+            is_fungible: None,
+            fungible_quantity: None,
+            fungible_unit: None,
+            external_codes: None,
+            condition: None,
+            currency: None,
+            acquisition_date: None,
+            acquisition_cost: None,
+            current_value: None,
+            depreciation_rate: None,
+            warranty_expiry: None,
+            metadata: None,
+            container_type_id: None,
+        }
+    }
+
+    #[test]
+    fn create_accepts_valid_name() {
+        assert!(validate_create_request(&minimal_create()).is_ok());
+    }
+
+    #[test]
+    fn create_rejects_blank_name() {
+        let mut req = minimal_create();
+        req.name = Some("   ".into());
+        assert!(validate_create_request(&req).is_err());
+    }
+
+    #[test]
+    fn create_rejects_empty_name() {
+        let mut req = minimal_create();
+        req.name = Some(String::new());
+        assert!(validate_create_request(&req).is_err());
+    }
+
+    #[test]
+    fn create_rejects_name_over_500_chars() {
+        let mut req = minimal_create();
+        req.name = Some("x".repeat(501));
+        assert!(validate_create_request(&req).is_err());
+    }
+
+    #[test]
+    fn create_accepts_name_at_500_chars() {
+        let mut req = minimal_create();
+        req.name = Some("x".repeat(500));
+        assert!(validate_create_request(&req).is_ok());
+    }
+
+    #[test]
+    fn create_accepts_no_name() {
+        let mut req = minimal_create();
+        req.name = None;
+        assert!(validate_create_request(&req).is_ok());
+    }
+
+    #[test]
+    fn create_rejects_description_over_10kb() {
+        let mut req = minimal_create();
+        req.description = Some("x".repeat(10_001));
+        assert!(validate_create_request(&req).is_err());
+    }
+
+    #[test]
+    fn create_accepts_description_at_10kb() {
+        let mut req = minimal_create();
+        req.description = Some("x".repeat(10_000));
+        assert!(validate_create_request(&req).is_ok());
+    }
+
+    #[test]
+    fn create_rejects_too_many_tags() {
+        let mut req = minimal_create();
+        req.tags = Some(vec!["t".into(); 51]);
+        assert!(validate_create_request(&req).is_err());
+    }
+
+    #[test]
+    fn create_accepts_50_tags() {
+        let mut req = minimal_create();
+        req.tags = Some(vec!["tag".into(); 50]);
+        assert!(validate_create_request(&req).is_ok());
+    }
+
+    #[test]
+    fn create_rejects_tag_over_100_chars() {
+        let mut req = minimal_create();
+        req.tags = Some(vec!["x".repeat(101)]);
+        assert!(validate_create_request(&req).is_err());
+    }
+
+    #[test]
+    fn create_accepts_valid_condition() {
+        let mut req = minimal_create();
+        req.condition = Some("good".into());
+        assert!(validate_create_request(&req).is_ok());
+    }
+
+    #[test]
+    fn create_rejects_invalid_condition() {
+        let mut req = minimal_create();
+        req.condition = Some("excellent".into());
+        assert!(validate_create_request(&req).is_err());
+    }
+
+    #[test]
+    fn create_rejects_uppercase_condition() {
+        let mut req = minimal_create();
+        req.condition = Some("NEW".into());
+        assert!(validate_create_request(&req).is_err());
+    }
+
+    #[test]
+    fn create_rejects_fungible_quantity_on_non_fungible() {
+        let mut req = minimal_create();
+        req.is_fungible = Some(false);
+        req.fungible_quantity = Some(10);
+        assert!(validate_create_request(&req).is_err());
+    }
+
+    #[test]
+    fn create_rejects_fungible_without_quantity() {
+        let mut req = minimal_create();
+        req.is_fungible = Some(true);
+        req.fungible_quantity = None;
+        assert!(validate_create_request(&req).is_err());
+    }
+
+    #[test]
+    fn create_accepts_fungible_with_quantity() {
+        let mut req = minimal_create();
+        req.is_fungible = Some(true);
+        req.fungible_quantity = Some(10);
+        assert!(validate_create_request(&req).is_ok());
+    }
+
+    #[test]
+    fn create_rejects_negative_weight() {
+        let mut req = minimal_create();
+        req.weight_grams = Some(-1.0);
+        assert!(validate_create_request(&req).is_err());
+    }
+
+    #[test]
+    fn create_accepts_zero_weight() {
+        let mut req = minimal_create();
+        req.weight_grams = Some(0.0);
+        assert!(validate_create_request(&req).is_ok());
+    }
+
+    #[test]
+    fn create_rejects_negative_capacity() {
+        let mut req = minimal_create();
+        req.max_capacity_cc = Some(-5.0);
+        assert!(validate_create_request(&req).is_err());
+    }
+
+    #[test]
+    fn create_rejects_negative_acquisition_cost() {
+        let mut req = minimal_create();
+        req.acquisition_cost = Some(rust_decimal::Decimal::new(-1, 0));
+        assert!(validate_create_request(&req).is_err());
+    }
+
+    #[test]
+    fn create_rejects_negative_fungible_quantity() {
+        let mut req = minimal_create();
+        req.is_fungible = Some(true);
+        req.fungible_quantity = Some(-5);
+        assert!(validate_create_request(&req).is_err());
+    }
+
+    #[test]
+    fn create_rejects_too_many_external_codes() {
+        let mut req = minimal_create();
+        req.external_codes = Some(
+            (0..51)
+                .map(|i| ExternalCode {
+                    code_type: format!("type{i}"),
+                    value: format!("val{i}"),
+                })
+                .collect(),
+        );
+        assert!(validate_create_request(&req).is_err());
+    }
+
+    #[test]
+    fn create_rejects_long_code_type() {
+        let mut req = minimal_create();
+        req.external_codes = Some(vec![ExternalCode {
+            code_type: "x".repeat(65),
+            value: "val".into(),
+        }]);
+        assert!(validate_create_request(&req).is_err());
+    }
+
+    #[test]
+    fn create_rejects_long_code_value() {
+        let mut req = minimal_create();
+        req.external_codes = Some(vec![ExternalCode {
+            code_type: "UPC".into(),
+            value: "x".repeat(201),
+        }]);
+        assert!(validate_create_request(&req).is_err());
+    }
+
+    #[test]
+    fn create_rejects_barcode_over_32_chars() {
+        let mut req = minimal_create();
+        req.system_barcode = Some("x".repeat(33));
+        assert!(validate_create_request(&req).is_err());
+    }
+
+    #[test]
+    fn create_accepts_barcode_at_32_chars() {
+        let mut req = minimal_create();
+        req.system_barcode = Some("x".repeat(32));
+        assert!(validate_create_request(&req).is_ok());
+    }
+
+    #[test]
+    fn create_rejects_metadata_over_100kb() {
+        let mut req = minimal_create();
+        let big = "x".repeat(102_401);
+        req.metadata = Some(serde_json::json!(big));
+        assert!(validate_create_request(&req).is_err());
+    }
+}
