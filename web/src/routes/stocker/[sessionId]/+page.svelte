@@ -43,6 +43,7 @@
 	let ending: boolean = $state(false);
 	let error: string = $state('');
 	let activeItemName: string = $state('');
+	let lightboxUrl: string | null = $state(null);
 
 	let pendingBatch: StockerBatchEvent[] = $state([]);
 	let flushTimer: ReturnType<typeof setInterval> | null = $state(null);
@@ -944,9 +945,9 @@
 			{#each scanLog as entry (entry.id)}
 				<div class="scan-line {logClass(entry.type)} flex items-center gap-3 px-4 py-2">
 					{#if entry.imageUrl}
-						<a href={entry.imageUrl} target="_blank" class="flex-shrink-0">
-							<img src={entry.imageUrl} alt="" class="h-8 w-8 rounded object-cover border border-slate-700" />
-						</a>
+						<button class="flex-shrink-0 cursor-zoom-in" onclick={() => lightboxUrl = entry.imageUrl ?? null}>
+							<img src={entry.imageUrl} alt="" class="h-8 w-8 rounded object-cover border border-slate-700 hover:border-emerald-500 transition-colors" />
+						</button>
 					{/if}
 					<span class="w-20 flex-shrink-0 truncate text-xs opacity-60">{entry.barcode}</span>
 					{#if entry.itemId}
@@ -1351,4 +1352,31 @@
 	</div>
 </div>
 {/if}
+{/if}
+
+<!-- ── Image lightbox ──────────────────────────────────────────────── -->
+{#if lightboxUrl}
+<!-- svelte-ignore a11y_no_static_element_interactions -->
+<div
+	class="fixed inset-0 z-[60] flex items-center justify-center bg-black/90"
+	onclick={() => lightboxUrl = null}
+	onkeydown={(e) => e.key === 'Escape' && (lightboxUrl = null)}
+>
+	<button
+		class="absolute top-4 right-4 rounded-full bg-black/50 p-2 text-white hover:bg-black/80 transition-colors"
+		onclick={() => lightboxUrl = null}
+		aria-label="Close"
+	>
+		<svg class="h-6 w-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+			<path d="M18 6L6 18M6 6l12 12" />
+		</svg>
+	</button>
+	<!-- svelte-ignore a11y_click_events_have_key_events -->
+	<img
+		src={lightboxUrl}
+		alt="Full size"
+		class="max-h-[90vh] max-w-[95vw] rounded-lg object-contain"
+		onclick={(e) => e.stopPropagation()}
+	/>
+</div>
 {/if}
