@@ -123,7 +123,7 @@
 		{:else}
 			<div class="divide-y divide-slate-800">
 				{#each categories as cat (cat.id)}
-					<div class="flex items-center gap-3 px-4 py-3">
+					<div data-testid="category-row" class="flex items-center gap-3 px-4 py-3">
 						<div class="flex-1 min-w-0">
 							<div class="flex items-center gap-2">
 								<span class="font-medium text-slate-100 truncate">{cat.name}</span>

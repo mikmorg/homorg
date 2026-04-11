@@ -34,6 +34,9 @@ DELETE FROM container_properties WHERE item_id NOT IN (
 	'00000000-0000-0000-0000-000000000001'::uuid,
 	'00000000-0000-0000-0000-000000000002'::uuid
 );
+-- Preserve the root + users containers (seeded by migration 0003). Their
+-- container_properties rows are preserved above so they remain recognized
+-- as containers after the reset.
 DELETE FROM items WHERE id NOT IN (
 	'00000000-0000-0000-0000-000000000001'::uuid,
 	'00000000-0000-0000-0000-000000000002'::uuid
@@ -44,16 +47,6 @@ DELETE FROM container_types;
 DELETE FROM users WHERE id <> '00000000-0000-0000-0000-000000000000'::uuid;
 DELETE FROM barcode_presets;
 UPDATE barcode_sequences SET next_value = 1;
-
--- Restore container_properties rows for the system containers. These are
--- originally backfilled by migration 0014 from items.is_container=TRUE, so if
--- they're missing the root/users containers get treated as non-containers and
--- user-creation via /auth/setup fails.
-INSERT INTO container_properties (item_id)
-VALUES
-	('00000000-0000-0000-0000-000000000001'::uuid),
-	('00000000-0000-0000-0000-000000000002'::uuid)
-ON CONFLICT (item_id) DO NOTHING;
 COMMIT;
 SQL
 

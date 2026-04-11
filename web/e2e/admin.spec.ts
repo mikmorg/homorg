@@ -12,7 +12,7 @@ test.describe('admin — categories CRUD', () => {
 		await page.getByLabel('Description').fill('created by e2e');
 		await page.getByRole('button', { name: 'Create', exact: true }).click();
 
-		const row = page.locator('div.divide-y > div', { hasText: name });
+		const row = page.getByTestId('category-row').filter({ hasText: name });
 		await expect(row).toBeVisible();
 		await expect(page.getByText('Category created')).toBeVisible();
 
@@ -20,14 +20,14 @@ test.describe('admin — categories CRUD', () => {
 		await page.getByLabel('Name *').fill(renamed);
 		await page.getByRole('button', { name: 'Update' }).click();
 
-		const renamedRow = page.locator('div.divide-y > div', { hasText: renamed });
+		const renamedRow = page.getByTestId('category-row').filter({ hasText: renamed });
 		await expect(renamedRow).toBeVisible();
 		await expect(page.getByText('Category updated')).toBeVisible();
 
 		page.once('dialog', (d) => d.accept());
 		await renamedRow.getByRole('button', { name: 'Delete' }).click();
 
-		await expect(page.locator('div.divide-y > div', { hasText: renamed })).toHaveCount(0);
+		await expect(page.getByTestId('category-row').filter({ hasText: renamed })).toHaveCount(0);
 		await expect(page.getByText('Category deleted')).toBeVisible();
 	});
 });

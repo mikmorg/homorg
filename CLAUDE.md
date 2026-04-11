@@ -26,6 +26,18 @@ npx vitest run --maxWorkers=1      # run all frontend tests
 npx vitest run --maxWorkers=1 <file>  # run a single test file
 ```
 
+### End-to-end tests (Playwright)
+On-demand only — not wired into CI. Requires the backend running on `:8080`
+and the db container up. Each run resets the dev DB via `scripts/reset-db.sh`
+before the first spec — safe on this machine but destructive to local data.
+```bash
+cd web
+npm run test:e2e                   # headless, all specs
+npm run test:e2e -- browse         # single spec by filename substring
+npm run test:e2e:ui                # interactive UI mode (needs X forward/VNC)
+npm run test:e2e:report            # open the HTML report from the last run
+```
+
 ### Infrastructure
 ```bash
 docker compose up -d db            # start PostgreSQL only

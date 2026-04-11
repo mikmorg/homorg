@@ -7,7 +7,7 @@ test.describe('journal — event feed', () => {
 
 		await page.goto('/journal');
 
-		const row = page.locator('div.group', { hasText: name }).first();
+		const row = page.getByTestId('event-row').filter({ hasText: name }).first();
 		await expect(row).toBeVisible();
 		await expect(row.getByText('Created', { exact: true })).toBeVisible();
 
@@ -22,13 +22,17 @@ test.describe('journal — event feed', () => {
 		await api.createContainer(ROOT_ID, name);
 
 		await page.goto('/journal');
-		await expect(page.locator('div.group', { hasText: name }).first()).toBeVisible();
+		await expect(
+			page.getByTestId('event-row').filter({ hasText: name }).first()
+		).toBeVisible();
 
 		await page.getByRole('combobox').selectOption('ItemDeleted');
 
-		await expect(page.locator('div.group', { hasText: name })).toHaveCount(0);
+		await expect(page.getByTestId('event-row').filter({ hasText: name })).toHaveCount(0);
 
 		await page.getByRole('combobox').selectOption('');
-		await expect(page.locator('div.group', { hasText: name }).first()).toBeVisible();
+		await expect(
+			page.getByTestId('event-row').filter({ hasText: name }).first()
+		).toBeVisible();
 	});
 });

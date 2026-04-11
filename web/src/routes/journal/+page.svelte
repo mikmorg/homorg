@@ -172,7 +172,7 @@
 			{#each events as event (event.id)}
 				{@const data = event.event_data as Record<string, unknown>}
 				{@const imgUrl = imageUrl(event)}
-				<div class="group flex items-start gap-3 rounded-lg px-3 py-2.5 hover:bg-slate-800/60 transition-colors">
+				<div data-testid="event-row" class="group flex items-start gap-3 rounded-lg px-3 py-2.5 hover:bg-slate-800/60 transition-colors">
 					<!-- Icon / Image thumbnail -->
 					{#if imgUrl}
 						<button class="mt-0.5 flex-shrink-0 cursor-zoom-in" onclick={() => lightboxUrl = imgUrl}>
