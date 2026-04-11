@@ -471,9 +471,24 @@
 			}
 			merged.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
 
-			// Populate scan log from history (iterate oldest-first so newest ends on top)
-			const history = merged.slice(0, 50).reverse();
+			// Resolve parent container names for "Created: X → Y" messages
+			const history = merged.slice(0, 50);
+			const parentIds = new Set<string>();
 			for (const e of history) {
+				const data = e.event_data as Record<string, unknown>;
+				if (e.event_type === 'ItemCreated' && data?.parent_id) parentIds.add(data.parent_id as string);
+				if (e.event_type === 'ItemMoved' && data?.new_parent_id) parentIds.add(data.new_parent_id as string);
+			}
+			const parentNames: Record<string, string> = {};
+			await Promise.all([...parentIds].map(async (pid) => {
+				try {
+					const p = await api.items.get(pid);
+					parentNames[pid] = p.name ?? 'Unnamed';
+				} catch { /* ignore */ }
+			}));
+
+			// Populate scan log (iterate oldest-first so newest ends on top)
+			for (const e of history.reverse()) {
 				const data = e.event_data as Record<string, unknown>;
 				const name = (data?.name as string) ?? (data?.item_name as string) ?? '';
 				let type: ScanLogEntry['type'] = 'success';
@@ -482,13 +497,17 @@
 				const imageUrl = (data?.url as string) ?? (data?.image_url as string) ?? undefined;
 
 				switch (e.event_type) {
-					case 'ItemCreated':
+					case 'ItemCreated': {
 						type = 'create';
-						message = `Created: ${name || 'item'}`;
+						const parentName = parentNames[data?.parent_id as string];
+						message = parentName ? `Created: ${name || 'item'} → ${parentName}` : `Created: ${name || 'item'}`;
 						break;
-					case 'ItemMoved':
-						message = `Moved: ${name || 'item'}`;
+					}
+					case 'ItemMoved': {
+						const destName = parentNames[data?.new_parent_id as string];
+						message = destName ? `Moved: ${name || 'item'} → ${destName}` : `Moved: ${name || 'item'}`;
 						break;
+					}
 					case 'ItemImageAdded':
 						message = `Photo added${name ? ': ' + name : ''}`;
 						break;
@@ -558,9 +577,16 @@
 					let type: 'success' | 'context' | 'create' | 'error' = 'success';
 					let message = '';
 
+					// Resolve parent name for created/moved events
+					let parentName = '';
+					const parentId = (evtData?.parent_id as string) ?? (evtData?.new_parent_id as string);
+					if (parentId && (evt.event_type === 'ItemCreated' || evt.event_type === 'ItemMoved')) {
+						try { parentName = (await api.items.get(parentId)).name ?? ''; } catch { /* ignore */ }
+					}
+
 					switch (evt.event_type) {
-						case 'ItemCreated': type = 'create'; message = `Created: ${name || 'item'}`; break;
-						case 'ItemMoved': message = `Moved: ${name || 'item'}`; break;
+						case 'ItemCreated': type = 'create'; message = parentName ? `Created: ${name || 'item'} → ${parentName}` : `Created: ${name || 'item'}`; break;
+						case 'ItemMoved': message = parentName ? `Moved: ${name || 'item'} → ${parentName}` : `Moved: ${name || 'item'}`; break;
 						case 'ItemImageAdded': message = `Photo added${name ? ': ' + name : ''}`; break;
 						case 'ItemUpdated': message = `Updated: ${name || 'item'}`; break;
 						case 'ItemDeleted': type = 'error'; message = `Deleted: ${name || 'item'}`; break;
