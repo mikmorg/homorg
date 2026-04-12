@@ -307,7 +307,7 @@ impl SessionRepository {
             UPDATE scan_sessions
             SET ended_at = NOW()
             WHERE ended_at IS NULL
-              AND started_at < NOW() - make_interval(hours => $1)
+              AND started_at < NOW() - make_interval(hours => $1::int)
             RETURNING id
             "#,
         )
