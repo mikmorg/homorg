@@ -90,9 +90,18 @@ mod tests {
     #[tokio::test]
     async fn invalidate_taxonomy_clears_all_taxonomy_caches() {
         let cache = AppCache::new();
-        cache.tags.insert("all".to_string(), Arc::new(serde_json::json!([]))).await;
-        cache.categories.insert("all".to_string(), Arc::new(serde_json::json!([]))).await;
-        cache.container_types.insert("all".to_string(), Arc::new(serde_json::json!([]))).await;
+        cache
+            .tags
+            .insert("all".to_string(), Arc::new(serde_json::json!([])))
+            .await;
+        cache
+            .categories
+            .insert("all".to_string(), Arc::new(serde_json::json!([])))
+            .await;
+        cache
+            .container_types
+            .insert("all".to_string(), Arc::new(serde_json::json!([])))
+            .await;
 
         cache.invalidate_taxonomy();
         // After invalidate_all, pending entries are scheduled for removal.
@@ -113,7 +122,10 @@ mod tests {
             barcode: "HOM-000001".into(),
             item_id: uuid::Uuid::new_v4(),
         };
-        cache.barcode.insert("HOM-000001".to_string(), Arc::new(resolution)).await;
+        cache
+            .barcode
+            .insert("HOM-000001".to_string(), Arc::new(resolution))
+            .await;
         assert!(cache.barcode.get("HOM-000001").await.is_some());
 
         cache.invalidate_barcode("HOM-000001").await;
@@ -124,12 +136,18 @@ mod tests {
     #[tokio::test]
     async fn barcode_cache_does_not_affect_taxonomy() {
         let cache = AppCache::new();
-        cache.tags.insert("all".to_string(), Arc::new(serde_json::json!(["t1"]))).await;
+        cache
+            .tags
+            .insert("all".to_string(), Arc::new(serde_json::json!(["t1"])))
+            .await;
         let resolution = BarcodeResolution::System {
             barcode: "HOM-000001".into(),
             item_id: uuid::Uuid::new_v4(),
         };
-        cache.barcode.insert("HOM-000001".to_string(), Arc::new(resolution)).await;
+        cache
+            .barcode
+            .insert("HOM-000001".to_string(), Arc::new(resolution))
+            .await;
 
         cache.invalidate_barcode("HOM-000001").await;
         cache.barcode.run_pending_tasks().await;
@@ -145,4 +163,3 @@ mod tests {
         assert_eq!(cache.barcode.entry_count(), 0);
     }
 }
-

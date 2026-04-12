@@ -98,10 +98,7 @@ pub async fn health(State(state): State<Arc<AppState>>) -> (StatusCode, Json<Hea
     )
 )]
 pub async fn health_live() -> (StatusCode, Json<serde_json::Value>) {
-    (
-        StatusCode::OK,
-        Json(serde_json::json!({ "status": "alive" })),
-    )
+    (StatusCode::OK, Json(serde_json::json!({ "status": "alive" })))
 }
 
 #[derive(Debug, Serialize, utoipa::ToSchema)]
@@ -191,12 +188,7 @@ async fn list_events(
     let limit = q.limit.unwrap_or(50).clamp(1, 200);
     let events = state
         .event_store
-        .get_events_recent(
-            q.event_type.as_deref(),
-            q.actor_id,
-            q.before_id,
-            limit,
-        )
+        .get_events_recent(q.event_type.as_deref(), q.actor_id, q.before_id, limit)
         .await?;
     Ok(Json(events))
 }
@@ -216,7 +208,11 @@ async fn metrics(State(state): State<Arc<AppState>>, _auth: AuthUser) -> impl In
     crate::metrics::record_pool_stats(&state.pool);
 
     // Record rebuild status as a gauge
-    let in_progress = if state.rebuild_in_progress.load(Ordering::Relaxed) { 1.0 } else { 0.0 };
+    let in_progress = if state.rebuild_in_progress.load(Ordering::Relaxed) {
+        1.0
+    } else {
+        0.0
+    };
     ::metrics::gauge!("homorg_rebuild_in_progress").set(in_progress);
 
     let body = if let Some(ref handle) = state.metrics_handle {

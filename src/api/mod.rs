@@ -17,11 +17,11 @@ use crate::openapi::ApiDoc;
 use crate::AppState;
 use axum::{middleware, Router};
 use std::{net::IpAddr, sync::Arc};
-use utoipa::OpenApi;
-use utoipa_swagger_ui::SwaggerUi;
 use tower::util::option_layer;
 use tower_governor::{governor::GovernorConfigBuilder, key_extractor::KeyExtractor, GovernorError, GovernorLayer};
 use tower_http::services::ServeDir;
+use utoipa::OpenApi;
+use utoipa_swagger_ui::SwaggerUi;
 
 // ── SEC-6: Client IP extraction that respects reverse-proxy headers ──────────
 /// Extracts the originating client IP from `X-Forwarded-For` (first entry) when

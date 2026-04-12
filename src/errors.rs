@@ -89,16 +89,8 @@ impl IntoResponse for AppError {
                     })
                     .collect(),
             ),
-            AppError::Unauthorized => (
-                StatusCode::UNAUTHORIZED,
-                "Authentication required".to_string(),
-                vec![],
-            ),
-            AppError::Forbidden => (
-                StatusCode::FORBIDDEN,
-                "Insufficient permissions".to_string(),
-                vec![],
-            ),
+            AppError::Unauthorized => (StatusCode::UNAUTHORIZED, "Authentication required".to_string(), vec![]),
+            AppError::Forbidden => (StatusCode::FORBIDDEN, "Insufficient permissions".to_string(), vec![]),
             AppError::BadRequest(msg) => (StatusCode::BAD_REQUEST, msg.clone(), vec![]),
             AppError::Database(e) => {
                 tracing::error!(error = %e, "Database error");
@@ -138,10 +130,14 @@ impl IntoResponse for AppError {
 
         match status {
             StatusCode::CONFLICT => {
-                response.headers_mut().insert(header::RETRY_AFTER, HeaderValue::from_static("1"));
+                response
+                    .headers_mut()
+                    .insert(header::RETRY_AFTER, HeaderValue::from_static("1"));
             }
             StatusCode::SERVICE_UNAVAILABLE => {
-                response.headers_mut().insert(header::RETRY_AFTER, HeaderValue::from_static("5"));
+                response
+                    .headers_mut()
+                    .insert(header::RETRY_AFTER, HeaderValue::from_static("5"));
             }
             _ => {}
         }

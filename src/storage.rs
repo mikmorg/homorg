@@ -364,11 +364,14 @@ impl S3Storage {
                 endpoint: endpoint.clone(),
             }
         } else {
-            config.s3_region.parse().map_err(|e| format!("Invalid S3_REGION: {e}"))?
+            config
+                .s3_region
+                .parse()
+                .map_err(|e| format!("Invalid S3_REGION: {e}"))?
         };
 
-        let credentials = s3::creds::Credentials::from_env()
-            .map_err(|e| format!("Failed to load S3 credentials: {e}"))?;
+        let credentials =
+            s3::creds::Credentials::from_env().map_err(|e| format!("Failed to load S3 credentials: {e}"))?;
 
         let bucket = s3::Bucket::new(&config.s3_bucket, region, credentials)
             .map_err(|e| format!("Failed to create S3 bucket handle: {e}"))?;
@@ -377,12 +380,7 @@ impl S3Storage {
             .s3_endpoint
             .as_deref()
             .map(|ep| format!("{}/{}", ep.trim_end_matches('/'), config.s3_bucket))
-            .unwrap_or_else(|| {
-                format!(
-                    "https://{}.s3.{}.amazonaws.com",
-                    config.s3_bucket, config.s3_region
-                )
-            });
+            .unwrap_or_else(|| format!("https://{}.s3.{}.amazonaws.com", config.s3_bucket, config.s3_region));
 
         Ok(Self {
             bucket,
@@ -441,7 +439,10 @@ pub async fn create_storage(config: &AppConfig) -> Result<std::sync::Arc<dyn Sto
                 tracing::warn!("Unknown STORAGE_BACKEND '{backend}', falling back to local");
             }
             let local = LocalStorage::new(&config.storage_path);
-            local.init().await.map_err(|e| format!("Failed to initialize local storage: {e}"))?;
+            local
+                .init()
+                .await
+                .map_err(|e| format!("Failed to initialize local storage: {e}"))?;
             tracing::info!("Using local storage backend (path={})", config.storage_path);
             Ok(std::sync::Arc::new(local))
         }

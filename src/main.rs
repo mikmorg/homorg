@@ -56,7 +56,13 @@ async fn main() {
     // 30-second interval re-query on Lagged.
     let (event_notify, _) = tokio::sync::broadcast::channel(64);
     let event_store = EventStore::new(pool.clone(), event_notify);
-    let state = Arc::new(AppState::new(config.clone(), pool, event_store, storage, Some(metrics_handle)));
+    let state = Arc::new(AppState::new(
+        config.clone(),
+        pool,
+        event_store,
+        storage,
+        Some(metrics_handle),
+    ));
 
     // Run initial token/session cleanup and start periodic background task
     {

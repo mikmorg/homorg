@@ -652,7 +652,11 @@ async fn session_event_stream(
             });
 
             // Client gone → exit cleanly.
-            if tx.send(Ok(Event::default().event("update").data(payload.to_string()))).await.is_err() {
+            if tx
+                .send(Ok(Event::default().event("update").data(payload.to_string())))
+                .await
+                .is_err()
+            {
                 return;
             }
         }
@@ -711,13 +715,7 @@ async fn create_camera_link(
 
     let ct = state
         .session_repository
-        .create_camera_token(
-            session_id,
-            auth.user_id,
-            &token,
-            req.device_name.as_deref(),
-            expires_at,
-        )
+        .create_camera_token(session_id, auth.user_id, &token, req.device_name.as_deref(), expires_at)
         .await?;
 
     Ok((

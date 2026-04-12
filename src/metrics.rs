@@ -33,11 +33,7 @@ pub async fn track_request(req: Request, next: Next) -> impl IntoResponse {
     let duration = start.elapsed().as_secs_f64();
 
     let status = response.status().as_u16().to_string();
-    let labels = [
-        ("method", method),
-        ("path", path),
-        ("status", status),
-    ];
+    let labels = [("method", method), ("path", path), ("status", status)];
 
     histogram!("http_request_duration_seconds", &labels).record(duration);
     counter!("http_requests_total", &labels).increment(1);

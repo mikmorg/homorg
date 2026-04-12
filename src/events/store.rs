@@ -26,10 +26,7 @@ impl EventStore {
     /// directly so that wake-ups happen **after** the transaction is durably
     /// committed — waking earlier lets subscribers query before the write is
     /// visible and they silently miss the event.
-    pub async fn commit_and_notify(
-        &self,
-        tx: sqlx::Transaction<'_, sqlx::Postgres>,
-    ) -> AppResult<()> {
+    pub async fn commit_and_notify(&self, tx: sqlx::Transaction<'_, sqlx::Postgres>) -> AppResult<()> {
         tx.commit().await?;
         // send() errors only when there are no active receivers — that's fine.
         let _ = self.notify.send(());
