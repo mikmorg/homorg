@@ -55,7 +55,7 @@ impl UndoCommands {
             .append_in_tx(&mut tx, aggregate_id, &compensating_event, actor_id, &metadata)
             .await?;
         Projector::apply(&mut tx, aggregate_id, &compensating_event, actor_id).await?;
-        tx.commit().await?;
+        self.event_store.commit_and_notify(tx).await?;
 
         Ok(stored)
     }
@@ -102,7 +102,7 @@ impl UndoCommands {
             results.push(stored);
         }
 
-        tx.commit().await?;
+        self.event_store.commit_and_notify(tx).await?;
         Ok(results)
     }
 
@@ -204,7 +204,7 @@ impl UndoCommands {
             }
         }
 
-        tx.commit().await?;
+        self.event_store.commit_and_notify(tx).await?;
         Ok(results)
     }
 

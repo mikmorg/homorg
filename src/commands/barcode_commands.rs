@@ -453,7 +453,7 @@ impl BarcodeCommands {
             .append_in_tx(&mut tx, item_id, &event, actor_id, metadata)
             .await?;
         Projector::apply(&mut tx, item_id, &event, actor_id).await?;
-        tx.commit().await?;
+        self.event_store.commit_and_notify(tx).await?;
 
         Ok(stored)
     }

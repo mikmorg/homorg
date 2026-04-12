@@ -189,7 +189,7 @@ async fn preset_labels_pdf(
         .execute(&mut *tx)
         .await?;
     }
-    tx.commit().await?;
+    state.event_store.commit_and_notify(tx).await?;
 
     let pdf = crate::label_gen::generate_label_pdf(&barcodes).await?;
 

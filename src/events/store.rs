@@ -1,18 +1,47 @@
 use sqlx::PgPool;
+use tokio::sync::broadcast;
 use uuid::Uuid;
 
 use crate::errors::{AppError, AppResult};
 use crate::models::event::{DomainEvent, EventMetadata, StoredEvent};
 
 /// Append-only event store backed by PostgreSQL.
+///
+/// Holds a clone of the process-wide `event_notify` broadcast sender so that
+/// post-commit wake-ups can be delivered without threading it through every
+/// command. See `commit_and_notify` for the correctness rationale.
 #[derive(Clone)]
 pub struct EventStore {
     pool: PgPool,
+    notify: broadcast::Sender<()>,
 }
 
 impl EventStore {
-    pub fn new(pool: PgPool) -> Self {
-        Self { pool }
+    pub fn new(pool: PgPool, notify: broadcast::Sender<()>) -> Self {
+        Self { pool, notify }
+    }
+
+    /// Commit a transaction that contains one or more `append_in_tx` writes
+    /// and wake up any SSE listeners. MUST be called instead of `tx.commit()`
+    /// directly so that wake-ups happen **after** the transaction is durably
+    /// committed — waking earlier lets subscribers query before the write is
+    /// visible and they silently miss the event.
+    pub async fn commit_and_notify(
+        &self,
+        tx: sqlx::Transaction<'_, sqlx::Postgres>,
+    ) -> AppResult<()> {
+        tx.commit().await?;
+        // send() errors only when there are no active receivers — that's fine.
+        let _ = self.notify.send(());
+        Ok(())
+    }
+
+    /// Subscribe to the event-appended wake-up channel. Each subscriber gets
+    /// its own receiver with independent backlog; a slow receiver returns
+    /// `RecvError::Lagged(n)` but the consumer can recover by re-querying the
+    /// event store from its last-seen id.
+    pub fn subscribe(&self) -> broadcast::Receiver<()> {
+        self.notify.subscribe()
     }
 
     /// Append a new event within the given transaction.
@@ -80,6 +109,7 @@ impl EventStore {
             .append_in_tx(&mut tx, aggregate_id, event, actor_id, metadata)
             .await?;
         tx.commit().await?;
+        let _ = self.notify.send(());
         Ok(stored)
     }
 

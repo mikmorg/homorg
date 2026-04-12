@@ -50,8 +50,12 @@ async fn main() {
     // Install Prometheus metrics recorder
     let metrics_handle = app_metrics::install_recorder();
 
-    // Build shared state via constructor
-    let event_store = EventStore::new(pool.clone());
+    // Build shared state via constructor. The event-notify broadcast channel
+    // wakes SSE subscribers on every event_store commit (see EventStore docs).
+    // Capacity 64 is a safety-net backlog; slow receivers fall back to a
+    // 30-second interval re-query on Lagged.
+    let (event_notify, _) = tokio::sync::broadcast::channel(64);
+    let event_store = EventStore::new(pool.clone(), event_notify);
     let state = Arc::new(AppState::new(config.clone(), pool, event_store, storage, Some(metrics_handle)));
 
     // Run initial token/session cleanup and start periodic background task

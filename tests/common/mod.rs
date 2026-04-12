@@ -84,7 +84,8 @@ pub async fn setup() -> TestContext {
     let storage: Arc<dyn StorageBackend> = Arc::new(LocalStorage::new(tmpdir.path().to_str().unwrap()));
 
     // Build AppState
-    let event_store = EventStore::new(pool.clone());
+    let (event_notify, _) = tokio::sync::broadcast::channel(64);
+    let event_store = EventStore::new(pool.clone(), event_notify);
     let state = Arc::new(AppState::new(config, pool, event_store, storage, None));
 
     // Seed an admin user

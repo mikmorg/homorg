@@ -46,7 +46,7 @@ impl ItemCommands {
     ) -> AppResult<StoredEvent> {
         let mut tx = self.pool.begin().await?;
         let stored = self.create_item_in_tx(&mut tx, id, req, actor_id, metadata).await?;
-        tx.commit().await?;
+        self.event_store.commit_and_notify(tx).await?;
         Ok(stored)
     }
 
@@ -370,7 +370,7 @@ impl ItemCommands {
                 }
                 e
             })?;
-        tx.commit().await?;
+        self.event_store.commit_and_notify(tx).await?;
 
         Ok(stored)
     }
@@ -385,7 +385,7 @@ impl ItemCommands {
     ) -> AppResult<StoredEvent> {
         let mut tx = self.pool.begin().await?;
         let stored = self.move_item_in_tx(&mut tx, item_id, req, actor_id, metadata).await?;
-        tx.commit().await?;
+        self.event_store.commit_and_notify(tx).await?;
         Ok(stored)
     }
 
@@ -509,7 +509,7 @@ impl ItemCommands {
             .append_in_tx(&mut tx, item_id, &event, actor_id, metadata)
             .await?;
         Projector::apply(&mut tx, item_id, &event, actor_id).await?;
-        tx.commit().await?;
+        self.event_store.commit_and_notify(tx).await?;
 
         Ok(stored)
     }
@@ -560,7 +560,7 @@ impl ItemCommands {
             .append_in_tx(&mut tx, item_id, &event, actor_id, metadata)
             .await?;
         Projector::apply(&mut tx, item_id, &event, actor_id).await?;
-        tx.commit().await?;
+        self.event_store.commit_and_notify(tx).await?;
 
         Ok(stored)
     }
@@ -600,7 +600,7 @@ impl ItemCommands {
             .append_in_tx(&mut tx, item_id, &event, actor_id, metadata)
             .await?;
         Projector::apply(&mut tx, item_id, &event, actor_id).await?;
-        tx.commit().await?;
+        self.event_store.commit_and_notify(tx).await?;
 
         Ok(stored)
     }
@@ -638,7 +638,7 @@ impl ItemCommands {
             .append_in_tx(&mut tx, item_id, &event, actor_id, metadata)
             .await?;
         Projector::apply(&mut tx, item_id, &event, actor_id).await?;
-        tx.commit().await?;
+        self.event_store.commit_and_notify(tx).await?;
 
         Ok(stored)
     }
@@ -685,7 +685,7 @@ impl ItemCommands {
             .append_in_tx(&mut tx, item_id, &event, actor_id, metadata)
             .await?;
         Projector::apply(&mut tx, item_id, &event, actor_id).await?;
-        tx.commit().await?;
+        self.event_store.commit_and_notify(tx).await?;
 
         Ok((stored, path))
     }
@@ -736,7 +736,7 @@ impl ItemCommands {
             .append_in_tx(&mut tx, item_id, &event, actor_id, metadata)
             .await?;
         Projector::apply(&mut tx, item_id, &event, actor_id).await?;
-        tx.commit().await?;
+        self.event_store.commit_and_notify(tx).await?;
 
         Ok(stored)
     }
@@ -787,7 +787,7 @@ impl ItemCommands {
             .append_in_tx(&mut tx, item_id, &event, actor_id, metadata)
             .await?;
         Projector::apply(&mut tx, item_id, &event, actor_id).await?;
-        tx.commit().await?;
+        self.event_store.commit_and_notify(tx).await?;
 
         Ok(stored)
     }
@@ -837,7 +837,7 @@ impl ItemCommands {
             .append_in_tx(&mut tx, item_id, &event, actor_id, metadata)
             .await?;
         Projector::apply(&mut tx, item_id, &event, actor_id).await?;
-        tx.commit().await?;
+        self.event_store.commit_and_notify(tx).await?;
 
         Ok(stored)
     }
@@ -872,7 +872,7 @@ impl ItemCommands {
             .append_in_tx(&mut tx, container_id, &event, actor_id, metadata)
             .await?;
         Projector::apply(&mut tx, container_id, &event, actor_id).await?;
-        tx.commit().await?;
+        self.event_store.commit_and_notify(tx).await?;
 
         Ok(stored)
     }

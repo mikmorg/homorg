@@ -147,7 +147,7 @@ async fn setup(
         .issue_refresh_token_in_tx(&mut tx, user_id, "setup", state.config.jwt_refresh_ttl_days, None)
         .await?;
 
-    tx.commit().await?;
+    state.event_store.commit_and_notify(tx).await?;
 
     Ok((
         StatusCode::CREATED,
@@ -414,7 +414,7 @@ async fn register(
         )
         .await?;
 
-    tx.commit().await?;
+    state.event_store.commit_and_notify(tx).await?;
 
     Ok((
         StatusCode::CREATED,

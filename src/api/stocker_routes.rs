@@ -7,7 +7,6 @@ use axum::{
 };
 use serde::Deserialize;
 use std::sync::Arc;
-use tokio_stream::StreamExt as _;
 use uuid::Uuid;
 
 use crate::api::item_routes::validate_create_request;
@@ -205,7 +204,7 @@ async fn submit_batch(
             )
             .await?;
 
-        tx.commit().await?;
+        state.event_store.commit_and_notify(tx).await?;
     } else {
         // Best-effort mode: each event commits independently, errors are collected
         for (index, batch_event) in req.events.iter().enumerate() {
@@ -297,7 +296,7 @@ async fn process_batch_event(
         index,
     )
     .await?;
-    tx.commit().await?;
+    state.event_store.commit_and_notify(tx).await?;
     Ok(result)
 }
 
@@ -516,9 +515,11 @@ struct StreamQuery {
     token: String,
 }
 
-/// SSE stream of session events. Polls for new events every 2 seconds and
-/// pushes them to the client. Uses query-param token since EventSource
-/// doesn't support Authorization headers.
+/// SSE stream of session events. Wakes up on any `event_store` commit via the
+/// process-wide broadcast channel and pushes session-scoped events to the
+/// client. A 30-second safety interval acts as a heartbeat and handles
+/// broadcast lag (`RecvError::Lagged`) by re-querying from the last seen id.
+/// Uses a query-param token since `EventSource` can't set headers.
 async fn session_event_stream(
     State(state): State<Arc<AppState>>,
     Path(session_id): Path<Uuid>,
@@ -534,93 +535,130 @@ async fn session_event_stream(
         .get_active_for_user(session_id, user_id)
         .await?;
 
-    // Track the last event ID we've sent
-    let last_event_id = Arc::new(tokio::sync::Mutex::new(0i64));
+    let (tx, rx) = tokio::sync::mpsc::channel::<Result<Event, std::convert::Infallible>>(16);
+
     let pool = state.pool.clone();
-    let sid = session_id.to_string();
     let session_repo = state.session_repository.clone();
+    let mut notify = state.event_store.subscribe();
+    let sid = session_id.to_string();
 
-    let stream = tokio_stream::wrappers::IntervalStream::new(
-        tokio::time::interval(std::time::Duration::from_secs(2)),
-    )
-    .then(move |_| {
-        let pool = pool.clone();
-        let sid = sid.clone();
-        let last_id = Arc::clone(&last_event_id);
-        let session_repo = session_repo.clone();
-        async move {
-            let mut last = last_id.lock().await;
+    tokio::spawn(async move {
+        let mut last_event_id: i64 = 0;
+        let mut safety = tokio::time::interval(std::time::Duration::from_secs(30));
+        // Fire the initial tick immediately so the client gets a snapshot on
+        // connect; subsequent safety ticks are spaced at the configured rate.
+        safety.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+        // First pass always sends a snapshot so the client gets initial state.
+        let mut force_send = true;
 
-            // Check if session ended
-            if let Ok(s) = session_repo.get_session_by_id(session_id).await {
-                if s.ended_at.is_some() {
-                    return Ok(Event::default().event("session_ended").data("{}"));
+        loop {
+            // `woken_by_notify` is true when a broadcast wake-up raced ahead of
+            // the safety tick. When that wake brings no session-relevant events
+            // (a commit for an unrelated session), we skip the SSE send to
+            // avoid pointless client re-renders.
+            let woken_by_notify;
+            tokio::select! {
+                recv = notify.recv() => {
+                    // RecvError::Lagged just means we missed some wake-ups; we
+                    // re-query from last_event_id anyway so nothing is lost.
+                    // RecvError::Closed means the sender was dropped (app
+                    // shutdown) — exit the loop cleanly.
+                    if matches!(recv, Err(tokio::sync::broadcast::error::RecvError::Closed)) {
+                        return;
+                    }
+                    woken_by_notify = true;
                 }
-                // Send session state update
-                if let Ok(json) = serde_json::to_string(&s) {
-                    // Also fetch new events
-                    let events: Vec<crate::models::event::StoredEvent> = sqlx::query_as(
-                        r#"
-                        SELECT id, event_id, aggregate_id, aggregate_type, event_type, event_data, metadata, actor_id, created_at, sequence_number, schema_version
-                        FROM event_store
-                        WHERE metadata->>'session_id' = $1 AND id > $2
-                        ORDER BY id ASC
-                        LIMIT 50
-                        "#,
-                    )
-                    .bind(&sid)
-                    .bind(*last)
-                    .fetch_all(&pool)
-                    .await
-                    .unwrap_or_default();
-
-                    // Also get events for the active item (camera uploads lack session_id)
-                    let mut item_events: Vec<crate::models::event::StoredEvent> = Vec::new();
-                    if let Some(item_id) = s.active_item_id {
-                        item_events = sqlx::query_as(
-                            r#"
-                            SELECT id, event_id, aggregate_id, aggregate_type, event_type, event_data, metadata, actor_id, created_at, sequence_number, schema_version
-                            FROM event_store
-                            WHERE aggregate_id = $1 AND id > $2
-                            ORDER BY id ASC
-                            LIMIT 50
-                            "#,
-                        )
-                        .bind(item_id)
-                        .bind(*last)
-                        .fetch_all(&pool)
-                        .await
-                        .unwrap_or_default();
-                    }
-
-                    // Merge, deduplicate, update cursor
-                    let mut all_events = events;
-                    let seen: std::collections::HashSet<i64> = all_events.iter().map(|e| e.id).collect();
-                    for e in item_events {
-                        if !seen.contains(&e.id) {
-                            all_events.push(e);
-                        }
-                    }
-                    all_events.sort_by_key(|e| e.id);
-
-                    if let Some(newest) = all_events.last() {
-                        *last = newest.id;
-                    }
-
-                    let payload = serde_json::json!({
-                        "session": serde_json::from_str::<serde_json::Value>(&json).unwrap_or_default(),
-                        "events": all_events,
-                    });
-
-                    return Ok(Event::default().event("update").data(payload.to_string()));
+                _ = safety.tick() => {
+                    woken_by_notify = false;
                 }
             }
 
-            Ok(Event::default().comment("ping"))
+            // Check session state; emit session_ended and exit on close.
+            let session = match session_repo.get_session_by_id(session_id).await {
+                Ok(s) => s,
+                Err(_) => continue,
+            };
+            if session.ended_at.is_some() {
+                let _ = tx.send(Ok(Event::default().event("session_ended").data("{}"))).await;
+                return;
+            }
+
+            let session_json = match serde_json::to_string(&session) {
+                Ok(j) => j,
+                Err(_) => continue,
+            };
+
+            // Fetch events tagged with this session_id…
+            let events: Vec<crate::models::event::StoredEvent> = sqlx::query_as(
+                r#"
+                SELECT id, event_id, aggregate_id, aggregate_type, event_type, event_data, metadata, actor_id, created_at, sequence_number, schema_version
+                FROM event_store
+                WHERE metadata->>'session_id' = $1 AND id > $2
+                ORDER BY id ASC
+                LIMIT 50
+                "#,
+            )
+            .bind(&sid)
+            .bind(last_event_id)
+            .fetch_all(&pool)
+            .await
+            .unwrap_or_default();
+
+            // …plus events on the active item (camera uploads lack session_id).
+            let mut item_events: Vec<crate::models::event::StoredEvent> = Vec::new();
+            if let Some(item_id) = session.active_item_id {
+                item_events = sqlx::query_as(
+                    r#"
+                    SELECT id, event_id, aggregate_id, aggregate_type, event_type, event_data, metadata, actor_id, created_at, sequence_number, schema_version
+                    FROM event_store
+                    WHERE aggregate_id = $1 AND id > $2
+                    ORDER BY id ASC
+                    LIMIT 50
+                    "#,
+                )
+                .bind(item_id)
+                .bind(last_event_id)
+                .fetch_all(&pool)
+                .await
+                .unwrap_or_default();
+            }
+
+            // Merge + dedupe by id.
+            let mut all_events = events;
+            let seen: std::collections::HashSet<i64> = all_events.iter().map(|e| e.id).collect();
+            for e in item_events {
+                if !seen.contains(&e.id) {
+                    all_events.push(e);
+                }
+            }
+            all_events.sort_by_key(|e| e.id);
+
+            if let Some(newest) = all_events.last() {
+                last_event_id = newest.id;
+            }
+
+            // Skip the send when a broadcast wake produced nothing for this
+            // session (commit was for another session). Always send on the
+            // first pass (initial snapshot) and on safety ticks (heartbeat +
+            // session state refresh).
+            if woken_by_notify && !force_send && all_events.is_empty() {
+                continue;
+            }
+            force_send = false;
+
+            let payload = serde_json::json!({
+                "session": serde_json::from_str::<serde_json::Value>(&session_json).unwrap_or_default(),
+                "events": all_events,
+            });
+
+            // Client gone → exit cleanly.
+            if tx.send(Ok(Event::default().event("update").data(payload.to_string()))).await.is_err() {
+                return;
+            }
         }
     });
 
-    Ok(Sse::new(stream).keep_alive(KeepAlive::default()))
+    Ok(Sse::new(tokio_stream::wrappers::ReceiverStream::new(rx)).keep_alive(KeepAlive::default()))
 }
 
 // ── Camera link management (JWT-authenticated) ──────────────────────────
