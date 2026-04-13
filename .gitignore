@@ -24,6 +24,7 @@ web/test-results/
 web/playwright-report/
 web/blob-report/
 web/playwright/
+web/.certs/
 
 # Editor
 *.swp

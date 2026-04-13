@@ -2,6 +2,9 @@
 \usepackage[newdimens]{labels}
 \usepackage{barracuda}
 \usepackage{anyfontsize}
+\usepackage{xcolor}
+\usepackage{eso-pic}
+\newcommand{\sheetdesc}{ {{ description }} }
 \LabelCols=3
 \LabelRows=10
 \LeftPageMargin=5.0mm
@@ -14,6 +17,8 @@
 \RightLabelBorder=0mm
 \TopLabelBorder=0mm
 \BottomLabelBorder=0mm
+{% raw %}\AddToShipoutPictureBG{%
+  \AtPageLowerLeft{\raisebox{4mm}{\hspace{5mm}{\fontsize{5.5}{6.5}\selectfont\color{gray}\sheetdesc}}}}{% endraw %}
 \begin{document}
 \makeatletter
 {% for barcode in barcodes %}\genericlabel{\makebox[\area@width][c]{\raisebox{0pt}[\area@height][0pt]{\vbox to \area@height{\vfil\hbox{\begin{tabular}{c}\barracuda[module=tex.sp("0.38mm"), height=tex.sp("10mm")]{code128}{ {{- barcode -}} }\\[1pt]{\fontsize{6}{7}\selectfont\ttfamily {{ barcode }}}\end{tabular}}\vfil}}}}

@@ -14,6 +14,7 @@ pub(crate) const ITEM_SUMMARY_SELECT: &str = r#"
     i.is_container,
     i.container_path::text AS container_path,
     i.parent_id,
+    (SELECT p.name FROM items p WHERE p.id = i.parent_id AND p.is_deleted = FALSE) AS parent_name,
     i.condition,
     COALESCE(ARRAY(
         SELECT t.name FROM item_tags it2

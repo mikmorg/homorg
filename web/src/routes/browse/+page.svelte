@@ -423,6 +423,20 @@
 								{#if item.system_barcode}
 									<span class="font-mono">{item.system_barcode}</span>
 								{/if}
+								{#if item.category}
+									<span>{item.category}</span>
+								{/if}
+								{#if item.tags.length > 0}
+									{#each item.tags.slice(0, 2) as tag}
+										<span class="rounded-full bg-slate-700/60 px-1.5 py-0.5 text-[10px]">{tag}</span>
+									{/each}
+									{#if item.tags.length > 2}
+										<span class="text-[10px] text-slate-500">+{item.tags.length - 2}</span>
+									{/if}
+								{/if}
+								{#if !item.system_barcode && !item.category && item.tags.length === 0}
+									<span class="font-mono text-slate-600">#{item.id.slice(-4)}</span>
+								{/if}
 							</div>
 						</div>
 

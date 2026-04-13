@@ -2,6 +2,8 @@ import { sveltekit } from '@sveltejs/kit/vite';
 import { defineConfig } from 'vitest/config';
 import { VitePWA } from 'vite-plugin-pwa';
 import tailwindcss from '@tailwindcss/vite';
+import fs from 'node:fs';
+import path from 'node:path';
 
 export default defineConfig({
 	plugins: [
@@ -49,6 +51,12 @@ export default defineConfig({
 		})
 	],
 	server: {
+		https: fs.existsSync(path.resolve(__dirname, '.certs/localhost+2.pem'))
+			? {
+					cert: fs.readFileSync(path.resolve(__dirname, '.certs/localhost+2.pem')),
+					key: fs.readFileSync(path.resolve(__dirname, '.certs/localhost+2-key.pem'))
+				}
+			: undefined,
 		proxy: {
 			'/api': { target: 'http://localhost:8080', changeOrigin: true },
 			'/files': { target: 'http://localhost:8080', changeOrigin: true }

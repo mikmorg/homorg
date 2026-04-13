@@ -116,6 +116,7 @@ export interface ItemSummary {
 	is_container: boolean;
 	container_path: string | null;
 	parent_id: string | null;
+	parent_name: string | null;
 	condition: Condition | null;
 	tags: string[];
 	is_deleted: boolean;

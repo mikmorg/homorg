@@ -8,7 +8,7 @@ const LABEL_TEMPLATE: &str = include_str!("../templates/labels.tex.j2");
 
 /// Render a LaTeX label sheet for `barcodes` and compile it to PDF bytes via
 /// lualatex (required for the barracuda Code128 package).
-pub async fn generate_label_pdf(barcodes: &[String]) -> AppResult<Vec<u8>> {
+pub async fn generate_label_pdf(barcodes: &[String], description: &str) -> AppResult<Vec<u8>> {
     let tmp = TempDir::new().map_err(|e| AppError::Internal(format!("tmpdir: {e}")))?;
 
     // Render template.
@@ -17,7 +17,7 @@ pub async fn generate_label_pdf(barcodes: &[String]) -> AppResult<Vec<u8>> {
         .map_err(|e| AppError::Internal(format!("template load: {e}")))?;
     let rendered = env
         .get_template("labels")
-        .and_then(|t| t.render(context!(barcodes)))
+        .and_then(|t| t.render(context!(barcodes, description)))
         .map_err(|e| AppError::Internal(format!("template render: {e}")))?;
 
     // Write .tex source.

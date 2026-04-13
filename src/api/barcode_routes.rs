@@ -128,7 +128,18 @@ async fn labels_pdf(
         }
     };
 
-    let pdf = crate::label_gen::generate_label_pdf(&barcodes).await?;
+    let description = if barcodes.len() == 1 {
+        format!("Labels | {} | 1 barcode | {}", barcodes[0], chrono::Utc::now().format("%Y-%m-%d %H:%M UTC"))
+    } else {
+        format!(
+            "Labels | {} .. {} | {} barcodes | {}",
+            barcodes[0],
+            barcodes[barcodes.len() - 1],
+            barcodes.len(),
+            chrono::Utc::now().format("%Y-%m-%d %H:%M UTC"),
+        )
+    };
+    let pdf = crate::label_gen::generate_label_pdf(&barcodes, &description).await?;
 
     Ok(Response::builder()
         .status(StatusCode::OK)
@@ -191,7 +202,16 @@ async fn preset_labels_pdf(
     }
     state.event_store.commit_and_notify(tx).await?;
 
-    let pdf = crate::label_gen::generate_label_pdf(&barcodes).await?;
+    let preset_kind = if req.is_container { "container" } else { "item" };
+    let description = format!(
+        "Preset {} labels | {} .. {} | {} barcodes | {}",
+        preset_kind,
+        barcodes[0],
+        barcodes[barcodes.len() - 1],
+        barcodes.len(),
+        chrono::Utc::now().format("%Y-%m-%d %H:%M UTC"),
+    );
+    let pdf = crate::label_gen::generate_label_pdf(&barcodes, &description).await?;
 
     Ok(Response::builder()
         .status(StatusCode::OK)

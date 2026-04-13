@@ -252,7 +252,7 @@
 		moveError = '';
 		try {
 			await api.items.move(resolvedItem.id, { container_id: containerId });
-			pushRecentContainer({ id: containerId, name: containerName, container_path: containerPath });
+			pushRecentContainer({ id: containerId, name: containerName, container_path: containerPath, parent_name: null });
 			toast(`Moved to ${containerName}`, 'success');
 			showMovePicker = false;
 			// Refresh item so location reflects the move
@@ -579,8 +579,8 @@
 						<span class="mt-0.5 text-base">📦</span>
 						<div class="min-w-0">
 							<p class="text-sm font-medium text-slate-100 truncate">{result.name ?? 'Unnamed'}</p>
-							{#if result.container_path}
-								<p class="text-xs text-slate-500 truncate">{result.container_path}</p>
+							{#if result.parent_name}
+								<p class="text-xs text-slate-500 truncate">in {result.parent_name}</p>
 							{/if}
 						</div>
 						{#if moving}
@@ -657,8 +657,8 @@
 						<span class="mt-0.5 text-base">{result.is_container ? '📦' : '🔧'}</span>
 						<div class="min-w-0 flex-1">
 							<p class="text-sm font-medium text-slate-100 truncate">{result.name ?? 'Unnamed'}</p>
-							{#if result.container_path}
-								<p class="text-xs text-slate-500 truncate">{result.container_path}</p>
+							{#if result.parent_name}
+								<p class="text-xs text-slate-500 truncate">in {result.parent_name}</p>
 							{/if}
 						</div>
 						{#if attaching}

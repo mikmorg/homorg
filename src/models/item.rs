@@ -95,6 +95,8 @@ pub struct ItemSummary {
     pub is_container: bool,
     pub container_path: Option<String>,
     pub parent_id: Option<Uuid>,
+    /// Human-readable name of the parent container (from subquery).
+    pub parent_name: Option<String>,
     pub condition: Option<String>,
     /// Tag names (aggregated from item_tags JOIN).
     pub tags: Vec<String>,

@@ -10,6 +10,7 @@ export interface RecentContainer {
 	id: string;
 	name: string;
 	container_path: string | null;
+	parent_name: string | null;
 }
 
 function load(): RecentContainer[] {

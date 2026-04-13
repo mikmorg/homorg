@@ -91,6 +91,7 @@
 				condition: item.condition ?? null,
 				container_path: item.container_path ?? null,
 				parent_id: item.parent_id ?? null,
+				parent_name: null,
 				tags: item.tags ?? [],
 				is_deleted: item.is_deleted ?? false,
 				created_at: item.created_at,
@@ -337,8 +338,8 @@
 									<span class="rounded-full bg-amber-900/60 px-1.5 py-0.5 text-[10px] font-medium text-amber-400">barcode</span>
 								{/if}
 							</div>
-							{#if item.container_path}
-								<p class="text-xs text-slate-500 truncate mt-0.5">📍 {item.container_path}</p>
+							{#if item.parent_name}
+								<p class="text-xs text-slate-500 truncate mt-0.5">in {item.parent_name}</p>
 							{/if}
 							{#if item.tags.length > 0}
 								<div class="mt-1 flex flex-wrap gap-1">

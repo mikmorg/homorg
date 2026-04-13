@@ -197,11 +197,11 @@
 	// ── Container context helpers ────────────────────────────────────────────
 
 	/** Set a container as the active context, push to recent list, and queue the batch event. */
-	function setActiveContainer(id: string, name: string | null, containerPath: string | null) {
+	function setActiveContainer(id: string, name: string | null, containerPath: string | null, parentName: string | null = null) {
 		setContext({ containerId: id, containerName: name ?? 'Unnamed' });
 		pendingBatch.push({ type: 'set_context', container_id: id, scanned_at: new Date().toISOString() });
 		setPendingCount(pendingBatch.length);
-		pushRecentContainer({ id, name: name ?? 'Unnamed', container_path: containerPath });
+		pushRecentContainer({ id, name: name ?? 'Unnamed', container_path: containerPath, parent_name: parentName });
 		containerMoveMode = false;
 		addLog(name ?? id, 'context', `Context → ${name ?? 'Unnamed'}`);
 		contextSet();
@@ -738,7 +738,7 @@
 	}
 
 	function pickContainer(item: ItemSummary | RecentContainer) {
-		setActiveContainer(item.id, item.name, item.container_path ?? null);
+		setActiveContainer(item.id, item.name, item.container_path ?? null, ('parent_name' in item ? item.parent_name : null) ?? null);
 	}
 
 	// ── Camera link management ───────────────────────────────────────────────
@@ -1199,9 +1199,14 @@
 									class="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-slate-700"
 									onclick={() => { placeParentSelected = item; placeParentResults = []; }}
 								>
-									<span class="flex-1 truncate text-slate-100">{item.name ?? 'Unnamed'}</span>
+									<div class="min-w-0 flex-1">
+										<p class="truncate text-slate-100">{item.name ?? 'Unnamed'}</p>
+										{#if item.parent_name}
+											<p class="truncate text-xs text-slate-500">in {item.parent_name}</p>
+										{/if}
+									</div>
 									{#if item.system_barcode}
-										<span class="font-mono text-xs text-slate-500">{item.system_barcode}</span>
+										<span class="flex-shrink-0 font-mono text-xs text-slate-500">{item.system_barcode}</span>
 									{/if}
 								</button>
 							{/each}
@@ -1267,6 +1272,9 @@
 							</div>
 							<div class="min-w-0">
 								<p class="truncate font-medium text-slate-100">{rc.name}</p>
+								{#if rc.parent_name}
+									<p class="truncate text-xs text-slate-500">in {rc.parent_name}</p>
+								{/if}
 							</div>
 						</button>
 					{/each}
@@ -1287,7 +1295,9 @@
 							</div>
 							<div class="min-w-0">
 								<p class="truncate font-medium text-slate-100">{item.name ?? 'Unnamed'}</p>
-								{#if item.system_barcode}
+								{#if item.parent_name}
+									<p class="truncate text-xs text-slate-500">in {item.parent_name}</p>
+								{:else if item.system_barcode}
 									<p class="text-xs text-slate-400 font-mono">{item.system_barcode}</p>
 								{/if}
 							</div>
@@ -1311,7 +1321,9 @@
 						</div>
 						<div class="min-w-0">
 							<p class="truncate font-medium text-slate-100">{item.name ?? 'Unnamed'}</p>
-							{#if item.system_barcode}
+							{#if item.container_path}
+								<p class="truncate text-xs text-slate-500">{item.container_path}</p>
+							{:else if item.system_barcode}
 								<p class="text-xs text-slate-400 font-mono">{item.system_barcode}</p>
 							{/if}
 						</div>
