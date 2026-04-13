@@ -4,7 +4,7 @@ test.describe('admin — user management', () => {
 	test('admin can view user list and see own account', async ({ page }) => {
 		await page.goto('/admin/users');
 		// The seeded admin user should appear in the list
-		await expect(page.getByText('admin')).toBeVisible();
+		await expect(page.getByText('e2e-admin', { exact: true })).toBeVisible();
 	});
 
 	test('admin can generate invite code', async ({ page }) => {

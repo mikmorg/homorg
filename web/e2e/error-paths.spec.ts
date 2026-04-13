@@ -9,14 +9,13 @@ test.describe('error paths', () => {
 		).toBeVisible({ timeout: 10_000 });
 	});
 
-	test('unauthenticated user is redirected to login', async ({ browser }) => {
-		// Use a fresh context with no stored auth
-		const ctx = await browser.newContext();
-		const page = await ctx.newPage();
-		await page.goto('/browse');
-		// Should redirect to login
-		await page.waitForURL('**/login', { timeout: 10_000 });
-		await expect(page.getByRole('button', { name: /log in|sign in/i })).toBeVisible();
-		await ctx.close();
+	test('unauthenticated API call returns 401', async ({ playwright }) => {
+		// Verify the backend rejects requests without a valid token
+		const ctx = await playwright.request.newContext({
+			baseURL: 'http://localhost:8080/api/v1/'
+		});
+		const res = await ctx.get('containers/00000000-0000-0000-0000-000000000001/children');
+		expect(res.status()).toBe(401);
+		await ctx.dispose();
 	});
 });
