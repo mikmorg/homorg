@@ -730,6 +730,29 @@ impl ItemCommands {
 
         // I5: Normalize code_type to uppercase so "upc", "UPC", "Upc" all resolve to the same code.
         let code_type = code_type.to_uppercase();
+
+        // Reject duplicate type+value pairs (projector silently deduplicates,
+        // but we should not litter the event store with no-op events).
+        let already_exists: bool = sqlx::query_scalar(
+            r#"
+            SELECT EXISTS (
+                SELECT 1 FROM jsonb_array_elements(COALESCE(external_codes, '[]'::jsonb)) AS elem
+                WHERE elem->>'type' = $1 AND elem->>'value' = $2
+            )
+            FROM items WHERE id = $3 AND is_deleted = FALSE
+            "#,
+        )
+        .bind(&code_type)
+        .bind(&value)
+        .bind(item_id)
+        .fetch_one(&mut *tx)
+        .await?;
+        if already_exists {
+            return Err(AppError::Conflict(format!(
+                "External code {code_type}:{value} already exists on this item"
+            )));
+        }
+
         let event = DomainEvent::ItemExternalCodeAdded(ExternalCodeData { code_type, value });
         let stored = self
             .event_store

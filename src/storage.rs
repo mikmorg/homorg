@@ -167,7 +167,7 @@ impl S3Storage {
             .unwrap_or_else(|| format!("https://{}.s3.{}.amazonaws.com", config.s3_bucket, config.s3_region));
 
         Ok(Self {
-            bucket,
+            bucket: *bucket,
             prefix: config.s3_prefix.clone(),
             public_base_url,
         })
