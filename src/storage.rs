@@ -125,6 +125,114 @@ impl StorageBackend for LocalStorage {
     }
 }
 
+// ── S3-compatible storage backend (requires `s3` feature) ─────────────
+
+#[cfg(feature = "s3")]
+pub struct S3Storage {
+    bucket: s3::Bucket,
+    prefix: String,
+    /// Public base URL for constructing image URLs (e.g. CDN or S3 endpoint).
+    public_base_url: String,
+}
+
+#[cfg(feature = "s3")]
+impl S3Storage {
+    pub fn new(config: &AppConfig) -> Result<Self, String> {
+        if config.s3_bucket.is_empty() {
+            return Err("S3_BUCKET is required when STORAGE_BACKEND=s3".into());
+        }
+
+        let region = if let Some(ref endpoint) = config.s3_endpoint {
+            s3::Region::Custom {
+                region: config.s3_region.clone(),
+                endpoint: endpoint.clone(),
+            }
+        } else {
+            config
+                .s3_region
+                .parse()
+                .map_err(|e| format!("Invalid S3_REGION: {e}"))?
+        };
+
+        let credentials =
+            s3::creds::Credentials::from_env().map_err(|e| format!("Failed to load S3 credentials: {e}"))?;
+
+        let bucket = s3::Bucket::new(&config.s3_bucket, region, credentials)
+            .map_err(|e| format!("Failed to create S3 bucket handle: {e}"))?;
+
+        let public_base_url = config
+            .s3_endpoint
+            .as_deref()
+            .map(|ep| format!("{}/{}", ep.trim_end_matches('/'), config.s3_bucket))
+            .unwrap_or_else(|| format!("https://{}.s3.{}.amazonaws.com", config.s3_bucket, config.s3_region));
+
+        Ok(Self {
+            bucket,
+            prefix: config.s3_prefix.clone(),
+            public_base_url,
+        })
+    }
+}
+
+#[cfg(feature = "s3")]
+#[async_trait::async_trait]
+impl StorageBackend for S3Storage {
+    async fn upload(&self, item_id: Uuid, filename: &str, data: &[u8]) -> AppResult<String> {
+        let ext = sanitize_extension(filename);
+        let file_id = Uuid::new_v4();
+        let key = format!("{}/{item_id}/{file_id}.{ext}", self.prefix);
+
+        self.bucket
+            .put_object(&key, data)
+            .await
+            .map_err(|e| AppError::Storage(format!("S3 upload failed: {e}")))?;
+
+        Ok(key)
+    }
+
+    async fn delete(&self, key: &str) -> AppResult<()> {
+        let stripped = key.strip_prefix('/').unwrap_or(key);
+        self.bucket
+            .delete_object(stripped)
+            .await
+            .map_err(|e| AppError::Storage(format!("S3 delete failed: {e}")))?;
+        Ok(())
+    }
+
+    fn get_url(&self, key: &str) -> String {
+        let clean_key = key.strip_prefix('/').unwrap_or(key);
+        format!("{}/{clean_key}", self.public_base_url)
+    }
+}
+
+// ── Factory ───────────────────────────────────────────────────────────
+
+/// Create the appropriate storage backend based on configuration.
+pub async fn create_storage(config: &AppConfig) -> Result<std::sync::Arc<dyn StorageBackend>, String> {
+    match config.storage_backend.as_str() {
+        #[cfg(feature = "s3")]
+        "s3" => {
+            tracing::info!("Using S3 storage backend (bucket={})", config.s3_bucket);
+            let s3 = S3Storage::new(config)?;
+            Ok(std::sync::Arc::new(s3))
+        }
+        #[cfg(not(feature = "s3"))]
+        "s3" => Err("S3 storage backend requires the 's3' feature flag. Rebuild with --features s3".into()),
+        backend => {
+            if backend != "local" {
+                tracing::warn!("Unknown STORAGE_BACKEND '{backend}', falling back to local");
+            }
+            let local = LocalStorage::new(&config.storage_path);
+            local
+                .init()
+                .await
+                .map_err(|e| format!("Failed to initialize local storage: {e}"))?;
+            tracing::info!("Using local storage backend (path={})", config.storage_path);
+            Ok(std::sync::Arc::new(local))
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -261,8 +369,6 @@ mod tests {
     async fn delete_nonexistent_file_is_ok() {
         let tmp = tempfile::tempdir().unwrap();
         let storage = LocalStorage::new(tmp.path().to_str().unwrap());
-        // Deleting a key that doesn't resolve to a real file should error
-        // on canonicalize (file must exist to canonicalize)
         let result = storage.delete("nonexistent/file.jpg").await;
         assert!(result.is_err());
     }
@@ -283,7 +389,6 @@ mod tests {
 
     #[tokio::test]
     async fn factory_s3_without_feature_returns_error() {
-        // When compiled without s3 feature, requesting s3 backend should fail
         #[cfg(not(feature = "s3"))]
         {
             let tmp = tempfile::tempdir().unwrap();
@@ -302,7 +407,6 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let config = test_config(tmp.path().to_str().unwrap());
         let storage = create_storage(&config).await.unwrap();
-        // Should be able to upload
         let key = storage.upload(Uuid::new_v4(), "test.jpg", b"data").await.unwrap();
         assert!(key.ends_with(".jpg"));
     }
@@ -337,114 +441,6 @@ mod tests {
             request_timeout_secs: 30,
             upload_timeout_secs: 120,
             log_format: "text".into(),
-        }
-    }
-}
-
-// ── S3-compatible storage backend (requires `s3` feature) ─────────────
-
-#[cfg(feature = "s3")]
-pub struct S3Storage {
-    bucket: s3::Bucket,
-    prefix: String,
-    /// Public base URL for constructing image URLs (e.g. CDN or S3 endpoint).
-    public_base_url: String,
-}
-
-#[cfg(feature = "s3")]
-impl S3Storage {
-    pub fn new(config: &AppConfig) -> Result<Self, String> {
-        if config.s3_bucket.is_empty() {
-            return Err("S3_BUCKET is required when STORAGE_BACKEND=s3".into());
-        }
-
-        let region = if let Some(ref endpoint) = config.s3_endpoint {
-            s3::Region::Custom {
-                region: config.s3_region.clone(),
-                endpoint: endpoint.clone(),
-            }
-        } else {
-            config
-                .s3_region
-                .parse()
-                .map_err(|e| format!("Invalid S3_REGION: {e}"))?
-        };
-
-        let credentials =
-            s3::creds::Credentials::from_env().map_err(|e| format!("Failed to load S3 credentials: {e}"))?;
-
-        let bucket = s3::Bucket::new(&config.s3_bucket, region, credentials)
-            .map_err(|e| format!("Failed to create S3 bucket handle: {e}"))?;
-
-        let public_base_url = config
-            .s3_endpoint
-            .as_deref()
-            .map(|ep| format!("{}/{}", ep.trim_end_matches('/'), config.s3_bucket))
-            .unwrap_or_else(|| format!("https://{}.s3.{}.amazonaws.com", config.s3_bucket, config.s3_region));
-
-        Ok(Self {
-            bucket,
-            prefix: config.s3_prefix.clone(),
-            public_base_url,
-        })
-    }
-}
-
-#[cfg(feature = "s3")]
-#[async_trait::async_trait]
-impl StorageBackend for S3Storage {
-    async fn upload(&self, item_id: Uuid, filename: &str, data: &[u8]) -> AppResult<String> {
-        let ext = sanitize_extension(filename);
-        let file_id = Uuid::new_v4();
-        let key = format!("{}/{item_id}/{file_id}.{ext}", self.prefix);
-
-        self.bucket
-            .put_object(&key, data)
-            .await
-            .map_err(|e| AppError::Storage(format!("S3 upload failed: {e}")))?;
-
-        Ok(key)
-    }
-
-    async fn delete(&self, key: &str) -> AppResult<()> {
-        let stripped = key.strip_prefix('/').unwrap_or(key);
-        self.bucket
-            .delete_object(stripped)
-            .await
-            .map_err(|e| AppError::Storage(format!("S3 delete failed: {e}")))?;
-        Ok(())
-    }
-
-    fn get_url(&self, key: &str) -> String {
-        let clean_key = key.strip_prefix('/').unwrap_or(key);
-        format!("{}/{clean_key}", self.public_base_url)
-    }
-}
-
-// ── Factory ───────────────────────────────────────────────────────────
-
-/// Create the appropriate storage backend based on configuration.
-pub async fn create_storage(config: &AppConfig) -> Result<std::sync::Arc<dyn StorageBackend>, String> {
-    match config.storage_backend.as_str() {
-        #[cfg(feature = "s3")]
-        "s3" => {
-            tracing::info!("Using S3 storage backend (bucket={})", config.s3_bucket);
-            let s3 = S3Storage::new(config)?;
-            Ok(std::sync::Arc::new(s3))
-        }
-        #[cfg(not(feature = "s3"))]
-        "s3" => Err("S3 storage backend requires the 's3' feature flag. Rebuild with --features s3".into()),
-        backend => {
-            if backend != "local" {
-                tracing::warn!("Unknown STORAGE_BACKEND '{backend}', falling back to local");
-            }
-            let local = LocalStorage::new(&config.storage_path);
-            local
-                .init()
-                .await
-                .map_err(|e| format!("Failed to initialize local storage: {e}"))?;
-            tracing::info!("Using local storage backend (path={})", config.storage_path);
-            Ok(std::sync::Arc::new(local))
         }
     }
 }

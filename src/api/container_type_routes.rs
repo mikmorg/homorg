@@ -182,3 +182,101 @@ async fn delete_container_type(
     state.container_type_queries.delete(id).await?;
     Ok(StatusCode::NO_CONTENT)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn minimal_create() -> CreateContainerTypeRequest {
+        CreateContainerTypeRequest {
+            name: "Shelf".into(),
+            description: None,
+            default_max_capacity_cc: None,
+            default_max_weight_grams: None,
+            default_dimensions: None,
+            default_location_schema: None,
+            icon: None,
+            purpose: None,
+        }
+    }
+
+    fn minimal_update() -> UpdateContainerTypeRequest {
+        UpdateContainerTypeRequest {
+            name: None,
+            description: None,
+            default_max_capacity_cc: None,
+            default_max_weight_grams: None,
+            default_dimensions: None,
+            default_location_schema: None,
+            icon: None,
+            purpose: None,
+        }
+    }
+
+    #[test]
+    fn ct_name_rejects_empty() {
+        assert!(validate_ct_name("").is_err());
+    }
+
+    #[test]
+    fn ct_name_rejects_over_128_chars() {
+        assert!(validate_ct_name(&"x".repeat(129)).is_err());
+    }
+
+    #[test]
+    fn ct_name_accepts_at_128_chars() {
+        assert!(validate_ct_name(&"x".repeat(128)).is_ok());
+    }
+
+    #[test]
+    fn create_ct_rejects_icon_over_64_chars() {
+        let mut req = minimal_create();
+        req.icon = Some("x".repeat(65));
+        assert!(validate_create_container_type_request(&req).is_err());
+    }
+
+    #[test]
+    fn create_ct_rejects_purpose_over_64_chars() {
+        let mut req = minimal_create();
+        req.purpose = Some("x".repeat(65));
+        assert!(validate_create_container_type_request(&req).is_err());
+    }
+
+    #[test]
+    fn create_ct_rejects_description_over_10kb() {
+        let mut req = minimal_create();
+        req.description = Some("x".repeat(10_001));
+        assert!(validate_create_container_type_request(&req).is_err());
+    }
+
+    #[test]
+    fn create_ct_rejects_schema_over_64kb() {
+        let mut req = minimal_create();
+        req.default_location_schema = Some(serde_json::json!("x".repeat(65_537)));
+        assert!(validate_create_container_type_request(&req).is_err());
+    }
+
+    #[test]
+    fn create_ct_accepts_valid_request() {
+        assert!(validate_create_container_type_request(&minimal_create()).is_ok());
+    }
+
+    #[test]
+    fn update_ct_rejects_oversized_name() {
+        let mut req = minimal_update();
+        req.name = Some("x".repeat(129));
+        assert!(validate_update_container_type_request(&req).is_err());
+    }
+
+    #[test]
+    fn update_ct_accepts_partial_update() {
+        let mut req = minimal_update();
+        req.name = Some("Box".into());
+        assert!(validate_update_container_type_request(&req).is_ok());
+    }
+
+    #[test]
+    fn update_ct_accepts_empty_update() {
+        assert!(validate_update_container_type_request(&minimal_update()).is_ok());
+    }
+}

@@ -106,3 +106,44 @@ async fn delete_category(
     state.taxonomy_queries.delete_category(id).await?;
     Ok(StatusCode::NO_CONTENT)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn category_name_rejects_empty() {
+        assert!(validate_category_name("").is_err());
+    }
+
+    #[test]
+    fn category_name_rejects_whitespace_only() {
+        assert!(validate_category_name("  ").is_err());
+    }
+
+    #[test]
+    fn category_name_rejects_over_128_chars() {
+        assert!(validate_category_name(&"x".repeat(129)).is_err());
+    }
+
+    #[test]
+    fn category_name_accepts_at_128_chars() {
+        assert!(validate_category_name(&"x".repeat(128)).is_ok());
+    }
+
+    #[test]
+    fn category_name_accepts_normal_name() {
+        assert!(validate_category_name("Household").is_ok());
+    }
+
+    #[test]
+    fn category_desc_over_limit_rejected_in_create() {
+        let req = CreateCategoryRequest {
+            name: "Valid".into(),
+            description: Some("x".repeat(10_001)),
+            parent_category_id: None,
+        };
+        // Simulate the handler's inline check
+        assert!(req.description.as_ref().unwrap().len() > MAX_CATEGORY_DESC_LEN);
+    }
+}

@@ -17,6 +17,7 @@ use testcontainers::{ContainerAsync, GenericImage, ImageExt};
 use uuid::Uuid;
 
 /// Everything returned from setup — keep the container alive for the test's lifetime.
+#[allow(dead_code)]
 pub struct TestContext {
     pub state: Arc<AppState>,
     pub admin_id: Uuid,

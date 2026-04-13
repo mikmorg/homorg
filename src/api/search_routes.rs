@@ -64,3 +64,58 @@ async fn search(
     let results = state.search_queries.search(&params).await?;
     Ok(Json(results))
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn safe_lquery_accepts_simple_path() {
+        assert!(is_safe_lquery("root.box.shelf"));
+    }
+
+    #[test]
+    fn safe_lquery_accepts_wildcard() {
+        assert!(is_safe_lquery("root.*.shelf"));
+    }
+
+    #[test]
+    fn safe_lquery_accepts_underscore() {
+        assert!(is_safe_lquery("my_box.item_1"));
+    }
+
+    #[test]
+    fn safe_lquery_rejects_pipe() {
+        assert!(!is_safe_lquery("root|admin"));
+    }
+
+    #[test]
+    fn safe_lquery_rejects_braces() {
+        assert!(!is_safe_lquery("root.{a,b}"));
+    }
+
+    #[test]
+    fn safe_lquery_rejects_bang() {
+        assert!(!is_safe_lquery("!root"));
+    }
+
+    #[test]
+    fn safe_lquery_rejects_at() {
+        assert!(!is_safe_lquery("root@3"));
+    }
+
+    #[test]
+    fn safe_lquery_accepts_empty() {
+        assert!(is_safe_lquery(""));
+    }
+
+    #[test]
+    fn safe_lquery_rejects_space() {
+        assert!(!is_safe_lquery("root box"));
+    }
+
+    #[test]
+    fn safe_lquery_rejects_semicolon() {
+        assert!(!is_safe_lquery("root;DROP"));
+    }
+}

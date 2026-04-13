@@ -57,6 +57,10 @@ export default defineConfig({
 	build: {
 		target: 'es2022'
 	},
+	resolve: {
+		// Svelte 5 component tests need browser conditions to avoid server-only mount()
+		conditions: ['browser']
+	},
 	test: {
 		include: ['src/**/*.test.ts'],
 		environment: 'jsdom',

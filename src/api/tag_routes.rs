@@ -81,3 +81,33 @@ async fn delete_tag(State(state): State<Arc<AppState>>, auth: AuthUser, Path(id)
     state.taxonomy_queries.delete_tag(id).await?;
     Ok(StatusCode::NO_CONTENT)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn tag_name_rejects_empty() {
+        assert!(validate_tag_name("").is_err());
+    }
+
+    #[test]
+    fn tag_name_rejects_whitespace_only() {
+        assert!(validate_tag_name("   ").is_err());
+    }
+
+    #[test]
+    fn tag_name_rejects_over_100_chars() {
+        assert!(validate_tag_name(&"x".repeat(101)).is_err());
+    }
+
+    #[test]
+    fn tag_name_accepts_at_100_chars() {
+        assert!(validate_tag_name(&"x".repeat(100)).is_ok());
+    }
+
+    #[test]
+    fn tag_name_accepts_normal_name() {
+        assert!(validate_tag_name("electronics").is_ok());
+    }
+}
