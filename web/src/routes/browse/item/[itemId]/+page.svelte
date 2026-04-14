@@ -10,9 +10,15 @@
 	import CoordinateDisplay from '$lib/components/CoordinateDisplay.svelte';
 	import CoordinateInput from '$lib/components/CoordinateInput.svelte';
 	import LocationSchemaDisplay from '$lib/components/LocationSchemaDisplay.svelte';
+	import { startCameraScanner, stopScanner, onScan } from '$lib/scanner/index.js';
 	import { toast } from '$stores/toast.js';
 
 	let itemId = $derived(page.params.itemId!);
+
+	// Camera scan state
+	let scanTarget: 'barcode' | 'external' | null = $state(null);
+	let cameraContainer: HTMLDivElement | undefined = $state(undefined);
+	let scanUnsub: (() => void) | null = null;
 	let item: Item | null = $state(null);
 	let parentItem: Item | null = $state(null);
 	let ancestors: AncestorEntry[] = $state([]);
@@ -38,7 +44,10 @@
 	let moveTargetItem: Item | null = $state(null);
 	let moveCoordinate: unknown | null = $state(null);
 
-	onDestroy(() => { if (moveDebounce) clearTimeout(moveDebounce); });
+	onDestroy(() => {
+		if (moveDebounce) clearTimeout(moveDebounce);
+		closeCameraScanner();
+	});
 
 	// Container stats
 	let containerStats: ContainerStats | null = $state(null);
@@ -330,6 +339,38 @@
 			actionError = err instanceof Error ? err.message : 'Failed to remove code';
 		}
 	}
+
+	async function openCameraScanner(target: 'barcode' | 'external') {
+		if (target === 'barcode') showBarcodeAssign = true;
+		if (target === 'external') showAddCode = true;
+		scanTarget = target;
+		// Wait a tick for the modal DOM to mount
+		await new Promise((r) => setTimeout(r, 0));
+		scanUnsub = onScan((e) => {
+			if (scanTarget === 'barcode') {
+				barcodeValue = e.barcode;
+			} else if (scanTarget === 'external') {
+				newCodeValue = e.barcode;
+				const detected = detectBarcodeType(e.barcode);
+				if (detected) newCodeType = detected;
+			}
+			closeCameraScanner();
+		});
+		const video = await startCameraScanner();
+		if (video && cameraContainer) {
+			video.style.width = '100%';
+			video.style.height = '100%';
+			video.style.objectFit = 'cover';
+			cameraContainer.appendChild(video);
+		}
+	}
+
+	function closeCameraScanner() {
+		scanUnsub?.();
+		scanUnsub = null;
+		stopScanner();
+		scanTarget = null;
+	}
 </script>
 
 <svelte:window onkeydown={(e) => { if (e.key === "Escape") { if (showMovePicker) showMovePicker = false; } }} />
@@ -470,7 +511,7 @@
 								{#if item.system_barcode}
 									<span class="text-xs font-mono text-slate-300">{item.system_barcode}</span>
 								{/if}
-								<button class="text-xs text-indigo-400 hover:text-indigo-300" onclick={() => { showBarcodeAssign = !showBarcodeAssign; if (showBarcodeAssign) barcodeValue = item?.system_barcode ?? ''; }}>
+								<button class="text-xs text-indigo-400 hover:text-indigo-300" onclick={() => { showBarcodeAssign = !showBarcodeAssign; if (showBarcodeAssign) barcodeValue = item?.system_barcode ?? ''; else if (scanTarget === 'barcode') closeCameraScanner(); }}>
 									{showBarcodeAssign ? 'Cancel' : item.system_barcode ? 'Change' : 'Assign'}
 								</button>
 							</div>
@@ -478,6 +519,9 @@
 						{#if showBarcodeAssign}
 							<div class="mt-2 flex gap-2">
 								<input type="text" class="input text-sm flex-1 font-mono" bind:value={barcodeValue} placeholder="Barcode value" aria-label="Barcode value" />
+								<button class="btn btn-icon text-slate-400 hover:text-indigo-400" onclick={() => openCameraScanner('barcode')} aria-label="Scan barcode with camera" title="Scan with camera">
+									<svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2z"/><circle cx="12" cy="13" r="4"/></svg>
+								</button>
 								<button class="btn btn-primary text-xs px-3" onclick={assignBarcode} disabled={assigningBarcode || !barcodeValue.trim()}>Save</button>
 							</div>
 						{/if}
@@ -551,7 +595,7 @@
 				<div>
 					<div class="flex items-center justify-between mb-2">
 						<p class="text-xs text-slate-400 uppercase tracking-wide">External codes</p>
-						<button class="text-xs text-indigo-400 hover:text-indigo-300" onclick={() => { showAddCode = !showAddCode; }}>
+						<button class="text-xs text-indigo-400 hover:text-indigo-300" onclick={() => { showAddCode = !showAddCode; if (!showAddCode && scanTarget === 'external') closeCameraScanner(); }}>
 							{showAddCode ? 'Cancel' : 'Add'}
 						</button>
 					</div>
@@ -567,6 +611,9 @@
 									<option value="__custom__">Custom…</option>
 								</select>
 								<input type="text" class="input flex-1 font-mono text-sm" bind:value={newCodeValue} placeholder="Value" aria-label="Code value" onblur={onNewCodeValueBlur} />
+								<button class="btn btn-icon text-slate-400 hover:text-indigo-400" onclick={() => openCameraScanner('external')} aria-label="Scan code with camera" title="Scan with camera">
+									<svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2z"/><circle cx="12" cy="13" r="4"/></svg>
+								</button>
 								<button class="btn btn-primary text-xs px-3" onclick={addExternalCode}
 									disabled={addingCode || !newCodeValue.trim() || !resolvedNewCodeType()}>Add</button>
 							</div>
@@ -648,6 +695,25 @@
 		{/if}
 	</div>
 </div>
+
+<!-- Camera scanner overlay -->
+{#if scanTarget}
+<div class="fixed inset-0 z-50 flex flex-col bg-slate-950">
+	<div class="flex items-center justify-between border-b border-slate-800 px-3 py-2">
+		<span class="text-sm font-medium text-slate-200">
+			{scanTarget === 'barcode' ? 'Scan system barcode' : 'Scan external code'}
+		</span>
+		<button class="btn btn-icon text-slate-400" onclick={closeCameraScanner} aria-label="Close camera">
+			<svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+				<path d="M18 6L6 18M6 6l12 12" />
+			</svg>
+		</button>
+	</div>
+	<div class="flex flex-1 items-center justify-center" bind:this={cameraContainer}>
+		<!-- video element is appended here by startCameraScanner -->
+	</div>
+</div>
+{/if}
 
 <!-- Delete confirmation -->
 <ConfirmDialog

@@ -172,16 +172,19 @@ async fn preset_labels_pdf(
         )));
     }
 
-    // Validate container_type_id if provided.
-    if let Some(type_id) = req.container_type_id {
-        let exists: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM container_types WHERE id = $1)")
+    // Validate container_type_id and fetch its name for the PDF description.
+    let container_type_name: Option<String> = if let Some(type_id) = req.container_type_id {
+        let name: Option<String> = sqlx::query_scalar("SELECT name FROM container_types WHERE id = $1")
             .bind(type_id)
-            .fetch_one(&state.pool)
+            .fetch_optional(&state.pool)
             .await?;
-        if !exists {
+        if name.is_none() {
             return Err(AppError::NotFound(format!("Container type {type_id} not found")));
         }
-    }
+        name
+    } else {
+        None
+    };
 
     // Generate barcodes and insert presets atomically — all in one transaction so
     // the sequence advance and preset rows are never out of sync.
@@ -202,7 +205,11 @@ async fn preset_labels_pdf(
     }
     state.event_store.commit_and_notify(tx).await?;
 
-    let preset_kind = if req.is_container { "container" } else { "item" };
+    let preset_kind = match (&container_type_name, req.is_container) {
+        (Some(name), true) => format!("container ({})", name),
+        (None, true) => "container".to_string(),
+        (_, false) => "item".to_string(),
+    };
     let description = format!(
         "Preset {} labels | {} .. {} | {} barcodes | {}",
         preset_kind,
