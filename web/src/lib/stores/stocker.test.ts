@@ -78,6 +78,7 @@ function makeItem(overrides: Partial<Item> = {}): Item {
 		classification_confidence: null,
 		needs_review: false,
 		ai_description: null,
+		ai_suggestions: null,
 		...overrides
 	};
 }

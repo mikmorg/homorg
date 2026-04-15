@@ -48,11 +48,7 @@ impl FromStr for LabelStock {
 
 /// Render a LaTeX label sheet for `barcodes` and compile it to PDF bytes via
 /// lualatex (required for the barracuda Code128 package).
-pub async fn generate_label_pdf(
-    barcodes: &[String],
-    description: &str,
-    stock: LabelStock,
-) -> AppResult<Vec<u8>> {
+pub async fn generate_label_pdf(barcodes: &[String], description: &str, stock: LabelStock) -> AppResult<Vec<u8>> {
     let tmp = TempDir::new().map_err(|e| AppError::Internal(format!("tmpdir: {e}")))?;
 
     // Render template.

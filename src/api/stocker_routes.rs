@@ -553,7 +553,11 @@ async fn session_event_stream(
             match phone_scans.recv().await {
                 Ok(barcode) => {
                     let payload = serde_json::json!({ "barcode": barcode }).to_string();
-                    if tx_scan.send(Ok(Event::default().event("phone_scan").data(payload))).await.is_err() {
+                    if tx_scan
+                        .send(Ok(Event::default().event("phone_scan").data(payload)))
+                        .await
+                        .is_err()
+                    {
                         return;
                     }
                 }

@@ -23,9 +23,7 @@ use tempfile::TempDir;
 use tokio::io::AsyncWriteExt;
 use tokio::process::Command;
 
-use crate::models::enrichment::{
-    EnrichmentError, EnrichmentInput, EnrichmentOutput, PresetHint,
-};
+use crate::models::enrichment::{EnrichmentError, EnrichmentInput, EnrichmentOutput, PresetHint};
 
 use super::provider::EnrichmentProvider;
 
@@ -125,9 +123,7 @@ RULES:
         s.push_str(Self::prompt_prefix());
         s.push('\n');
         s.push_str("ITEM CONTEXT:\n");
-        let existing = |opt: &Option<String>| -> String {
-            opt.clone().unwrap_or_else(|| "(empty)".to_string())
-        };
+        let existing = |opt: &Option<String>| -> String { opt.clone().unwrap_or_else(|| "(empty)".to_string()) };
         s.push_str(&format!("- Existing name: {}\n", existing(&input.existing_name)));
         s.push_str(&format!(
             "- Existing description: {}\n",
@@ -169,14 +165,8 @@ RULES:
             "- Allowed categories: [{}]\n",
             input.available_categories.join(", ")
         ));
-        s.push_str(&format!(
-            "- Allowed tags: [{}]\n",
-            input.available_tags.join(", ")
-        ));
-        s.push_str(&format!(
-            "- New tags allowed: {}\n",
-            input.allow_new_tags
-        ));
+        s.push_str(&format!("- Allowed tags: [{}]\n", input.available_tags.join(", ")));
+        s.push_str(&format!("- New tags allowed: {}\n", input.allow_new_tags));
         if image_paths.is_empty() {
             s.push_str("- Images: (none provided — rely on external codes / context)\n");
         } else {
@@ -191,10 +181,7 @@ RULES:
 
     /// Write images from `EnrichmentInput` to the scratch dir and return the
     /// paths to include in the prompt.
-    async fn stage_images(
-        scratch_dir: &Path,
-        input: &EnrichmentInput,
-    ) -> Result<Vec<PathBuf>, EnrichmentError> {
+    async fn stage_images(scratch_dir: &Path, input: &EnrichmentInput) -> Result<Vec<PathBuf>, EnrichmentError> {
         let mut paths = Vec::with_capacity(input.images.len());
         for (i, img) in input.images.iter().enumerate() {
             // Preserve the original extension so claude's Read tool treats it as an image.
@@ -215,11 +202,7 @@ RULES:
 
     /// Invoke `claude -p ...` and return parsed stdout JSON. Maps known
     /// error messages (auth, spend cap) to typed [`EnrichmentError`]s.
-    async fn invoke(
-        &self,
-        scratch_dir: &Path,
-        prompt: &str,
-    ) -> Result<ClaudeCliResult, EnrichmentError> {
+    async fn invoke(&self, scratch_dir: &Path, prompt: &str) -> Result<ClaudeCliResult, EnrichmentError> {
         let mut cmd = Command::new(&self.cfg.cli_path);
         cmd.arg("-p")
             .arg("--output-format")
@@ -275,18 +258,13 @@ RULES:
         if parsed.is_error {
             let msg = parsed.result.as_deref().unwrap_or("(no result message)");
             // Auth failure is distinguishable only by message text.
-            if msg.contains("Not logged in")
-                || msg.contains("authentication")
-                || msg.contains("ANTHROPIC_API_KEY")
-            {
+            if msg.contains("Not logged in") || msg.contains("authentication") || msg.contains("ANTHROPIC_API_KEY") {
                 return Err(EnrichmentError::NotAuthenticated(msg.to_string()));
             }
             if msg.contains("budget") || msg.contains("max-budget") {
                 return Err(EnrichmentError::SpendCapped(msg.to_string()));
             }
-            return Err(EnrichmentError::Invocation(format!(
-                "claude reported error: {msg}"
-            )));
+            return Err(EnrichmentError::Invocation(format!("claude reported error: {msg}")));
         }
 
         Ok(parsed)
@@ -305,16 +283,13 @@ impl EnrichmentProvider for ClaudeCliProvider {
 
     async fn enrich(&self, input: EnrichmentInput) -> Result<EnrichmentOutput, EnrichmentError> {
         // Scratch dir auto-deletes on drop (any return path).
-        let tmp = TempDir::new_in("/tmp")
-            .map_err(|e| EnrichmentError::Invocation(format!("tempdir: {e}")))?;
+        let tmp = TempDir::new_in("/tmp").map_err(|e| EnrichmentError::Invocation(format!("tempdir: {e}")))?;
         let image_paths = Self::stage_images(tmp.path(), &input).await?;
         let prompt = Self::build_prompt(&input, &image_paths);
         let result = self.invoke(tmp.path(), &prompt).await?;
 
         let raw = result.structured_output.ok_or_else(|| {
-            EnrichmentError::BadOutput(
-                "claude returned success but no structured_output field".into(),
-            )
+            EnrichmentError::BadOutput("claude returned success but no structured_output field".into())
         })?;
 
         let wire: WireOutput = serde_json::from_value(raw)
@@ -391,10 +366,7 @@ mod tests {
     fn write_fake_claude(path: &Path, stdout_literal: &str) {
         // Dollar-sign literal would need escaping; the JSON we emit doesn't
         // contain `$`. `printf '%s'` preserves formatting exactly.
-        let script = format!(
-            "#!/usr/bin/env bash\nprintf '%s' {}\n",
-            shell_escape(stdout_literal)
-        );
+        let script = format!("#!/usr/bin/env bash\nprintf '%s' {}\n", shell_escape(stdout_literal));
         std::fs::write(path, script).unwrap();
         std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o755)).unwrap();
     }
@@ -458,8 +430,7 @@ mod tests {
 
     #[test]
     fn schema_is_valid_json() {
-        let v: serde_json::Value =
-            serde_json::from_str(ClaudeCliProvider::output_schema()).expect("valid JSON schema");
+        let v: serde_json::Value = serde_json::from_str(ClaudeCliProvider::output_schema()).expect("valid JSON schema");
         assert_eq!(v["type"], "object");
         assert!(v["properties"]["confidence"].is_object());
     }
@@ -518,7 +489,8 @@ mod tests {
     async fn enrich_maps_not_logged_in_error() {
         let tmp = TempDir::new().unwrap();
         let fake = tmp.path().join("fake-claude");
-        let canned = r#"{"type":"result","subtype":"success","is_error":true,"result":"Not logged in · Please run /login"}"#;
+        let canned =
+            r#"{"type":"result","subtype":"success","is_error":true,"result":"Not logged in · Please run /login"}"#;
         write_fake_claude(&fake, canned);
 
         let provider = ClaudeCliProvider::new(ClaudeCliConfig {

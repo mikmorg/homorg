@@ -246,29 +246,21 @@ mod tests {
     #[test]
     fn ai_enricher_user_id_is_parseable() {
         // Sanity check that the uuid! macro matches the migration.
-        assert_eq!(
-            AI_ENRICHER_USER_ID.to_string(),
-            "00000000-0000-0000-0000-00000000a1e1"
-        );
+        assert_eq!(AI_ENRICHER_USER_ID.to_string(), "00000000-0000-0000-0000-00000000a1e1");
     }
 
     #[test]
     fn trigger_to_str_and_priority() {
         assert_eq!(EnrichmentTrigger::ImageAdded.as_str(), "image_added");
-        assert_eq!(
-            EnrichmentTrigger::ExternalCodeAdded.as_str(),
-            "external_code_added"
-        );
+        assert_eq!(EnrichmentTrigger::ExternalCodeAdded.as_str(), "external_code_added");
         assert_eq!(EnrichmentTrigger::ManualRerun.as_str(), "manual_rerun");
         assert_eq!(EnrichmentTrigger::FollowUp.as_str(), "follow_up");
 
         assert!(
-            EnrichmentTrigger::ManualRerun.default_priority()
-                < EnrichmentTrigger::ExternalCodeAdded.default_priority()
+            EnrichmentTrigger::ManualRerun.default_priority() < EnrichmentTrigger::ExternalCodeAdded.default_priority()
         );
         assert!(
-            EnrichmentTrigger::ExternalCodeAdded.default_priority()
-                < EnrichmentTrigger::ImageAdded.default_priority()
+            EnrichmentTrigger::ExternalCodeAdded.default_priority() < EnrichmentTrigger::ImageAdded.default_priority()
         );
     }
 

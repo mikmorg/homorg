@@ -10,6 +10,7 @@ import type {
 	Category, Tag, ContainerType,
 	StoredEvent, HealthResponse, StatsResponse,
 	UserPublic, UpdateUserRequest, UpdateRoleRequest,
+	EnrichmentStatus, EnrichmentTask,
 	ApiError
 } from './types.js';
 import { authStore } from '$stores/auth.js';
@@ -377,5 +378,28 @@ export const system = {
 	rebuildStatus: () => get$<{ in_progress: boolean }>('/admin/rebuild-status')
 };
 
+// ─── Enrichment (admin) ──────────────────────────────────────────────────────
+
+export const enrichment = {
+	listReview: (params?: { limit?: number; offset?: number }) =>
+		get$<{ items: Item[]; total: number }>('/admin/enrichment/review', params as Record<string, unknown>),
+	countReview: () => get$<{ total: number }>('/admin/enrichment/review/count'),
+	approve: (itemId: string, accept?: Record<string, boolean>) =>
+		post$<{ item_id: string; applied_fields: string[] }>(
+			`/admin/enrichment/items/${itemId}/approve`,
+			accept ? { accept } : undefined
+		),
+	reject: (itemId: string) =>
+		post$<{ item_id: string; rejected: boolean }>(`/admin/enrichment/items/${itemId}/reject`),
+	rerun: (itemId: string) =>
+		post$<{ task_id: string }>(`/admin/enrichment/items/${itemId}/rerun`),
+	listTasks: (params?: { status?: EnrichmentStatus; limit?: number; offset?: number }) =>
+		get$<EnrichmentTask[]>('/admin/enrichment/tasks', params as Record<string, unknown>),
+	retryTask: (taskId: string) =>
+		post$<{ task_id: string; retried: boolean }>(`/admin/enrichment/tasks/${taskId}/retry`),
+	cancelTask: (taskId: string) =>
+		post$<{ task_id: string; canceled: boolean }>(`/admin/enrichment/tasks/${taskId}/cancel`)
+};
+
 // ─── Convenience aggregate ───────────────────────────────────────────────────
-export const api = { auth, items, containers, barcodes, stocker, search, undo, events, categories, tags, containerTypes, users, system };
+export const api = { auth, items, containers, barcodes, stocker, search, undo, events, categories, tags, containerTypes, users, system, enrichment };

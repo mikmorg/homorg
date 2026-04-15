@@ -1,6 +1,7 @@
 pub mod common;
 pub mod container_queries;
 pub mod container_type_queries;
+pub mod enrichment_queries;
 pub mod item_queries;
 pub mod search_queries;
 pub mod session_queries;

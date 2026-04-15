@@ -12,6 +12,7 @@
 	import LocationSchemaDisplay from '$lib/components/LocationSchemaDisplay.svelte';
 	import { startCameraScanner, stopScanner, onScan } from '$lib/scanner/index.js';
 	import { toast } from '$stores/toast.js';
+	import { isAdmin } from '$stores/auth.js';
 
 	let itemId = $derived(page.params.itemId!);
 
@@ -351,12 +352,25 @@
 		scanUnsub = onScan((e) => {
 			if (scanTarget === 'barcode') {
 				barcodeValue = e.barcode;
+				closeCameraScanner();
 			} else if (scanTarget === 'external') {
-				newCodeValue = e.barcode;
-				const detected = detectBarcodeType(e.barcode);
+				const scanned = e.barcode.trim();
+				if (/^HOM-/i.test(scanned)) {
+					closeCameraScanner();
+					const existing = item?.system_barcode;
+					if (existing && existing !== scanned) {
+						if (!confirm(`This looks like a system barcode. Replace existing system barcode "${existing}" with "${scanned}"?`)) return;
+					}
+					showAddCode = false;
+					barcodeValue = scanned;
+					void assignBarcode();
+					return;
+				}
+				newCodeValue = scanned;
+				const detected = detectBarcodeType(scanned);
 				if (detected) newCodeType = detected;
+				closeCameraScanner();
 			}
-			closeCameraScanner();
 		});
 		const video = await startCameraScanner();
 		if (video && cameraContainer) {
@@ -412,6 +426,25 @@
 						<span class="badge badge-{item.condition} mt-1">{CONDITION_LABELS[item.condition] ?? item.condition}</span>
 					{/if}
 				</div>
+
+				<!-- AI review banner -->
+				{#if item.ai_suggestions && item.needs_review}
+					{#if $isAdmin}
+						<a
+							href="/admin/enrichment-review"
+							class="flex items-center justify-between rounded-lg border border-indigo-800 bg-indigo-950/40 px-3 py-2 text-sm text-indigo-200 hover:bg-indigo-950/60"
+						>
+							<span>AI proposed changes — review</span>
+							<svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+								<path d="M9 18l6-6-6-6" />
+							</svg>
+						</a>
+					{:else}
+						<p class="rounded-lg border border-slate-700 bg-slate-800/50 px-3 py-2 text-xs text-slate-400">
+							Pending admin review
+						</p>
+					{/if}
+				{/if}
 
 				<!-- Images -->
 				{#if item.images && item.images.length > 0}

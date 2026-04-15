@@ -38,6 +38,17 @@ pub struct AppConfig {
     pub upload_timeout_secs: u64,
     // Logging
     pub log_format: String, // "text" or "json"
+    // AI enrichment — read by the `enricher` daemon binary; the API server
+    // ignores these. Disabled by default so deployments without a claude CLI
+    // are unaffected.
+    pub enrichment_enabled: bool,
+    pub enrichment_poll_interval_secs: u64,
+    pub enrichment_max_attempts: u32,
+    pub enrichment_auto_apply_threshold: f32,
+    pub claude_cli_path: String,
+    pub claude_cli_model: String,
+    pub claude_cli_budget_usd: f64,
+    pub claude_cli_timeout_secs: u64,
 }
 
 /// SEC-9: Parse an env var with a fallback default.
@@ -126,6 +137,15 @@ impl AppConfig {
             upload_timeout_secs: parse_env("UPLOAD_TIMEOUT_SECS", 120u64),
             // Logging
             log_format: env::var("LOG_FORMAT").unwrap_or_else(|_| "text".into()),
+            // AI enrichment (daemon-only)
+            enrichment_enabled: parse_env("ENRICHMENT_ENABLED", false),
+            enrichment_poll_interval_secs: parse_env("ENRICHMENT_POLL_INTERVAL_SECS", 10u64),
+            enrichment_max_attempts: parse_env("ENRICHMENT_MAX_ATTEMPTS", 3u32),
+            enrichment_auto_apply_threshold: parse_env("ENRICHMENT_AUTO_APPLY_THRESHOLD", 0.80f32),
+            claude_cli_path: env::var("CLAUDE_CLI_PATH").unwrap_or_else(|_| "claude".into()),
+            claude_cli_model: env::var("CLAUDE_CLI_MODEL").unwrap_or_else(|_| "claude-opus-4-6".into()),
+            claude_cli_budget_usd: parse_env("CLAUDE_CLI_BUDGET_USD", 0.50f64),
+            claude_cli_timeout_secs: parse_env("CLAUDE_CLI_TIMEOUT_SECS", 90u64),
         };
 
         if cfg.max_batch_size == 0 {

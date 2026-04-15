@@ -105,7 +105,48 @@ export interface Item {
 	classification_confidence: number | null;
 	needs_review: boolean;
 	ai_description: string | null;
+	ai_suggestions: AiSuggestions | null;
 	ancestors?: AncestorEntry[];
+}
+
+export interface AiSuggestions {
+	task_id: string;
+	generated_at: string;
+	model: string;
+	confidence: number;
+	name?: string;
+	description?: string;
+	tags?: string[];
+	category?: string;
+	metadata_additions?: Record<string, unknown>;
+	discovered_codes?: Array<[string, string]>;
+	reasoning?: string;
+}
+
+export type EnrichmentStatus =
+	| 'pending'
+	| 'in_progress'
+	| 'succeeded'
+	| 'failed'
+	| 'dead'
+	| 'canceled';
+
+export interface EnrichmentTask {
+	id: string;
+	item_id: string;
+	trigger_event: string;
+	priority: number;
+	status: EnrichmentStatus;
+	attempts: number;
+	max_attempts: number;
+	provider: string | null;
+	last_error: string | null;
+	result_summary: Record<string, unknown> | null;
+	claimed_at: string | null;
+	claimed_by: string | null;
+	created_at: string;
+	updated_at: string;
+	completed_at: string | null;
 }
 
 export interface ItemSummary {

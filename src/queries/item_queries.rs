@@ -54,7 +54,8 @@ pub(crate) const ITEM_FULL_SELECT: &str = r#"
     i.currency,
     i.classification_confidence,
     i.needs_review,
-    i.ai_description
+    i.ai_description,
+    i.ai_suggestions
 FROM items i
 LEFT JOIN categories        cat ON cat.id      = i.category_id
 LEFT JOIN container_properties cp ON cp.item_id = i.id

@@ -3,6 +3,7 @@ pub mod barcode_routes;
 pub mod category_routes;
 pub mod container_routes;
 pub mod container_type_routes;
+pub mod enrichment_routes;
 pub mod export_routes;
 pub mod item_routes;
 pub mod search_routes;
@@ -121,6 +122,7 @@ pub fn build_router(state: Arc<AppState>, config: &AppConfig) -> Router {
         .nest("/tags", tag_routes::router())
         .nest("/categories", category_routes::router())
         .nest("/export", export_routes::router())
+        .merge(enrichment_routes::router())
         .merge(system_routes::router())
         .layer(option_layer(api_layer));
 

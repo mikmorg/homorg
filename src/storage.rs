@@ -34,6 +34,11 @@ pub trait StorageBackend: Send + Sync {
     async fn upload(&self, item_id: Uuid, filename: &str, data: &[u8]) -> AppResult<String>;
     async fn delete(&self, key: &str) -> AppResult<()>;
     fn get_url(&self, key: &str) -> String;
+    /// Fetch the raw bytes for a previously uploaded key. Required by the
+    /// enrichment daemon which stages images into a scratch dir before
+    /// invoking the provider. The key matches what `upload` returned
+    /// (may be URL-form `/files/<key>` or plain `<item_id>/<file>`).
+    async fn download(&self, key: &str) -> AppResult<Vec<u8>>;
 }
 
 /// Local filesystem storage backend for Phase 1.
@@ -123,6 +128,27 @@ impl StorageBackend for LocalStorage {
         };
         format!("/files/{safe_key}")
     }
+
+    async fn download(&self, key: &str) -> AppResult<Vec<u8>> {
+        // Mirror `delete`'s URL-stripping + canonicalize + base-check guard so
+        // the daemon can't be tricked into reading arbitrary files by feeding
+        // it a bogus image path from the items.images JSON.
+        let stripped = key.strip_prefix("/files/").unwrap_or(key);
+        let file_path = self.base_path.join(stripped);
+        let canonical = file_path
+            .canonicalize()
+            .map_err(|_| AppError::Storage("Invalid storage key".into()))?;
+        let base_canonical = self
+            .base_path
+            .canonicalize()
+            .map_err(|e| AppError::Storage(format!("Storage base path error: {e}")))?;
+        if !canonical.starts_with(&base_canonical) {
+            return Err(AppError::BadRequest("Invalid storage key".into()));
+        }
+        fs::read(&canonical)
+            .await
+            .map_err(|e| AppError::Storage(format!("Failed to read file: {e}")))
+    }
 }
 
 // ── S3-compatible storage backend (requires `s3` feature) ─────────────
@@ -202,6 +228,16 @@ impl StorageBackend for S3Storage {
     fn get_url(&self, key: &str) -> String {
         let clean_key = key.strip_prefix('/').unwrap_or(key);
         format!("{}/{clean_key}", self.public_base_url)
+    }
+
+    async fn download(&self, key: &str) -> AppResult<Vec<u8>> {
+        let stripped = key.strip_prefix('/').unwrap_or(key);
+        let resp = self
+            .bucket
+            .get_object(stripped)
+            .await
+            .map_err(|e| AppError::Storage(format!("S3 download failed: {e}")))?;
+        Ok(resp.bytes().to_vec())
     }
 }
 
@@ -442,6 +478,14 @@ mod tests {
             request_timeout_secs: 30,
             upload_timeout_secs: 120,
             log_format: "text".into(),
+            enrichment_enabled: false,
+            enrichment_poll_interval_secs: 10,
+            enrichment_max_attempts: 3,
+            enrichment_auto_apply_threshold: 0.80,
+            claude_cli_path: "claude".into(),
+            claude_cli_model: "claude-opus-4-6".into(),
+            claude_cli_budget_usd: 0.50,
+            claude_cli_timeout_secs: 90,
         }
     }
 }

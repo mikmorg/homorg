@@ -124,7 +124,9 @@ impl AppState {
             return tx.clone();
         }
         let mut w = self.phone_scan_bus.write().await;
-        w.entry(session_id).or_insert_with(|| broadcast::channel::<String>(32).0).clone()
+        w.entry(session_id)
+            .or_insert_with(|| broadcast::channel::<String>(32).0)
+            .clone()
     }
 }
 

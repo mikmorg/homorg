@@ -153,6 +153,14 @@ fn test_config(database_url: &str) -> AppConfig {
         request_timeout_secs: 30,
         upload_timeout_secs: 120,
         log_format: "text".to_string(),
+        enrichment_enabled: false,
+        enrichment_poll_interval_secs: 10,
+        enrichment_max_attempts: 3,
+        enrichment_auto_apply_threshold: 0.80,
+        claude_cli_path: "claude".to_string(),
+        claude_cli_model: "claude-opus-4-6".to_string(),
+        claude_cli_budget_usd: 0.50,
+        claude_cli_timeout_secs: 90,
     }
 }
 

@@ -462,6 +462,43 @@ impl Projector {
                     .bind(id)
                     .execute(&mut **tx)
                     .await?;
+            } else if field == "needs_review" {
+                let value = change.new.as_bool().unwrap_or_else(|| {
+                    warn!(item_id = %id, raw = %change.new, "projector: needs_review is not a bool, defaulting to false");
+                    false
+                });
+                sqlx::query("UPDATE items SET needs_review = $1, updated_by = $2 WHERE id = $3")
+                    .bind(value)
+                    .bind(actor_id)
+                    .bind(id)
+                    .execute(&mut **tx)
+                    .await?;
+            } else if field == "classification_confidence" {
+                let value = change.new.as_f64().map(|v| v as f32);
+                sqlx::query("UPDATE items SET classification_confidence = $1, updated_by = $2 WHERE id = $3")
+                    .bind(value)
+                    .bind(actor_id)
+                    .bind(id)
+                    .execute(&mut **tx)
+                    .await?;
+            } else if field == "ai_description" {
+                let value = change.new.as_str().map(|s| s.to_string());
+                sqlx::query("UPDATE items SET ai_description = $1, updated_by = $2 WHERE id = $3")
+                    .bind(&value)
+                    .bind(actor_id)
+                    .bind(id)
+                    .execute(&mut **tx)
+                    .await?;
+            } else if field == "ai_suggestions" {
+                // JSON null clears the pending-suggestion blob (used on approve/reject/auto-apply).
+                let jsonb_value: Option<&serde_json::Value> =
+                    if change.new.is_null() { None } else { Some(&change.new) };
+                sqlx::query("UPDATE items SET ai_suggestions = $1, updated_by = $2 WHERE id = $3")
+                    .bind(jsonb_value)
+                    .bind(actor_id)
+                    .bind(id)
+                    .execute(&mut **tx)
+                    .await?;
             } else {
                 tracing::warn!(field, "Ignoring unknown field in ItemUpdated projection");
             }
@@ -637,6 +674,29 @@ impl Projector {
         .bind(&entry)
         .execute(&mut **tx)
         .await?;
+
+        // Enqueue an enrichment task. `ON CONFLICT (item_id) WHERE status IN
+        // ('pending','in_progress') DO NOTHING` uses the partial unique index
+        // from migration 0025 — if a task is already queued or running for
+        // this item, this is a no-op. Actor-authored images from the
+        // ai-enricher user don't re-enqueue (the daemon authored them).
+        if actor_id != crate::models::enrichment::AI_ENRICHER_USER_ID {
+            use crate::models::enrichment::EnrichmentTrigger;
+            let trigger = EnrichmentTrigger::ImageAdded;
+            sqlx::query(
+                r#"
+                INSERT INTO enrichment_tasks (item_id, trigger_event, priority)
+                VALUES ($1, $2, $3)
+                ON CONFLICT (item_id) WHERE status IN ('pending', 'in_progress') DO NOTHING
+                "#,
+            )
+            .bind(id)
+            .bind(trigger.as_str())
+            .bind(trigger.default_priority())
+            .execute(&mut **tx)
+            .await?;
+        }
+
         Ok(())
     }
 
@@ -702,6 +762,27 @@ impl Projector {
         .bind(max_codes)
         .execute(&mut **tx)
         .await?;
+
+        // Enqueue enrichment — ISBN/UPC lookups are fast+authoritative, so
+        // priority beats image-only tasks. Skip if the daemon itself authored
+        // the code (discovered_codes workflow in Phase 2).
+        if actor_id != crate::models::enrichment::AI_ENRICHER_USER_ID {
+            use crate::models::enrichment::EnrichmentTrigger;
+            let trigger = EnrichmentTrigger::ExternalCodeAdded;
+            sqlx::query(
+                r#"
+                INSERT INTO enrichment_tasks (item_id, trigger_event, priority)
+                VALUES ($1, $2, $3)
+                ON CONFLICT (item_id) WHERE status IN ('pending', 'in_progress') DO NOTHING
+                "#,
+            )
+            .bind(id)
+            .bind(trigger.as_str())
+            .bind(trigger.default_priority())
+            .execute(&mut **tx)
+            .await?;
+        }
+
         Ok(())
     }
 

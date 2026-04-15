@@ -184,6 +184,14 @@
 				<span class="text-sm font-medium text-slate-100">Container Types</span>
 				<svg class="h-4 w-4 text-slate-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18l6-6-6-6"/></svg>
 			</a>
+			<a href="/admin/enrichment-review" class="flex items-center justify-between px-4 py-3 hover:bg-slate-700 transition-colors">
+				<span class="text-sm font-medium text-slate-100">Enrichment review</span>
+				<svg class="h-4 w-4 text-slate-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18l6-6-6-6"/></svg>
+			</a>
+			<a href="/admin/enrichment-tasks" class="flex items-center justify-between px-4 py-3 hover:bg-slate-700 transition-colors">
+				<span class="text-sm font-medium text-slate-100">Enrichment tasks</span>
+				<svg class="h-4 w-4 text-slate-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18l6-6-6-6"/></svg>
+			</a>
 		</div>
 
 		<!-- Print Labels -->

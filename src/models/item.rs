@@ -81,6 +81,9 @@ pub struct Item {
     pub classification_confidence: Option<f32>,
     pub needs_review: bool,
     pub ai_description: Option<String>,
+    /// Pending AI-proposed changes awaiting admin review. NULL when nothing pending.
+    /// Shape matches [`crate::models::enrichment::AiSuggestions`].
+    pub ai_suggestions: Option<serde_json::Value>,
 }
 
 /// Slim item representation for list/search results.
