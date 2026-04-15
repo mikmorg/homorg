@@ -49,3 +49,6 @@ __pycache__/
 pgdata/
 postgres-data/
 downloads/
+
+mobile/android/build/
+mobile/android/.gradle/
