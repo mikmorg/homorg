@@ -36,7 +36,7 @@ services:
       RATE_LIMIT_BURST: ${RATE_LIMIT_BURST:-30}
       CORS_ORIGINS: ${CORS_ORIGINS:-*}
     volumes:
-      - image_data:/data/images
+      - ./data/images:/data/images
       - ./downloads:/app/downloads:ro
     depends_on:
       db:
@@ -44,4 +44,3 @@ services:
 
 volumes:
   pgdata:
-  image_data:
