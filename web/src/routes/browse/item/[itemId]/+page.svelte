@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
-	import { onDestroy } from 'svelte';
+	import { onDestroy, tick } from 'svelte';
 	import { api } from '$api/client.js';
 	import type { Item, AncestorEntry, ItemSummary, StoredEvent, ContainerStats } from '$api/types.js';
 	import { CONDITION_LABELS } from '$api/types.js';
@@ -20,6 +20,13 @@
 	let scanTarget: 'barcode' | 'external' | null = $state(null);
 	let cameraContainer: HTMLDivElement | undefined = $state(undefined);
 	let scanUnsub: (() => void) | null = null;
+
+	// Photo capture state
+	let showPhotoCapture = $state(false);
+	let photoVideoEl: HTMLVideoElement | undefined = $state(undefined);
+	let photoStream: MediaStream | null = null;
+	let photoUploading = $state(false);
+	let photoError = $state('');
 	let item: Item | null = $state(null);
 	let parentItem: Item | null = $state(null);
 	let ancestors: AncestorEntry[] = $state([]);
@@ -48,6 +55,7 @@
 	onDestroy(() => {
 		if (moveDebounce) clearTimeout(moveDebounce);
 		closeCameraScanner();
+		closePhotoCapture();
 	});
 
 	// Container stats
@@ -387,6 +395,64 @@
 		stopScanner();
 		scanTarget = null;
 	}
+
+	async function openPhotoCapture() {
+		closeCameraScanner();
+		photoError = '';
+		showPhotoCapture = true;
+		try {
+			photoStream = await navigator.mediaDevices.getUserMedia({
+				video: { facingMode: 'environment' }
+			});
+		} catch (e) {
+			photoError = e instanceof Error ? e.message : 'Camera unavailable';
+			return;
+		}
+		await tick();
+		if (photoVideoEl && photoStream) {
+			photoVideoEl.srcObject = photoStream;
+			try { await photoVideoEl.play(); } catch { /* autoplay blocked — user can tap */ }
+		}
+	}
+
+	function closePhotoCapture() {
+		showPhotoCapture = false;
+		photoStream?.getTracks().forEach((t) => t.stop());
+		photoStream = null;
+		if (photoVideoEl) photoVideoEl.srcObject = null;
+		photoError = '';
+	}
+
+	async function capturePhoto() {
+		if (!photoVideoEl || !photoStream || photoUploading) return;
+		const w = photoVideoEl.videoWidth;
+		const h = photoVideoEl.videoHeight;
+		if (w === 0 || h === 0) {
+			photoError = 'Camera not ready';
+			return;
+		}
+		photoUploading = true;
+		photoError = '';
+		try {
+			const canvas = document.createElement('canvas');
+			canvas.width = w;
+			canvas.height = h;
+			const ctx = canvas.getContext('2d');
+			if (!ctx) throw new Error('Canvas not supported');
+			ctx.drawImage(photoVideoEl, 0, 0, w, h);
+			const blob: Blob | null = await new Promise((r) => canvas.toBlob(r, 'image/jpeg', 0.9));
+			if (!blob) throw new Error('Capture failed');
+			const file = new File([blob], `capture-${Date.now()}.jpg`, { type: 'image/jpeg' });
+			await api.items.uploadImage(itemId, file);
+			closePhotoCapture();
+			item = await api.items.get(itemId);
+			toast('Photo added', 'success');
+		} catch (e) {
+			photoError = e instanceof Error ? e.message : 'Upload failed';
+		} finally {
+			photoUploading = false;
+		}
+	}
 </script>
 
 <svelte:window onkeydown={(e) => { if (e.key === "Escape") { if (showMovePicker) showMovePicker = false; } }} />
@@ -458,6 +524,20 @@
 						</div>
 					{/if}
 				{/if}
+
+				<!-- Take / add photo -->
+				<div class="flex justify-center">
+					<button
+						class="btn btn-secondary flex items-center gap-2 text-sm"
+						onclick={openPhotoCapture}
+					>
+						<svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+							<path d="M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2z"/>
+							<circle cx="12" cy="13" r="4"/>
+						</svg>
+						{item.images && item.images.length > 0 ? 'Add photo' : 'Take photo'}
+					</button>
+				</div>
 
 				<!-- Location breadcrumb -->
 				{#if ancestors.length > 0}
@@ -746,6 +826,49 @@
 	</div>
 	<div class="flex flex-1 items-center justify-center" bind:this={cameraContainer}>
 		<!-- video element is appended here by startCameraScanner -->
+	</div>
+</div>
+{/if}
+
+<!-- Photo capture overlay -->
+{#if showPhotoCapture}
+<div class="fixed inset-0 z-50 flex flex-col bg-slate-950">
+	<div class="flex items-center justify-between border-b border-slate-800 px-3 py-2">
+		<span class="text-sm font-medium text-slate-200">Take photo</span>
+		<button class="btn btn-icon text-slate-400" onclick={closePhotoCapture} aria-label="Close camera">
+			<svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+				<path d="M18 6L6 18M6 6l12 12" />
+			</svg>
+		</button>
+	</div>
+	<div class="flex flex-1 items-center justify-center overflow-hidden">
+		{#if photoError}
+			<div class="px-6 text-center">
+				<p class="text-sm text-red-400">{photoError}</p>
+			</div>
+		{:else}
+			<!-- svelte-ignore a11y_media_has_caption -->
+			<video
+				bind:this={photoVideoEl}
+				playsinline
+				muted
+				class="max-h-full max-w-full"
+			></video>
+		{/if}
+	</div>
+	<div class="flex items-center justify-center border-t border-slate-800 px-4 py-4">
+		<button
+			class="flex h-16 w-16 items-center justify-center rounded-full border-4 border-slate-300 bg-slate-100 shadow-lg disabled:opacity-50"
+			onclick={capturePhoto}
+			disabled={photoUploading || !!photoError}
+			aria-label="Capture photo"
+		>
+			{#if photoUploading}
+				<div class="h-6 w-6 animate-spin rounded-full border-2 border-slate-600 border-t-indigo-500"></div>
+			{:else}
+				<div class="h-12 w-12 rounded-full bg-slate-100 ring-2 ring-slate-900"></div>
+			{/if}
+		</button>
 	</div>
 </div>
 {/if}
