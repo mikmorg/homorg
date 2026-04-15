@@ -34,6 +34,7 @@ pub fn router() -> Router<Arc<AppState>> {
         // Camera device endpoints (token-authenticated, no JWT required)
         .route("/camera/{token}/status", get(camera_status))
         .route("/camera/{token}/upload", post(camera_upload))
+        .route("/camera/{token}/scan", post(camera_scan))
 }
 
 // Field limits matching DB schema column widths for scan sessions.
@@ -542,6 +543,26 @@ async fn session_event_stream(
     let mut notify = state.event_store.subscribe();
     let sid = session_id.to_string();
 
+    // Forward phone-scan barcodes onto the SSE channel as `phone_scan` events.
+    // Runs in a separate task so the main loop only deals with event-store
+    // wake-ups and session refreshes.
+    let mut phone_scans = state.phone_scan_sender(session_id).await.subscribe();
+    let tx_scan = tx.clone();
+    tokio::spawn(async move {
+        loop {
+            match phone_scans.recv().await {
+                Ok(barcode) => {
+                    let payload = serde_json::json!({ "barcode": barcode }).to_string();
+                    if tx_scan.send(Ok(Event::default().event("phone_scan").data(payload))).await.is_err() {
+                        return;
+                    }
+                }
+                Err(tokio::sync::broadcast::error::RecvError::Lagged(_)) => continue,
+                Err(tokio::sync::broadcast::error::RecvError::Closed) => return,
+            }
+        }
+    });
+
     tokio::spawn(async move {
         let mut last_event_id: i64 = 0;
         let mut safety = tokio::time::interval(std::time::Duration::from_secs(30));
@@ -921,4 +942,46 @@ async fn camera_upload(
             image_count: image_count as usize,
         }),
     ))
+}
+
+const MAX_PHONE_SCAN_LEN: usize = 256;
+
+#[derive(Deserialize)]
+struct CameraScanRequest {
+    barcode: String,
+}
+
+/// Accept a barcode scanned by the camera-paired phone (Bluetooth SPP scanner
+/// attached to the mobile app). Publishes the scan on the session's
+/// phone-scan broadcast channel; the SSE session stream forwards it to the
+/// web UI, which routes it through its normal scan handler. Never persists.
+async fn camera_scan(
+    State(state): State<Arc<AppState>>,
+    Path(token): Path<String>,
+    Json(req): Json<CameraScanRequest>,
+) -> AppResult<StatusCode> {
+    validate_camera_token_format(&token)?;
+    let ct = state.session_repository.get_camera_token(&token).await?;
+    let session = state.session_repository.get_session_by_id(ct.session_id).await?;
+    if session.ended_at.is_some() {
+        return Err(AppError::BadRequest("Session has ended".into()));
+    }
+
+    let barcode = req.barcode.trim();
+    if barcode.is_empty() {
+        return Err(AppError::BadRequest("barcode is empty".into()));
+    }
+    if barcode.len() > MAX_PHONE_SCAN_LEN {
+        return Err(AppError::BadRequest(format!(
+            "barcode exceeds maximum {MAX_PHONE_SCAN_LEN} characters"
+        )));
+    }
+
+    let tx = state.phone_scan_sender(ct.session_id).await;
+    // Ignore SendError — no receivers just means no web UI is currently
+    // attached; the scan is effectively dropped, which is correct behavior.
+    let _ = tx.send(barcode.to_string());
+
+    tracing::info!(session_id = %ct.session_id, barcode = %barcode, "Phone scan received");
+    Ok(StatusCode::NO_CONTENT)
 }

@@ -1,11 +1,17 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
-import 'package:image_picker/image_picker.dart';
+import 'package:flutter_bluetooth_serial/flutter_bluetooth_serial.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../models/camera_models.dart';
 import '../services/api_service.dart';
+import '../services/bluetooth_scanner_service.dart';
+import 'camera_capture_screen.dart';
+
+const _autoOpenCameraPrefKey = 'auto_open_camera';
 
 typedef ApiServiceFactory = ApiService Function(CameraConnection);
 
@@ -30,8 +36,17 @@ class _SessionScreenState extends State<SessionScreen> {
   String? _uploadMessage;
   bool _uploadSuccess = false;
 
+  bool _autoOpenCamera = false;
+  bool _cameraOpen = false;
+  String? _lastSeenItemId;
   Timer? _pollTimer;
-  final _picker = ImagePicker();
+
+  final _scanner = BluetoothScannerService();
+  StreamSubscription<String>? _scanSub;
+  StreamSubscription<BtScannerState>? _scanStateSub;
+  BtScannerState _scannerState = BtScannerState.disconnected;
+  String? _lastScan;
+  String? _lastScanError;
 
   @override
   void initState() {
@@ -39,15 +54,122 @@ class _SessionScreenState extends State<SessionScreen> {
     _api = widget.apiServiceFactory != null
         ? widget.apiServiceFactory!(widget.connection)
         : ApiService(widget.connection);
+    _scanSub = _scanner.scans.listen(_onScannerBarcode);
+    _scanStateSub = _scanner.stateStream.listen((s) {
+      if (!mounted) return;
+      setState(() => _scannerState = s);
+    });
+    _loadAutoOpenPref();
     _fetchStatus();
-    _pollTimer =
-        Timer.periodic(const Duration(seconds: 3), (_) => _fetchStatus());
+    _pollTimer = Timer.periodic(
+      const Duration(seconds: 2),
+      (_) => _fetchStatus(),
+    );
+  }
+
+  Future<void> _loadAutoOpenPref() async {
+    final prefs = await SharedPreferences.getInstance();
+    if (!mounted) return;
+    setState(() {
+      _autoOpenCamera = prefs.getBool(_autoOpenCameraPrefKey) ?? false;
+    });
+  }
+
+  Future<void> _setAutoOpenPref(bool v) async {
+    setState(() => _autoOpenCamera = v);
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_autoOpenCameraPrefKey, v);
   }
 
   @override
   void dispose() {
     _pollTimer?.cancel();
+    _scanSub?.cancel();
+    _scanStateSub?.cancel();
+    _scanner.dispose();
     super.dispose();
+  }
+
+  Future<void> _onScannerBarcode(String barcode) async {
+    try {
+      await _api.sendBarcode(barcode);
+      if (!mounted) return;
+      setState(() {
+        _lastScan = barcode;
+        _lastScanError = null;
+      });
+    } on ApiException catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _lastScan = barcode;
+        _lastScanError = e.message;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _lastScan = barcode;
+        _lastScanError = 'Failed to send';
+      });
+    }
+  }
+
+  Future<void> _pickScanner() async {
+    final granted = await BluetoothScannerService.ensurePermissions();
+    if (!mounted) return;
+    if (!granted) {
+      _showSnack('Bluetooth permissions denied');
+      return;
+    }
+
+    List<BluetoothDevice> devices;
+    try {
+      devices = await _scanner.bondedDevices();
+    } catch (e) {
+      if (mounted) _showSnack('Bluetooth unavailable: $e');
+      return;
+    }
+    if (!mounted) return;
+    if (devices.isEmpty) {
+      _showSnack('No paired devices — pair your scanner in Android settings first');
+      return;
+    }
+
+    final selected = await showModalBottomSheet<BluetoothDevice>(
+      context: context,
+      builder: (ctx) => SafeArea(
+        child: ListView(
+          shrinkWrap: true,
+          children: [
+            const ListTile(
+              title: Text('Paired devices', style: TextStyle(fontWeight: FontWeight.bold)),
+              dense: true,
+            ),
+            for (final d in devices)
+              ListTile(
+                leading: const Icon(Icons.bluetooth),
+                title: Text(d.name ?? '(unnamed)'),
+                subtitle: Text(d.address),
+                onTap: () => Navigator.of(ctx).pop(d),
+              ),
+          ],
+        ),
+      ),
+    );
+    if (selected == null || !mounted) return;
+
+    try {
+      await _scanner.connect(selected);
+    } catch (e) {
+      if (mounted) _showSnack('Connect failed: $e');
+    }
+  }
+
+  Future<void> _disconnectScanner() async {
+    await _scanner.disconnect();
+  }
+
+  void _showSnack(String msg) {
+    ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
   }
 
   Future<void> _fetchStatus() async {
@@ -55,12 +177,21 @@ class _SessionScreenState extends State<SessionScreen> {
     try {
       final status = await _api.getStatus();
       if (!mounted) return;
+      final newItemId = status.activeItemId;
+      final changed = newItemId != null && newItemId != _lastSeenItemId;
       setState(() {
         _status = status;
         _loadingStatus = false;
         _statusError = null;
+        _lastSeenItemId = newItemId;
       });
-      if (status.sessionEnded) _pollTimer?.cancel();
+      if (changed &&
+          _autoOpenCamera &&
+          !_cameraOpen &&
+          !_uploading &&
+          !status.sessionEnded) {
+        _takePhoto();
+      }
     } on ApiException catch (e) {
       if (!mounted) return;
       setState(() {
@@ -68,10 +199,8 @@ class _SessionScreenState extends State<SessionScreen> {
         _loadingStatus = false;
         if (e.statusCode == 401) _tokenExpired = true;
       });
-      if (e.statusCode == 401) _pollTimer?.cancel();
     } catch (_) {
       if (!mounted) return;
-      // Network blip — keep trying, just show stale state
       setState(() {
         _statusError ??= 'Trying to reconnect…';
         _loadingStatus = false;
@@ -80,14 +209,18 @@ class _SessionScreenState extends State<SessionScreen> {
   }
 
   Future<void> _takePhoto() async {
+    if (_cameraOpen) return;
+    _cameraOpen = true;
     XFile? photo;
     try {
-      photo = await _picker.pickImage(
-        source: ImageSource.camera,
-        imageQuality: 85,
-        maxWidth: 1920,
+      photo = await Navigator.of(context).push<XFile>(
+        MaterialPageRoute(
+          builder: (_) => const CameraCaptureScreen(),
+          fullscreenDialog: true,
+        ),
       );
     } catch (_) {
+      _cameraOpen = false;
       if (mounted) {
         setState(() {
           _uploadSuccess = false;
@@ -96,6 +229,7 @@ class _SessionScreenState extends State<SessionScreen> {
       }
       return;
     }
+    _cameraOpen = false;
 
     if (photo == null || !mounted) return;
 
@@ -121,7 +255,6 @@ class _SessionScreenState extends State<SessionScreen> {
         _uploadMessage = e.message;
         if (e.statusCode == 401) {
           _tokenExpired = true;
-          _pollTimer?.cancel();
         }
       });
     } catch (_) {
@@ -142,6 +275,18 @@ class _SessionScreenState extends State<SessionScreen> {
       appBar: AppBar(
         title: const Text('Stocker Session'),
         actions: [
+          Row(
+            children: [
+              const Tooltip(
+                message: 'Auto-open camera on new item',
+                child: Icon(Icons.bolt, size: 20),
+              ),
+              Switch(
+                value: _autoOpenCamera,
+                onChanged: _setAutoOpenPref,
+              ),
+            ],
+          ),
           if (!_tokenExpired)
             IconButton(
               icon: const Icon(Icons.refresh),
@@ -163,6 +308,8 @@ class _SessionScreenState extends State<SessionScreen> {
                 const SizedBox(height: 16),
                 _buildUploadBanner(),
               ],
+              const SizedBox(height: 28),
+              _buildScannerCard(),
               const Spacer(),
               _buildConnectionInfo(),
             ],
@@ -214,23 +361,12 @@ class _SessionScreenState extends State<SessionScreen> {
       );
     }
 
-    if (_status!.activeItemId == null) {
-      return _StatusCard(
-        color: theme.colorScheme.surfaceContainerHighest,
-        onColor: theme.colorScheme.onSurface,
-        icon: Icons.hourglass_empty_rounded,
-        title: 'Waiting for item…',
-        subtitle: 'Scan an item in the stocker app first',
-      );
-    }
-
     return _StatusCard(
       color: theme.colorScheme.primaryContainer,
       onColor: theme.colorScheme.onPrimaryContainer,
       icon: Icons.check_circle_outline_rounded,
-      title: 'Ready for photo',
-      subtitle:
-          'Item: ${_status!.activeItemId!.substring(0, 8)}…',
+      title: 'Connected',
+      subtitle: 'Ready to take photos',
     );
   }
 
@@ -239,8 +375,7 @@ class _SessionScreenState extends State<SessionScreen> {
     final canPhoto = !_uploading &&
         !_tokenExpired &&
         _status != null &&
-        !_status!.sessionEnded &&
-        _status!.activeItemId != null;
+        !_status!.sessionEnded;
 
     if (_uploading) {
       return Column(
@@ -294,6 +429,83 @@ class _SessionScreenState extends State<SessionScreen> {
             ),
           ),
         ],
+      ),
+    );
+  }
+
+  Widget _buildScannerCard() {
+    final theme = Theme.of(context);
+    final connected = _scannerState == BtScannerState.connected;
+    final connecting = _scannerState == BtScannerState.connecting;
+
+    final IconData icon;
+    final String title;
+    final String subtitle;
+    final Color bg;
+    final Color fg;
+    if (connected) {
+      icon = Icons.bluetooth_connected;
+      title = _scanner.device?.name ?? 'Scanner';
+      subtitle = _lastScan == null
+          ? 'Ready — pull the trigger'
+          : (_lastScanError != null
+              ? 'Send failed: $_lastScanError'
+              : 'Sent: $_lastScan');
+      bg = theme.colorScheme.secondaryContainer;
+      fg = theme.colorScheme.onSecondaryContainer;
+    } else if (connecting) {
+      icon = Icons.bluetooth_searching;
+      title = 'Connecting…';
+      subtitle = _scanner.device?.name ?? '';
+      bg = theme.colorScheme.surfaceContainerHighest;
+      fg = theme.colorScheme.onSurface;
+    } else {
+      icon = Icons.bluetooth_disabled;
+      title = 'Bluetooth scanner';
+      subtitle = _scanner.lastError != null
+          ? 'Error: ${_scanner.lastError}'
+          : 'Not connected';
+      bg = theme.colorScheme.surfaceContainerHighest;
+      fg = theme.colorScheme.onSurface.withValues(alpha: 0.7);
+    }
+
+    return Card(
+      color: bg,
+      elevation: 0,
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Row(
+          children: [
+            Icon(icon, color: fg, size: 26),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(title,
+                      style: TextStyle(
+                          color: fg, fontWeight: FontWeight.bold, fontSize: 14)),
+                  const SizedBox(height: 2),
+                  Text(subtitle,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(color: fg, fontSize: 12)),
+                ],
+              ),
+            ),
+            const SizedBox(width: 8),
+            if (connected)
+              TextButton(
+                onPressed: _disconnectScanner,
+                child: const Text('Disconnect'),
+              )
+            else
+              TextButton(
+                onPressed: connecting ? null : _pickScanner,
+                child: const Text('Connect'),
+              ),
+          ],
+        ),
       ),
     );
   }

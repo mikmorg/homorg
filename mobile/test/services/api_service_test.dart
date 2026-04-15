@@ -106,6 +106,30 @@ void main() {
       );
     });
 
+    test('throws ApiException with nested error.message on 400 (backend format)', () async {
+      final client = MockClient((request) async {
+        return http.Response(
+          jsonEncode({
+            'error': {
+              'code': 'BAD_REQUEST',
+              'message': 'No active item or container in session. Scan an item first.',
+            }
+          }),
+          400,
+        );
+      });
+
+      final api = ApiService(connection, client: client);
+      expect(
+        () => api.getStatus(),
+        throwsA(
+          isA<ApiException>()
+              .having((e) => e.statusCode, 'statusCode', 400)
+              .having((e) => e.message, 'message', contains('No active item')),
+        ),
+      );
+    });
+
     test('throws ApiException with fallback message on 400 with bad body', () async {
       final client = MockClient((request) async {
         return http.Response('not json', 400);

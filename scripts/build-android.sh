@@ -4,7 +4,7 @@
 # Usage: bash scripts/build-android.sh [--release|--debug]
 set -euo pipefail
 
-MOUNT="/mnt/homorg-build"
+MOUNT="/scratch/homorg-build"
 export FLUTTER_ROOT="$MOUNT/flutter"
 export ANDROID_HOME="$MOUNT/android-sdk"
 export ANDROID_SDK_ROOT="$MOUNT/android-sdk"
@@ -15,7 +15,9 @@ export PATH="$FLUTTER_ROOT/bin:$ANDROID_HOME/cmdline-tools/latest/bin:$ANDROID_H
 
 MODE="${1:---release}"
 
-cd "$(dirname "$0")/../mobile"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+REPO_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+cd "$REPO_DIR/mobile"
 
 echo "==> flutter pub get"
 flutter pub get
@@ -28,6 +30,15 @@ if [[ -f "$APK_PATH" ]]; then
     echo ""
     echo "Build succeeded: mobile/$APK_PATH"
     ls -lh "$APK_PATH"
+
+    # Publish the release APK to the backend's downloads dir so the web UI can
+    # serve it at /downloads/homorg-camera.apk.
+    if [[ "$MODE" == "--release" ]]; then
+        DOWNLOADS_DIR="$REPO_DIR/downloads"
+        mkdir -p "$DOWNLOADS_DIR"
+        cp "$APK_PATH" "$DOWNLOADS_DIR/homorg-camera.apk"
+        echo "Published to $DOWNLOADS_DIR/homorg-camera.apk"
+    fi
 else
     echo "Build finished — check build/app/outputs/ for APK"
 fi

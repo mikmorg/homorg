@@ -43,15 +43,9 @@ Future<void> _pumpUntilLoaded(WidgetTester tester) async {
   await tester.pump(const Duration(milliseconds: 100));
 }
 
-/// Dispose the screen to cancel poll timer, avoiding pending timer warnings.
-Future<void> _dispose(WidgetTester tester) async {
-  await tester.pumpWidget(const MaterialApp(home: SizedBox()));
-  await tester.pump();
-}
-
 void main() {
   group('SessionScreen', () {
-    testWidgets('shows "Ready for photo" when item is active', (tester) async {
+    testWidgets('shows "Connected" when session is active with an item', (tester) async {
       final client = MockClient((request) async => _statusResponse(
         activeItemId: 'abcdef1234567890abcdef1234567890',
         activeContainerId: 'cont-1',
@@ -60,22 +54,18 @@ void main() {
       await tester.pumpWidget(_app(client: client));
       await _pumpUntilLoaded(tester);
 
-      expect(find.text('Ready for photo'), findsOneWidget);
-      expect(find.textContaining('abcdef12'), findsOneWidget);
-
-      await _dispose(tester);
+      expect(find.text('Connected'), findsOneWidget);
+      expect(find.text('Ready to take photos'), findsOneWidget);
     });
 
-    testWidgets('shows "Waiting for item" when no active item', (tester) async {
+    testWidgets('shows "Connected" when no active item yet', (tester) async {
       final client = MockClient((request) async => _statusResponse(activeItemId: null));
 
       await tester.pumpWidget(_app(client: client));
       await _pumpUntilLoaded(tester);
 
-      expect(find.text('Waiting for item…'), findsOneWidget);
-      expect(find.text('Scan an item in the stocker app first'), findsOneWidget);
-
-      await _dispose(tester);
+      expect(find.text('Connected'), findsOneWidget);
+      expect(find.text('Ready to take photos'), findsOneWidget);
     });
 
     testWidgets('shows "Session ended" when session is ended', (tester) async {
@@ -85,8 +75,6 @@ void main() {
       await _pumpUntilLoaded(tester);
 
       expect(find.text('Session ended'), findsOneWidget);
-
-      // Session ended cancels the timer, no need to dispose
     });
 
     testWidgets('shows "Token expired" on 401', (tester) async {
@@ -97,8 +85,6 @@ void main() {
 
       expect(find.text('Token expired'), findsOneWidget);
       expect(find.text('Go back and generate a new camera link'), findsOneWidget);
-
-      // 401 cancels the timer
     });
 
     testWidgets('shows error state on server error', (tester) async {
@@ -108,11 +94,9 @@ void main() {
       await _pumpUntilLoaded(tester);
 
       expect(find.text('Cannot reach server'), findsOneWidget);
-
-      await _dispose(tester);
     });
 
-    testWidgets('Take Photo button is disabled when no active item', (tester) async {
+    testWidgets('Take Photo button is enabled when connected (no active item required)', (tester) async {
       final client = MockClient((request) async => _statusResponse(activeItemId: null));
 
       await tester.pumpWidget(_app(client: client));
@@ -121,25 +105,7 @@ void main() {
       final button = tester.widget<ButtonStyleButton>(
         find.ancestor(of: find.text('Take Photo'), matching: find.bySubtype<ButtonStyleButton>()),
       );
-      expect(button.onPressed, isNull);
-
-      await _dispose(tester);
-    });
-
-    testWidgets('Take Photo button is enabled when item is active', (tester) async {
-      final client = MockClient((request) async => _statusResponse(
-        activeItemId: 'abcdef1234567890abcdef1234567890',
-      ));
-
-      await tester.pumpWidget(_app(client: client));
-      await _pumpUntilLoaded(tester);
-
-      final button = tester.widget<ButtonStyleButton>(
-        find.ancestor(of: find.text('Take Photo'), matching: find.bySubtype<ButtonStyleButton>()),
-      );
       expect(button.onPressed, isNotNull);
-
-      await _dispose(tester);
     });
 
     testWidgets('Take Photo button is disabled when session ended', (tester) async {
@@ -173,8 +139,6 @@ void main() {
       await _pumpUntilLoaded(tester);
 
       expect(find.byIcon(Icons.refresh), findsOneWidget);
-
-      await _dispose(tester);
     });
 
     testWidgets('hides Refresh button in AppBar when token expired', (tester) async {
@@ -193,8 +157,6 @@ void main() {
       await _pumpUntilLoaded(tester);
 
       expect(find.text('http://localhost:8080'), findsOneWidget);
-
-      await _dispose(tester);
     });
 
     testWidgets('AppBar title is Stocker Session', (tester) async {
@@ -204,8 +166,6 @@ void main() {
       await _pumpUntilLoaded(tester);
 
       expect(find.text('Stocker Session'), findsOneWidget);
-
-      await _dispose(tester);
     });
   });
 }

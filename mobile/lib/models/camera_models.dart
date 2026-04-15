@@ -53,6 +53,7 @@ class CameraConnection {
 
   String get statusUrl => '$baseUrl/api/v1/stocker/camera/$token/status';
   String get uploadUrl => '$baseUrl/api/v1/stocker/camera/$token/upload';
+  String get scanUrl => '$baseUrl/api/v1/stocker/camera/$token/scan';
 
   /// Parses the upload URL shown on the stocker camera link panel.
   /// Accepts any URL that contains /camera/{64-hex-token}/ in the path.

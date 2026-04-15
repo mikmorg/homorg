@@ -10,6 +10,7 @@ pub struct AppConfig {
     pub barcode_prefix: String,
     pub barcode_pad_width: usize,
     pub storage_path: String,
+    pub downloads_path: String,
     pub max_batch_size: usize,
     pub cors_origins: Vec<String>,
     // DB pool tuning
@@ -88,6 +89,7 @@ impl AppConfig {
             barcode_prefix,
             barcode_pad_width: parse_env("BARCODE_PAD_WIDTH", 6usize),
             storage_path: env::var("STORAGE_PATH").unwrap_or_else(|_| "./data/images".into()),
+            downloads_path: env::var("DOWNLOADS_PATH").unwrap_or_else(|_| "./downloads".into()),
             max_batch_size: parse_env("MAX_BATCH_SIZE", 500usize),
             cors_origins: env::var("CORS_ORIGINS")
                 .unwrap_or_else(|_| "*".into())

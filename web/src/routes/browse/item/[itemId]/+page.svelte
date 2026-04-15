@@ -330,6 +330,8 @@
 	}
 
 	async function removeExternalCode(type: string, value: string) {
+		const label = type ? `${type}: ${value}` : value;
+		if (!confirm(`Remove external code ${label}?`)) return;
 		actionError = '';
 		try {
 			await api.items.removeExternalCode(itemId, type, value);

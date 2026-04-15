@@ -9,9 +9,12 @@ use axum::{
 use serde::Deserialize;
 use std::sync::Arc;
 
+use std::str::FromStr;
+
 use crate::auth::middleware::AuthUser;
 use crate::constants::MAX_BARCODE_BATCH;
 use crate::errors::{AppError, AppResult};
+use crate::label_gen::LabelStock;
 use crate::models::barcode::{BarcodeResolution, GenerateBatchRequest, GeneratedBarcode};
 use crate::AppState;
 
@@ -77,6 +80,8 @@ struct LabelsPdfRequest {
     count: Option<u32>,
     /// Print a label sheet for these already-generated barcode strings.
     barcodes: Option<Vec<String>>,
+    /// Label stock — `"30-up"` (Avery 5160 / 3×10) or `"80-up"` (OL25WX / 4×20).
+    stock: String,
 }
 
 /// Generate a PDF label sheet (3×10, OL25WX) with a Code128 barcode and barcode
@@ -88,6 +93,7 @@ async fn labels_pdf(
     Json(req): Json<LabelsPdfRequest>,
 ) -> AppResult<Response> {
     auth.require_role("member")?;
+    let stock = LabelStock::from_str(&req.stock)?;
 
     let barcodes: Vec<String> = match (req.count, req.barcodes) {
         (Some(count), None) => {
@@ -129,17 +135,23 @@ async fn labels_pdf(
     };
 
     let description = if barcodes.len() == 1 {
-        format!("Labels | {} | 1 barcode | {}", barcodes[0], chrono::Utc::now().format("%Y-%m-%d %H:%M UTC"))
+        format!(
+            "Labels | {} | {} | 1 barcode | {}",
+            barcodes[0],
+            stock.as_str(),
+            chrono::Utc::now().format("%Y-%m-%d %H:%M UTC"),
+        )
     } else {
         format!(
-            "Labels | {} .. {} | {} barcodes | {}",
+            "Labels | {} .. {} | {} | {} barcodes | {}",
             barcodes[0],
             barcodes[barcodes.len() - 1],
+            stock.as_str(),
             barcodes.len(),
             chrono::Utc::now().format("%Y-%m-%d %H:%M UTC"),
         )
     };
-    let pdf = crate::label_gen::generate_label_pdf(&barcodes, &description).await?;
+    let pdf = crate::label_gen::generate_label_pdf(&barcodes, &description, stock).await?;
 
     Ok(Response::builder()
         .status(StatusCode::OK)
@@ -154,6 +166,8 @@ struct PresetLabelsPdfRequest {
     count: u32,
     is_container: bool,
     container_type_id: Option<uuid::Uuid>,
+    /// Label stock — `"30-up"` or `"80-up"`.
+    stock: String,
 }
 
 /// Generate preset barcode labels — each barcode is pre-registered as a container
@@ -165,6 +179,7 @@ async fn preset_labels_pdf(
     Json(req): Json<PresetLabelsPdfRequest>,
 ) -> AppResult<Response> {
     auth.require_role("member")?;
+    let stock = LabelStock::from_str(&req.stock)?;
 
     if req.count == 0 || req.count > MAX_BARCODE_BATCH {
         return Err(AppError::BadRequest(format!(
@@ -211,14 +226,15 @@ async fn preset_labels_pdf(
         (_, false) => "item".to_string(),
     };
     let description = format!(
-        "Preset {} labels | {} .. {} | {} barcodes | {}",
+        "Preset {} labels | {} .. {} | {} | {} barcodes | {}",
         preset_kind,
         barcodes[0],
         barcodes[barcodes.len() - 1],
+        stock.as_str(),
         barcodes.len(),
         chrono::Utc::now().format("%Y-%m-%d %H:%M UTC"),
     );
-    let pdf = crate::label_gen::generate_label_pdf(&barcodes, &description).await?;
+    let pdf = crate::label_gen::generate_label_pdf(&barcodes, &description, stock).await?;
 
     Ok(Response::builder()
         .status(StatusCode::OK)

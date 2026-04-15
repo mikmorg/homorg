@@ -27,6 +27,7 @@ services:
       JWT_SECRET: ${JWT_SECRET:?JWT_SECRET must be set in environment or .env file}
       LISTEN_ADDR: 0.0.0.0:8080
       STORAGE_PATH: /data/images
+      DOWNLOADS_PATH: /app/downloads
       RUST_LOG: homorg=debug,tower_http=debug
       LOG_FORMAT: ${LOG_FORMAT:-text}
       DB_MAX_CONNECTIONS: ${DB_MAX_CONNECTIONS:-20}
@@ -36,6 +37,7 @@ services:
       CORS_ORIGINS: ${CORS_ORIGINS:-*}
     volumes:
       - image_data:/data/images
+      - ./downloads:/app/downloads:ro
     depends_on:
       db:
         condition: service_healthy

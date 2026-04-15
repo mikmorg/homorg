@@ -254,6 +254,14 @@ pub struct EventMetadata {
     /// Client-side scan timestamp (RFC 3339). Preserved from StockerBatchEvent.scanned_at.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub scanned_at: Option<String>,
+    /// Provider + model identifier for AI-emitted events (e.g. "claude_cli:claude-opus-4-6").
+    /// Presence of this field is the discriminator between human and AI authorship
+    /// when `actor_id` alone is ambiguous.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub ai_model: Option<String>,
+    /// ID of the enrichment_tasks row that produced this event, for audit + debugging.
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub ai_task_id: Option<Uuid>,
 }
 
 #[cfg(test)]

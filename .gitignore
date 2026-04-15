@@ -48,3 +48,4 @@ __pycache__/
 # Docker volumes / local DB data
 pgdata/
 postgres-data/
+downloads/

@@ -421,6 +421,7 @@ mod tests {
             barcode_prefix: "HOM".into(),
             barcode_pad_width: 6,
             storage_path: storage_path.into(),
+            downloads_path: "./downloads".into(),
             max_batch_size: 500,
             cors_origins: vec!["*".into()],
             db_max_connections: 20,

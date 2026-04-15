@@ -132,6 +132,7 @@ fn test_config(database_url: &str) -> AppConfig {
         barcode_prefix: "HOM".to_string(),
         barcode_pad_width: 6,
         storage_path: "./data/test-images".to_string(),
+        downloads_path: "./data/test-downloads".to_string(),
         max_batch_size: 500,
         cors_origins: vec!["*".to_string()],
         db_max_connections: 5,

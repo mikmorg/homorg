@@ -129,6 +129,8 @@ pub fn build_router(state: Arc<AppState>, config: &AppConfig) -> Router {
         // Images are household inventory photos — not sensitive. No auth required
         // so standard browser <img src> tags work without fetch+blob workarounds.
         .nest_service("/files", ServeDir::new(&config.storage_path))
+        // Public app downloads (APK for the mobile camera app).
+        .nest_service("/downloads", ServeDir::new(&config.downloads_path))
         // OpenAPI spec and Swagger UI
         .merge(SwaggerUi::new("/api/docs").url("/api/openapi.json", ApiDoc::openapi()))
         .layer(middleware::from_fn(crate::metrics::track_request))

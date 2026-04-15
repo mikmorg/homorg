@@ -59,7 +59,8 @@ export default defineConfig({
 			: undefined,
 		proxy: {
 			'/api': { target: 'http://localhost:8080', changeOrigin: true },
-			'/files': { target: 'http://localhost:8080', changeOrigin: true }
+			'/files': { target: 'http://localhost:8080', changeOrigin: true },
+			'/downloads': { target: 'http://localhost:8080', changeOrigin: true }
 		}
 	},
 	build: {

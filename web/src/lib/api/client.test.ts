@@ -314,7 +314,7 @@ describe('requestBlob', () => {
 			blob: () => Promise.resolve(new Blob([pdfBytes], { type: 'application/pdf' }))
 		} as Partial<Response>));
 
-		const blob = await barcodes.downloadLabels(10);
+		const blob = await barcodes.downloadLabels(10, '30-up');
 		expect(blob).toBeInstanceOf(Blob);
 	});
 
@@ -331,7 +331,7 @@ describe('requestBlob', () => {
 			} as Partial<Response>)
 		);
 
-		const result = await barcodes.downloadLabels(5);
+		const result = await barcodes.downloadLabels(5, '30-up');
 		expect(result).toBeInstanceOf(Blob);
 		expect(get(authStore)?.access_token).toBe('new-access-tok');
 	});
@@ -345,7 +345,7 @@ describe('requestBlob', () => {
 			json: () => Promise.resolve({ message: 'Not an admin' })
 		} as Partial<Response>));
 
-		await expect(barcodes.downloadLabels(10)).rejects.toMatchObject({
+		await expect(barcodes.downloadLabels(10, '30-up')).rejects.toMatchObject({
 			error: { status: 403, message: 'Not an admin' }
 		});
 	});

@@ -1,9 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:mobile_scanner/mobile_scanner.dart';
 
-/// Prompts the user to paste the camera upload URL from clipboard.
-/// QR code scanning can be added later via mobile_scanner once disk space
-/// is available on the build machine.
 class QrScanScreen extends StatefulWidget {
   const QrScanScreen({super.key});
 
@@ -12,103 +10,95 @@ class QrScanScreen extends StatefulWidget {
 }
 
 class _QrScanScreenState extends State<QrScanScreen> {
-  String? _clipboardText;
-  bool _checked = false;
+  final MobileScannerController _controller = MobileScannerController(
+    formats: const [BarcodeFormat.qrCode],
+    detectionSpeed: DetectionSpeed.noDuplicates,
+  );
+  bool _handled = false;
 
   @override
-  void initState() {
-    super.initState();
-    _readClipboard();
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
   }
 
-  Future<void> _readClipboard() async {
+  void _onDetect(BarcodeCapture capture) {
+    if (_handled) return;
+    for (final code in capture.barcodes) {
+      final value = code.rawValue;
+      if (value != null && value.contains('/camera/')) {
+        _handled = true;
+        Navigator.pop(context, value);
+        return;
+      }
+    }
+  }
+
+  Future<void> _pasteFromClipboard() async {
+    final messenger = ScaffoldMessenger.of(context);
     final data = await Clipboard.getData(Clipboard.kTextPlain);
-    if (mounted) {
-      setState(() {
-        _clipboardText = data?.text;
-        _checked = true;
-      });
+    if (!mounted) return;
+    final text = data?.text;
+    if (text != null && text.contains('/camera/')) {
+      Navigator.pop(context, text);
+    } else {
+      messenger.showSnackBar(
+        const SnackBar(content: Text('No camera URL found in clipboard')),
+      );
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final hasUrl = _clipboardText != null &&
-        _clipboardText!.contains('/camera/');
-
     return Scaffold(
-      appBar: AppBar(title: const Text('Paste URL')),
-      body: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              const SizedBox(height: 16),
-              Icon(Icons.content_paste_rounded,
-                  size: 56, color: theme.colorScheme.primary),
-              const SizedBox(height: 16),
-              Text(
-                'Copy the upload URL from the stocker page,\nthen tap the button below.',
-                textAlign: TextAlign.center,
-                style: theme.textTheme.bodyMedium,
-              ),
-              const SizedBox(height: 32),
-              if (!_checked)
-                const Center(child: CircularProgressIndicator())
-              else if (hasUrl) ...[
-                Card(
-                  color: theme.colorScheme.primaryContainer,
-                  child: Padding(
-                    padding: const EdgeInsets.all(12),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text('URL detected in clipboard:',
-                            style: TextStyle(
-                                color: theme.colorScheme.onPrimaryContainer,
-                                fontSize: 12)),
-                        const SizedBox(height: 4),
-                        Text(
-                          _clipboardText!,
-                          style: TextStyle(
-                            color: theme.colorScheme.onPrimaryContainer,
-                            fontSize: 11,
-                            fontFamily: 'monospace',
-                          ),
-                          maxLines: 3,
-                          overflow: TextOverflow.ellipsis,
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 16),
-                FilledButton.icon(
-                  onPressed: () => Navigator.pop(context, _clipboardText),
-                  icon: const Icon(Icons.check),
-                  label: const Text('Use this URL'),
-                ),
-              ] else ...[
-                FilledButton.icon(
-                  onPressed: () async {
-                    final messenger = ScaffoldMessenger.of(context);
-                    await _readClipboard();
-                    if (!mounted) return;
-                    if (_clipboardText == null || !_clipboardText!.contains('/camera/')) {
-                      messenger.showSnackBar(
-                        const SnackBar(content: Text('No camera URL found in clipboard')),
-                      );
-                    }
-                  },
-                  icon: const Icon(Icons.content_paste),
-                  label: const Text('Check clipboard'),
-                ),
-              ],
-            ],
+      appBar: AppBar(
+        title: const Text('Scan QR'),
+        actions: [
+          IconButton(
+            tooltip: 'Toggle torch',
+            icon: const Icon(Icons.flash_on),
+            onPressed: () => _controller.toggleTorch(),
           ),
-        ),
+          IconButton(
+            tooltip: 'Switch camera',
+            icon: const Icon(Icons.cameraswitch),
+            onPressed: () => _controller.switchCamera(),
+          ),
+        ],
+      ),
+      body: Stack(
+        children: [
+          MobileScanner(
+            controller: _controller,
+            onDetect: _onDetect,
+            errorBuilder: (context, error, child) => Center(
+              child: Padding(
+                padding: const EdgeInsets.all(24),
+                child: Text(
+                  'Camera unavailable: ${error.errorCode.name}',
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(color: Colors.white),
+                ),
+              ),
+            ),
+          ),
+          Align(
+            alignment: Alignment.bottomCenter,
+            child: Padding(
+              padding: const EdgeInsets.all(24),
+              child: Wrap(
+                spacing: 12,
+                children: [
+                  FilledButton.tonalIcon(
+                    onPressed: _pasteFromClipboard,
+                    icon: const Icon(Icons.content_paste),
+                    label: const Text('Paste URL'),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }

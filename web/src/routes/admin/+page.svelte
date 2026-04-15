@@ -2,6 +2,7 @@
 	import { onMount } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { api } from '$api/client.js';
+	import type { LabelStock } from '$api/client.js';
 	import { isAdmin } from '$stores/auth.js';
 	import type { StatsResponse, ContainerType } from '$api/types.js';
 	import { toast } from '$stores/toast.js';
@@ -11,29 +12,41 @@
 	let statsError = $state('');
 	let rebuilding = $state(false);
 
-	let labelCount = $state(30);
+	const STOCK_PER_SHEET: Record<LabelStock, number> = { '30-up': 30, '80-up': 80 };
+
+	let labelPages = $state(1);
+	let labelStock: LabelStock = $state('30-up');
 	let generatingLabels = $state(false);
 
 	// Preset labels
 	let containerTypes: ContainerType[] = $state([]);
-	let presetItemCount = $state(30);
-	let presetContainerCount = $state(30);
+	let presetItemPages = $state(1);
+	let presetItemStock: LabelStock = $state('30-up');
+	let presetContainerPages = $state(1);
+	let presetContainerStock: LabelStock = $state('30-up');
 	let presetContainerTypeId = $state('');
 	let generatingPresetItem = $state(false);
 	let generatingPresetContainer = $state(false);
 
-	async function downloadLabels() {
-		if (labelCount < 1 || labelCount > 1000) {
-			toast('Count must be between 1 and 1000', 'error');
-			return;
+	function validatePages(pages: number): number | null {
+		const perSheet = 1; // validated below against MAX_BARCODE_BATCH (1000)
+		if (!Number.isFinite(pages) || pages < 1 || pages > 12) {
+			toast('Pages must be between 1 and 12', 'error');
+			return null;
 		}
+		return pages * perSheet;
+	}
+
+	async function downloadLabels() {
+		if (validatePages(labelPages) === null) return;
+		const count = labelPages * STOCK_PER_SHEET[labelStock];
 		generatingLabels = true;
 		try {
-			const blob = await api.barcodes.downloadLabels(labelCount);
+			const blob = await api.barcodes.downloadLabels(count, labelStock);
 			const url = URL.createObjectURL(blob);
 			const a = document.createElement('a');
 			a.href = url;
-			a.download = `labels-${labelCount}.pdf`;
+			a.download = `labels-${labelPages}pg-${labelStock}.pdf`;
 			a.click();
 			URL.revokeObjectURL(url);
 		} catch (err) {
@@ -44,17 +57,15 @@
 	}
 
 	async function downloadPresetItemLabels() {
-		if (presetItemCount < 1 || presetItemCount > 1000) {
-			toast('Count must be between 1 and 1000', 'error');
-			return;
-		}
+		if (validatePages(presetItemPages) === null) return;
+		const count = presetItemPages * STOCK_PER_SHEET[presetItemStock];
 		generatingPresetItem = true;
 		try {
-			const blob = await api.barcodes.downloadPresetLabels(presetItemCount, false);
+			const blob = await api.barcodes.downloadPresetLabels(count, false, presetItemStock);
 			const url = URL.createObjectURL(blob);
 			const a = document.createElement('a');
 			a.href = url;
-			a.download = `preset-item-labels-${presetItemCount}.pdf`;
+			a.download = `preset-item-labels-${presetItemPages}pg-${presetItemStock}.pdf`;
 			a.click();
 			URL.revokeObjectURL(url);
 		} catch (err) {
@@ -65,21 +76,20 @@
 	}
 
 	async function downloadPresetContainerLabels() {
-		if (presetContainerCount < 1 || presetContainerCount > 1000) {
-			toast('Count must be between 1 and 1000', 'error');
-			return;
-		}
+		if (validatePages(presetContainerPages) === null) return;
+		const count = presetContainerPages * STOCK_PER_SHEET[presetContainerStock];
 		generatingPresetContainer = true;
 		try {
 			const blob = await api.barcodes.downloadPresetLabels(
-				presetContainerCount,
+				count,
 				true,
+				presetContainerStock,
 				presetContainerTypeId || undefined
 			);
 			const url = URL.createObjectURL(blob);
 			const a = document.createElement('a');
 			a.href = url;
-			a.download = `preset-container-labels-${presetContainerCount}.pdf`;
+			a.download = `preset-container-labels-${presetContainerPages}pg-${presetContainerStock}.pdf`;
 			a.click();
 			URL.revokeObjectURL(url);
 		} catch (err) {
@@ -180,17 +190,27 @@
 		<div class="card p-4 space-y-3">
 			<p class="text-xs font-medium text-slate-400 uppercase tracking-wide">Blank Labels</p>
 			<p class="text-xs text-slate-500">Unregistered barcodes for assigning to existing items. When scanned in a stocker session you'll be prompted to name the item manually.</p>
-			<div class="flex items-center gap-3">
-				<label class="text-sm text-slate-300 shrink-0" for="label-count">Labels</label>
+			<div class="flex items-center gap-3 flex-wrap">
+				<label class="text-sm text-slate-300 shrink-0" for="label-pages">Pages</label>
 				<input
-					id="label-count"
+					id="label-pages"
 					type="number"
 					min="1"
-					max="1000"
-					step="30"
-					bind:value={labelCount}
-					class="w-24 rounded-md bg-slate-700 border border-slate-600 px-3 py-1.5 text-sm text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+					max="12"
+					step="1"
+					bind:value={labelPages}
+					class="w-20 rounded-md bg-slate-700 border border-slate-600 px-3 py-1.5 text-sm text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500"
 				/>
+				<label class="text-sm text-slate-300 shrink-0" for="label-stock">Stock</label>
+				<select
+					id="label-stock"
+					bind:value={labelStock}
+					class="rounded-md bg-slate-700 border border-slate-600 px-3 py-1.5 text-sm text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+				>
+					<option value="30-up">30-up (Avery 5160 · 3×10)</option>
+					<option value="80-up">80-up (OL25WX · 4×20)</option>
+				</select>
+				<span class="text-xs text-slate-400">= {labelPages * STOCK_PER_SHEET[labelStock]} labels</span>
 				<button
 					class="btn-primary flex items-center gap-2 disabled:opacity-50"
 					onclick={downloadLabels}
@@ -221,17 +241,27 @@
 			<!-- Item preset labels -->
 			<div class="space-y-2">
 				<p class="text-xs text-slate-400 font-medium">Items</p>
-				<div class="flex items-center gap-3">
-					<label class="text-sm text-slate-300 shrink-0" for="preset-item-count">Count</label>
+				<div class="flex items-center gap-3 flex-wrap">
+					<label class="text-sm text-slate-300 shrink-0" for="preset-item-pages">Pages</label>
 					<input
-						id="preset-item-count"
+						id="preset-item-pages"
 						type="number"
 						min="1"
-						max="1000"
-						step="10"
-						bind:value={presetItemCount}
-						class="w-24 rounded-md bg-slate-700 border border-slate-600 px-3 py-1.5 text-sm text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+						max="12"
+						step="1"
+						bind:value={presetItemPages}
+						class="w-20 rounded-md bg-slate-700 border border-slate-600 px-3 py-1.5 text-sm text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500"
 					/>
+					<label class="text-sm text-slate-300 shrink-0" for="preset-item-stock">Stock</label>
+					<select
+						id="preset-item-stock"
+						bind:value={presetItemStock}
+						class="rounded-md bg-slate-700 border border-slate-600 px-3 py-1.5 text-sm text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+					>
+						<option value="30-up">30-up (3×10)</option>
+						<option value="80-up">80-up (4×20)</option>
+					</select>
+					<span class="text-xs text-slate-400">= {presetItemPages * STOCK_PER_SHEET[presetItemStock]} labels</span>
 					<button
 						class="btn-primary flex items-center gap-2 disabled:opacity-50"
 						onclick={downloadPresetItemLabels}
@@ -269,17 +299,27 @@
 							{/each}
 						</select>
 					</div>
-					<div class="flex items-center gap-3">
-						<label class="text-sm text-slate-300 shrink-0" for="preset-container-count">Count</label>
+					<div class="flex items-center gap-3 flex-wrap">
+						<label class="text-sm text-slate-300 shrink-0" for="preset-container-pages">Pages</label>
 						<input
-							id="preset-container-count"
+							id="preset-container-pages"
 							type="number"
 							min="1"
-							max="1000"
-							step="10"
-							bind:value={presetContainerCount}
-							class="w-24 rounded-md bg-slate-700 border border-slate-600 px-3 py-1.5 text-sm text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+							max="12"
+							step="1"
+							bind:value={presetContainerPages}
+							class="w-20 rounded-md bg-slate-700 border border-slate-600 px-3 py-1.5 text-sm text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500"
 						/>
+						<label class="text-sm text-slate-300 shrink-0" for="preset-container-stock">Stock</label>
+						<select
+							id="preset-container-stock"
+							bind:value={presetContainerStock}
+							class="rounded-md bg-slate-700 border border-slate-600 px-3 py-1.5 text-sm text-slate-100 focus:outline-none focus:ring-2 focus:ring-indigo-500"
+						>
+							<option value="30-up">30-up (3×10)</option>
+							<option value="80-up">80-up (4×20)</option>
+						</select>
+						<span class="text-xs text-slate-400">= {presetContainerPages * STOCK_PER_SHEET[presetContainerStock]} labels</span>
 						<button
 							class="btn-primary flex items-center gap-2 disabled:opacity-50"
 							onclick={downloadPresetContainerLabels}
@@ -315,6 +355,21 @@
 					<path d="M20.49 9A9 9 0 0 0 5.64 5.64L1 10m22 4l-4.64 4.36A9 9 0 0 1 3.51 15" />
 				</svg>
 			</button>
+			<a
+				href="/downloads/homorg-camera.apk"
+				class="flex w-full items-center justify-between px-4 py-3 hover:bg-slate-700 transition-colors"
+				download
+			>
+				<div class="flex flex-col">
+					<span class="text-sm font-medium text-slate-100">Install Android camera app</span>
+					<span class="text-xs text-slate-400">Download APK · enable "Install unknown apps" for your browser</span>
+				</div>
+				<svg class="h-4 w-4 text-slate-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+					<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+					<polyline points="7 10 12 15 17 10"/>
+					<line x1="12" y1="15" x2="12" y2="3"/>
+				</svg>
+			</a>
 		</div>
 
 

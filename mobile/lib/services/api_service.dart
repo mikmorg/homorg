@@ -68,6 +68,29 @@ class ApiService {
     throw const ApiException('Unexpected error');
   }
 
+  /// Send a Bluetooth-scanner barcode to the session. Backend broadcasts it
+  /// over the session's SSE stream as a `phone_scan` event; the web stocker
+  /// UI handles routing. 204 No Content on success.
+  Future<void> sendBarcode(String barcode) async {
+    late http.Response response;
+    try {
+      response = await _client
+          .post(
+            Uri.parse(connection.scanUrl),
+            headers: {'Content-Type': 'application/json'},
+            body: jsonEncode({'barcode': barcode}),
+          )
+          .timeout(const Duration(seconds: 10));
+    } on SocketException {
+      throw const ApiException('Cannot reach server');
+    } on Exception {
+      throw const ApiException('Scan send failed');
+    }
+
+    if (response.statusCode == 204 || response.statusCode == 200) return;
+    _throwForStatus(response);
+  }
+
   void _throwForStatus(http.Response response) {
     switch (response.statusCode) {
       case 401:
@@ -79,7 +102,11 @@ class ApiService {
         String msg = 'Bad request';
         try {
           final body = jsonDecode(response.body) as Map<String, dynamic>;
-          msg = (body['message'] as String?) ?? msg;
+          // Backend wraps errors as { "error": { "message": "..." } };
+          // fall back to flat "message" for robustness.
+          msg = ((body['error'] as Map<String, dynamic>?)?['message'] as String?) ??
+              (body['message'] as String?) ??
+              msg;
         } catch (_) {}
         throw ApiException(msg, statusCode: 400);
       case 422:

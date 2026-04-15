@@ -2,11 +2,11 @@
 	import { onMount, onDestroy } from 'svelte';
 	import { page } from '$app/state';
 	import { goto, beforeNavigate } from '$app/navigation';
-	import { api, QueuedError } from '$api/client.js';
+	import { api, QueuedError, ApiClientError } from '$api/client.js';
 	import type { BarcodeResolution, CameraToken, Item, ItemSummary, ScanSession, StoredEvent, StockerBatchEvent, ExternalCode } from '$api/types.js';
 	import { detectBarcodeType, STANDARD_CODE_TYPES, STANDARD_CODE_TYPE_VALUES } from '$lib/barcode-type.js';
 	import QRCode from 'qrcode';
-	import { onScan, scannerState, startSerialScanner, startCameraScanner, startHidScanner } from '$scanner/index.js';
+	import { onScan, scannerState, startSerialScanner, startCameraScanner, startHidScanner, stopScanner } from '$scanner/index.js';
 	import { scanSuccess, scanError, contextSet, newItem as newItemSound } from '$audio/feedback.js';
 	import { init as initAudio } from '$audio/feedback.js';
 	import {
@@ -99,6 +99,53 @@
 	// Scanner modal
 	let showScannerSettings: boolean = $state(false);
 
+	// Active item mini-panel
+	let showItemPanel: boolean = $state(false);
+	let panelItem: Item | null = $state(null);
+	let panelLoading: boolean = $state(false);
+	let panelError: string = $state('');
+
+	async function openItemPanel(itemId: string) {
+		showItemPanel = true;
+		panelLoading = true;
+		panelError = '';
+		panelItem = null;
+		try {
+			panelItem = await api.items.get(itemId);
+		} catch (err) {
+			panelError = err instanceof Error ? err.message : 'Failed to load item';
+		} finally {
+			panelLoading = false;
+		}
+	}
+
+	// Camera scanner preview (when source === 'camera')
+	let cameraVideoEl: HTMLVideoElement | null = $state(null);
+	let cameraContainer: HTMLDivElement | null = $state(null);
+
+	$effect(() => {
+		if (!cameraContainer || !cameraVideoEl) return;
+		cameraVideoEl.className = 'w-full max-h-56 object-cover';
+		cameraContainer.appendChild(cameraVideoEl);
+		return () => {
+			if (cameraVideoEl?.parentNode === cameraContainer) cameraContainer?.removeChild(cameraVideoEl);
+		};
+	});
+
+	async function pickCameraScanner() {
+		showScannerSettings = false;
+		if (!navigator.mediaDevices?.getUserMedia) {
+			addLog('camera', 'error', 'Camera requires HTTPS or localhost');
+			return;
+		}
+		try {
+			const vid = await startCameraScanner();
+			cameraVideoEl = vid ?? null;
+		} catch {
+			addLog('camera', 'error', 'Camera permission denied');
+		}
+	}
+
 	// Container placement modal (for container presets)
 	let showPlaceContainer: boolean = $state(false);
 	let placeContainerBarcode: string = $state('');
@@ -170,26 +217,18 @@
 		connectEventStream();
 	});
 
-	// H-11: Flush pending batch before navigation so events aren't lost.
-	// SvelteKit beforeNavigate doesn't await async callbacks, so we cancel
-	// navigation, flush, and re-navigate once complete.
-	let navigationTarget: URL | null = $state(null);
-	beforeNavigate(({ cancel, to }) => {
-		if (pendingBatch.length > 0 && !navigationTarget) {
-			cancel();
-			navigationTarget = to?.url ?? null;
-			flushBatch().finally(() => {
-				const target = navigationTarget;
-				navigationTarget = null;
-				if (target) goto(target.pathname + target.search);
-			});
-		}
+	// H-11: Kick off a best-effort flush on navigation. We don't cancel —
+	// the offline queue persists any unsent events to IndexedDB so they
+	// won't be lost even if the user closes the tab mid-flush.
+	beforeNavigate(() => {
+		if (pendingBatch.length > 0) void flushBatch();
 	});
 
 	onDestroy(() => {
 		if (flushTimer) clearInterval(flushTimer);
 		if (eventSource) { eventSource.close(); eventSource = null; }
 		unregisterScan();
+		stopScanner();
 	});
 
 	const unregisterScan = onScan(handleScan);
@@ -360,68 +399,64 @@
 			}
 
 			case 'unknown_system': {
-				// HOM- prefix, pre-printed but unassigned — store as system barcode
-				qcBarcode = barcode;
-				qcExternalCode = null;
-				qcError = '';
-				showQuickCreate = true;
-				newItemSound();
-				addLog(barcode, 'create', `New item? ${barcode}`);
+				// HOM- prefix not registered as a preset or existing item.
+				// Items are only created from preset scans in the stocker flow.
+				addLog(barcode, 'error', 'Not a registered preset — assign via item detail or create a preset first');
+				scanError();
 				break;
 			}
 
 			case 'unknown': {
-				// Unrecognised barcode — detect type; if UPC/EAN/ISBN store as external code
-				const unknownType = detectBarcodeType(resolution.value);
-				if (unknownType) {
-					qcBarcode = '';
-					qcExternalCode = { type: unknownType, value: resolution.value };
-				} else {
-					qcBarcode = barcode;
-					qcExternalCode = null;
+				// Non-system barcode — add as external code to the active item.
+				const activeId = $stockerStore.activeItemId;
+				if (!activeId) {
+					addLog(barcode, 'error', 'No active item — scan a preset barcode first');
+					scanError();
+					break;
 				}
-				qcError = '';
-				showQuickCreate = true;
-				newItemSound();
-				addLog(barcode, 'create', `New item? ${barcode}`);
+				const codeType = detectBarcodeType(resolution.value) || 'BARCODE';
+				try {
+					await api.items.addExternalCode(activeId, codeType, resolution.value);
+					addLog(barcode, 'success', `Added ${codeType} to active item`);
+					scanSuccess();
+				} catch (err) {
+					if (err instanceof ApiClientError && err.error.status === 409) {
+						addLog(barcode, 'success', `${codeType} already on this item`);
+						scanSuccess();
+					} else if (err instanceof QueuedError) {
+						addLog(barcode, 'success', 'Queued for sync (offline)');
+					} else {
+						addLog(barcode, 'error', err instanceof Error ? err.message : 'Failed to add code');
+						scanError();
+					}
+				}
 				break;
 			}
 
 			case 'external': {
-				if (resolution.item_ids.length === 0) {
-					// Known commercial code not yet linked to any item
-					const extType = detectBarcodeType(resolution.value, resolution.code_type) || resolution.code_type;
-					qcBarcode = '';
-					qcExternalCode = { type: extType, value: resolution.value };
-					qcError = '';
-					showQuickCreate = true;
-					newItemSound();
-					addLog(barcode, 'create', `${extType} not assigned — create item?`);
+				// Commercial code (UPC/EAN/ISBN/etc.) — add as external code to the active item.
+				const activeId = $stockerStore.activeItemId;
+				if (!activeId) {
+					addLog(barcode, 'error', 'No active item — scan a preset barcode first');
+					scanError();
 					break;
 				}
-				let item: Item;
+				const extType = detectBarcodeType(resolution.value, resolution.code_type) || resolution.code_type;
 				try {
-					item = await api.items.get(resolution.item_ids[0]);
-				} catch {
-					addLog(barcode, 'error', 'Failed to fetch item details');
-					scanError();
-					return;
+					await api.items.addExternalCode(activeId, extType, resolution.value);
+					addLog(barcode, 'success', `Added ${extType} to active item`);
+					scanSuccess();
+				} catch (err) {
+					if (err instanceof ApiClientError && err.error.status === 409) {
+						addLog(barcode, 'success', `${extType} already on this item`);
+						scanSuccess();
+					} else if (err instanceof QueuedError) {
+						addLog(barcode, 'success', 'Queued for sync (offline)');
+					} else {
+						addLog(barcode, 'error', err instanceof Error ? err.message : 'Failed to add code');
+						scanError();
+					}
 				}
-				if (!context.containerId) {
-					addLog(barcode, 'error', 'No container context set — scan a container first');
-					scanError();
-					return;
-				}
-				pendingBatch.push({
-					type: 'move_item',
-					item_id: item.id,
-					scanned_at: new Date().toISOString()
-				});
-				setPendingCount(pendingBatch.length);
-				addLog(barcode, 'success', `Queued: ${item.name ?? 'Unnamed'} → ${context.containerName}`);
-				addRecentItem(item);
-				activeItemName = item.name ?? '';
-				scanSuccess();
 				break;
 			}
 		}
@@ -494,7 +529,7 @@
 				let type: ScanLogEntry['type'] = 'success';
 				let message = '';
 
-				const imageUrl = (data?.url as string) ?? (data?.image_url as string) ?? undefined;
+				const imageUrl = (data?.path as string) ?? (data?.url as string) ?? (data?.image_url as string) ?? undefined;
 
 				switch (e.event_type) {
 					case 'ItemCreated': {
@@ -541,29 +576,13 @@
 		eventSource.addEventListener('update', async (e: MessageEvent) => {
 			try {
 				const data = JSON.parse(e.data);
-				const s = data.session as ScanSession;
-				if (s) {
-					setSession(s);
-
-					// Sync container context if changed externally
-					if (s.active_container_id && s.active_container_id !== context.containerId) {
-						try {
-							const item = await api.items.get(s.active_container_id);
-							setContext({
-								containerId: s.active_container_id,
-								containerName: item.name ?? 'Unnamed'
-							});
-						} catch { /* ignore */ }
-					}
-
-					// Sync active item name if changed
-					if (s.active_item_id && s.active_item_id !== $stockerStore.activeItemId) {
-						try {
-							const item = await api.items.get(s.active_item_id);
-							activeItemName = item.name ?? '';
-						} catch { /* ignore */ }
-					}
-				}
+				// Deliberately skip replacing local session state / re-fetching
+				// item names on every push — those cause mid-interaction context
+				// loss (active container/item/name flicker). Locally-originated
+				// actions already update state through their own handlers; the
+				// only remaining purpose of this event is to inject server-side
+				// echoes (photo uploads from the camera app, cross-tab edits)
+				// into the scan log below.
 
 				// Process new events into scan log
 				const newEvents = (data.events ?? []) as StoredEvent[];
@@ -573,7 +592,7 @@
 
 					const evtData = evt.event_data as Record<string, unknown>;
 					const name = (evtData?.name as string) ?? (evtData?.item_name as string) ?? '';
-					const imgUrl = (evtData?.url as string) ?? (evtData?.image_url as string) ?? undefined;
+					const imgUrl = (evtData?.path as string) ?? (evtData?.url as string) ?? (evtData?.image_url as string) ?? undefined;
 					let type: 'success' | 'context' | 'create' | 'error' = 'success';
 					let message = '';
 
@@ -602,6 +621,14 @@
 					);
 				}
 			} catch { /* ignore parse errors */ }
+		});
+
+		eventSource.addEventListener('phone_scan', async (e: MessageEvent) => {
+			try {
+				const data = JSON.parse(e.data) as { barcode?: string };
+				const barcode = data.barcode?.trim();
+				if (barcode) await handleScan({ barcode });
+			} catch { /* ignore */ }
 		});
 
 		eventSource.addEventListener('session_ended', () => {
@@ -774,6 +801,7 @@
 	}
 
 	async function revokeCameraLink(tokenId: string) {
+		if (!confirm('Revoke this camera link? The phone using it will be disconnected immediately.')) return;
 		try {
 			await api.stocker.revokeCameraLink(sessionId, tokenId);
 			await loadCameraLinks();
@@ -784,13 +812,16 @@
 
 	function getCameraUrl(token: string): string {
 		// Camera URLs must reach the backend directly — the mobile app
-		// can't use the Vite dev proxy. In dev mode (:5173) rewrite to :8080;
-		// in production the frontend is served by the backend on the same port.
+		// can't use the Vite dev proxy. Any non-8080 port means Vite dev
+		// (5173/5174/5175/...): rewrite to http://host:8080. In production
+		// the frontend is served by the backend, so keep protocol+port.
 		const loc = typeof window !== 'undefined' ? window.location : null;
 		if (!loc) return `/api/v1/stocker/camera/${token}`;
-		const port = loc.port === '5173' ? '8080' : loc.port;
+		const isDev = loc.port !== '' && loc.port !== '8080';
+		const protocol = isDev ? 'http:' : loc.protocol;
+		const port = isDev ? '8080' : loc.port;
 		const host = port ? `${loc.hostname}:${port}` : loc.hostname;
-		return `${loc.protocol}//${host}/api/v1/stocker/camera/${token}`;
+		return `${protocol}//${host}/api/v1/stocker/camera/${token}`;
 	}
 
 	// ── End session ──────────────────────────────────────────────────────────
@@ -997,9 +1028,11 @@
 
 	<!-- ── Active item ──────────────────────────────────────────────────── -->
 	{#if $stockerStore.activeItemId}
-		<a
-			href="/browse/item/{$stockerStore.activeItemId}"
-			class="flex items-center gap-3 border-b border-slate-800 px-4 py-2 hover:bg-slate-800/60 transition-colors"
+		{@const activeId = $stockerStore.activeItemId}
+		<button
+			type="button"
+			onclick={() => openItemPanel(activeId)}
+			class="flex w-full items-center gap-3 border-b border-slate-800 px-4 py-2 text-left hover:bg-slate-800/60 transition-colors"
 		>
 			<div class="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-lg bg-emerald-500/20 text-emerald-400">
 				<svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -1013,7 +1046,16 @@
 			<svg class="h-4 w-4 flex-shrink-0 text-slate-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
 				<path d="M9 18l6-6-6-6" />
 			</svg>
-		</a>
+		</button>
+	{/if}
+
+	<!-- ── Camera preview (when camera scanner is active) ──────────────── -->
+	{#if $scannerState.source === 'camera'}
+		<div class="relative bg-black" bind:this={cameraContainer}>
+			<div class="pointer-events-none absolute inset-0 flex items-center justify-center">
+				<div class="h-32 w-64 rounded-lg border-2 border-indigo-400 opacity-70"></div>
+			</div>
+		</div>
 	{/if}
 
 	<!-- ── Scan log ──────────────────────────────────────────────────────── -->
@@ -1454,7 +1496,7 @@
 				class="btn w-full justify-start gap-3"
 				class:btn-primary={$scannerState.source === 'camera'}
 				class:btn-secondary={$scannerState.source !== 'camera'}
-				onclick={() => { startCameraScanner(); showScannerSettings = false; }}
+				onclick={pickCameraScanner}
 			>
 				<span class="text-lg">📷</span>
 				<span>Camera <span class="text-xs opacity-70">(BarcodeDetector API)</span></span>
@@ -1467,6 +1509,62 @@
 	</div>
 </div>
 {/if}
+{/if}
+
+<!-- ── Active item mini panel ──────────────────────────────────────── -->
+{#if showItemPanel}
+<div class="fixed inset-0 z-50 flex flex-col justify-end bg-black/60" onclick={(e) => { if (e.target === e.currentTarget) showItemPanel = false }} onkeydown={(e) => e.key === 'Escape' && (showItemPanel = false)} role="dialog" aria-modal="true" aria-labelledby="item-panel-title">
+	<div class="max-h-[80vh] overflow-y-auto rounded-t-2xl bg-slate-900 p-4 pb-8">
+		<div class="mb-3 flex items-center justify-between">
+			<h2 id="item-panel-title" class="text-base font-semibold text-slate-100 truncate">
+				{panelItem?.name || (panelLoading ? 'Loading…' : 'Item')}
+			</h2>
+			<button class="btn btn-icon text-slate-400" onclick={() => showItemPanel = false} aria-label="Close">
+				<svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12" /></svg>
+			</button>
+		</div>
+
+		{#if panelLoading}
+			<div class="flex h-24 items-center justify-center"><div class="h-6 w-6 animate-spin rounded-full border-2 border-slate-600 border-t-emerald-500"></div></div>
+		{:else if panelError}
+			<p class="text-sm text-red-400">{panelError}</p>
+		{:else if panelItem}
+			{#if panelItem.images.length > 0}
+				<div class="mb-3 flex gap-2 overflow-x-auto pb-1">
+					{#each panelItem.images as img}
+						<button class="flex-shrink-0 cursor-zoom-in" onclick={() => lightboxUrl = img.path}>
+							<img src={img.path} alt={img.caption ?? ''} class="h-24 w-24 rounded-lg object-cover border border-slate-700 hover:border-emerald-500 transition-colors" />
+						</button>
+					{/each}
+				</div>
+			{/if}
+
+			{#if panelItem.container_path}
+				<p class="mb-1 text-xs text-slate-500">Location</p>
+				<p class="mb-3 text-sm text-slate-300 break-words">{panelItem.container_path}</p>
+			{/if}
+
+			{#if panelItem.description}
+				<p class="mb-1 text-xs text-slate-500">Description</p>
+				<p class="mb-3 text-sm text-slate-300 whitespace-pre-wrap">{panelItem.description}</p>
+			{/if}
+
+			<div class="mb-3 grid grid-cols-2 gap-2 text-xs">
+				{#if panelItem.system_barcode}
+					<div><span class="text-slate-500">Barcode:</span> <span class="font-mono text-slate-300">{panelItem.system_barcode}</span></div>
+				{/if}
+				{#if panelItem.is_fungible && panelItem.fungible_quantity !== null}
+					<div><span class="text-slate-500">Qty:</span> <span class="text-slate-300">{panelItem.fungible_quantity}{panelItem.fungible_unit ? ' ' + panelItem.fungible_unit : ''}</span></div>
+				{/if}
+				{#if panelItem.category}
+					<div><span class="text-slate-500">Category:</span> <span class="text-slate-300">{panelItem.category}</span></div>
+				{/if}
+			</div>
+
+			<a href="/browse/item/{panelItem.id}" class="btn btn-secondary w-full text-center">Open full page</a>
+		{/if}
+	</div>
+</div>
 {/if}
 
 <!-- ── Image lightbox ──────────────────────────────────────────────── -->

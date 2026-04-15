@@ -266,15 +266,22 @@ export const barcodes = {
 	resolve: (code: string) =>
 		get$<BarcodeResolution>(`/barcodes/resolve/${encodeURIComponent(code)}`),
 	/** Generate preset barcode labels (pre-keyed as container or item) and return PDF as Blob. */
-	downloadPresetLabels: (count: number, isContainer: boolean, containerTypeId?: string): Promise<Blob> => {
-		const body: Record<string, unknown> = { count, is_container: isContainer };
+	downloadPresetLabels: (
+		count: number,
+		isContainer: boolean,
+		stock: LabelStock,
+		containerTypeId?: string
+	): Promise<Blob> => {
+		const body: Record<string, unknown> = { count, is_container: isContainer, stock };
 		if (containerTypeId) body.container_type_id = containerTypeId;
 		return requestBlob('POST', '/barcodes/preset-labels', body);
 	},
 	/** Generate new barcodes and return a PDF label sheet as a Blob. */
-	downloadLabels: (count: number): Promise<Blob> =>
-		requestBlob('POST', '/barcodes/labels', { count })
+	downloadLabels: (count: number, stock: LabelStock): Promise<Blob> =>
+		requestBlob('POST', '/barcodes/labels', { count, stock })
 };
+
+export type LabelStock = '30-up' | '80-up';
 
 // ─── Stocker ─────────────────────────────────────────────────────────────────
 

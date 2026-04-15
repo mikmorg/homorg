@@ -1,0 +1,29 @@
+\documentclass[letter,12pt]{article}
+\usepackage[newdimens]{labels}
+\usepackage{barracuda}
+\usepackage{graphicx}
+\usepackage{anyfontsize}
+\usepackage{xcolor}
+\usepackage{eso-pic}
+\newcommand{\sheetdesc}{ {{ description }} }
+% OnlineLabels OL25WX — 4 cols × 20 rows = 80 labels per letter sheet.
+% Each label ≈ 1.75" × 0.5".
+\LabelCols=4
+\LabelRows=20
+\LeftPageMargin=0.32812in
+\RightPageMargin=0.32812in
+\TopPageMargin=0.5in
+\BottomPageMargin=0.5in
+\InterLabelColumn=0.28125in
+\InterLabelRow=0in
+\LeftLabelBorder=0mm
+\RightLabelBorder=0mm
+\TopLabelBorder=0mm
+\BottomLabelBorder=0mm
+{% raw %}\AddToShipoutPictureBG{%
+  \AtPageLowerLeft{\hspace{5mm}{\fontsize{5.5}{6.5}\selectfont\color{gray}\raisebox{2\height}{\sheetdesc}}}}{% endraw %}
+\begin{document}
+\makeatletter
+{% for barcode in barcodes %}\genericlabel{\setbox0=\hbox{\resizebox{40mm}{5mm}{\barracuda[module=tex.sp("0.26mm")]{code128}{ {{- barcode -}} }}}\dp0=0pt\makebox[\area@width][c]{\vbox{\offinterlineskip\copy0\kern3pt\hbox to\wd0{\hss\fontsize{7}{7}\selectfont\ttfamily {{ barcode }}\hss}}}}
+{% endfor %}\makeatother
+\end{document}

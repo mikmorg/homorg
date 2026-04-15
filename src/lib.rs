@@ -5,6 +5,7 @@ pub mod commands;
 pub mod config;
 pub mod constants;
 pub mod db;
+pub mod enrichment;
 pub mod errors;
 pub mod events;
 pub mod label_gen;
@@ -14,10 +15,12 @@ pub mod openapi;
 pub mod queries;
 pub mod storage;
 
+use std::collections::HashMap;
 use std::sync::{
     atomic::{AtomicBool, Ordering},
     Arc,
 };
+use tokio::sync::{broadcast, RwLock};
 
 use commands::barcode_commands::BarcodeCommands;
 use commands::item_commands::ItemCommands;
@@ -60,6 +63,11 @@ pub struct AppState {
     pub metrics_handle: Option<metrics_exporter_prometheus::PrometheusHandle>,
     /// In-process cache for hot query paths.
     pub cache: cache::AppCache,
+    /// Per-session broadcast channels for phone-originated scans (BT scanner
+    /// paired to the mobile app). The SSE session stream subscribes to the
+    /// session's channel and forwards scans to the web UI as `phone_scan`
+    /// events. Channels are lazily created on first subscribe/publish.
+    pub phone_scan_bus: Arc<RwLock<HashMap<uuid::Uuid, broadcast::Sender<String>>>>,
 }
 
 impl AppState {
@@ -104,7 +112,19 @@ impl AppState {
             rebuild_in_progress: Arc::new(AtomicBool::new(false)),
             metrics_handle,
             cache: cache::AppCache::new(),
+            phone_scan_bus: Arc::new(RwLock::new(HashMap::new())),
         }
+    }
+
+    /// Return a `broadcast::Sender<String>` for the session's phone-scan
+    /// channel, creating it on first use. Used by both the camera-token scan
+    /// endpoint (publish side) and the SSE stream handler (subscribe side).
+    pub async fn phone_scan_sender(&self, session_id: uuid::Uuid) -> broadcast::Sender<String> {
+        if let Some(tx) = self.phone_scan_bus.read().await.get(&session_id) {
+            return tx.clone();
+        }
+        let mut w = self.phone_scan_bus.write().await;
+        w.entry(session_id).or_insert_with(|| broadcast::channel::<String>(32).0).clone()
     }
 }
 
