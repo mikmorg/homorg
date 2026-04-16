@@ -27,6 +27,10 @@
 	let photoStream: MediaStream | null = null;
 	let photoUploading = $state(false);
 	let photoError = $state('');
+
+	// Image lightbox state
+	let lightboxIndex: number = $state(-1);
+
 	let item: Item | null = $state(null);
 	let parentItem: Item | null = $state(null);
 	let ancestors: AncestorEntry[] = $state([]);
@@ -547,11 +551,15 @@
 				<!-- Images -->
 				{#if item.images && item.images.length > 0}
 					{#if item.images.length === 1}
-						<img src={item.images[0].path} alt={item.images[0].caption ?? item.name ?? ''} class="w-full rounded-lg object-cover max-h-48" />
+						<button type="button" class="w-full cursor-zoom-in" onclick={() => lightboxIndex = 0}>
+							<img src={item.images[0].path} alt={item.images[0].caption ?? item.name ?? ''} class="w-full rounded-lg object-contain max-h-64 bg-black/20" />
+						</button>
 					{:else}
-						<div class="flex gap-2 overflow-x-auto pb-1 -mx-4 px-4 snap-x">
-							{#each item.images as img}
-								<img src={img.path} alt={img.caption ?? item.name ?? ''} class="h-40 w-auto flex-shrink-0 rounded-lg object-cover snap-start" />
+						<div class="grid grid-cols-2 gap-1.5">
+							{#each item.images as img, i}
+								<button type="button" class="cursor-zoom-in overflow-hidden rounded-lg bg-black/20" onclick={() => lightboxIndex = i}>
+									<img src={img.path} alt={img.caption ?? item.name ?? ''} class="w-full h-32 object-contain" />
+								</button>
 							{/each}
 						</div>
 					{/if}
@@ -1016,5 +1024,80 @@
 			</div>
 		{/if}
 	</div>
+</div>
+{/if}
+
+<!-- ── Image lightbox with swipe ──────────────────────────────────────── -->
+{#if lightboxIndex >= 0 && item?.images}
+{@const images = item.images}
+<!-- svelte-ignore a11y_no_static_element_interactions -->
+<div
+	class="fixed inset-0 z-[60] flex items-center justify-center bg-black/95"
+	onclick={() => lightboxIndex = -1}
+	onkeydown={(e) => {
+		if (e.key === 'Escape') lightboxIndex = -1;
+		else if (e.key === 'ArrowRight' && lightboxIndex < images.length - 1) lightboxIndex++;
+		else if (e.key === 'ArrowLeft' && lightboxIndex > 0) lightboxIndex--;
+	}}
+	ontouchstart={(e) => {
+		const el = e.currentTarget as HTMLElement;
+		(el as any)._touchX = e.touches[0].clientX;
+	}}
+	ontouchend={(e) => {
+		const el = e.currentTarget as HTMLElement;
+		const startX = (el as any)._touchX as number | undefined;
+		if (startX === undefined) return;
+		const dx = e.changedTouches[0].clientX - startX;
+		if (dx < -50 && lightboxIndex < images.length - 1) lightboxIndex++;
+		else if (dx > 50 && lightboxIndex > 0) lightboxIndex--;
+	}}
+>
+	<!-- Close button -->
+	<button
+		class="absolute top-4 right-4 z-10 rounded-full bg-black/50 p-2 text-white hover:bg-black/80 transition-colors"
+		onclick={() => lightboxIndex = -1}
+		aria-label="Close"
+	>
+		<svg class="h-6 w-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+			<path d="M18 6L6 18M6 6l12 12" />
+		</svg>
+	</button>
+
+	<!-- Counter -->
+	{#if images.length > 1}
+		<div class="absolute top-4 left-4 rounded-full bg-black/50 px-3 py-1 text-sm text-white">
+			{lightboxIndex + 1} / {images.length}
+		</div>
+	{/if}
+
+	<!-- Prev / Next arrows (desktop) -->
+	{#if lightboxIndex > 0}
+		<button
+			class="absolute left-3 top-1/2 -translate-y-1/2 rounded-full bg-black/50 p-2 text-white hover:bg-black/80 transition-colors hidden sm:block"
+			onclick={(e) => { e.stopPropagation(); lightboxIndex--; }}
+			aria-label="Previous"
+		>
+			<svg class="h-6 w-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 18l-6-6 6-6"/></svg>
+		</button>
+	{/if}
+	{#if lightboxIndex < images.length - 1}
+		<button
+			class="absolute right-3 top-1/2 -translate-y-1/2 rounded-full bg-black/50 p-2 text-white hover:bg-black/80 transition-colors hidden sm:block"
+			onclick={(e) => { e.stopPropagation(); lightboxIndex++; }}
+			aria-label="Next"
+		>
+			<svg class="h-6 w-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18l6-6-6-6"/></svg>
+		</button>
+	{/if}
+
+	<!-- Image -->
+	<!-- svelte-ignore a11y_click_events_have_key_events -->
+	<img
+		src={images[lightboxIndex].path}
+		alt={images[lightboxIndex].caption ?? item.name ?? ''}
+		class="max-h-[90vh] max-w-[95vw] object-contain select-none"
+		onclick={(e) => e.stopPropagation()}
+		draggable="false"
+	/>
 </div>
 {/if}
