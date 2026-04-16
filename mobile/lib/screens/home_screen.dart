@@ -74,7 +74,7 @@ class _HomeScreenState extends State<HomeScreen> {
       body: IndexedStack(
         index: _tabIndex,
         children: [
-          ScanScreen(api: _api),
+          ScanScreen(api: _api, isActive: _tabIndex == 0),
           BrowseScreen(api: _api),
           StockerLandingScreen(api: _api),
         ],

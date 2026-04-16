@@ -17,8 +17,9 @@ const _btNamePrefKey = 'last_bt_name';
 
 class ScanScreen extends StatefulWidget {
   final HomorgApi api;
+  final bool isActive;
 
-  const ScanScreen({super.key, required this.api});
+  const ScanScreen({super.key, required this.api, this.isActive = true});
 
   @override
   State<ScanScreen> createState() => _ScanScreenState();
@@ -63,7 +64,21 @@ class _ScanScreenState extends State<ScanScreen> {
       setState(() => _scannerState = s);
     });
     _loadSavedBtDevice();
-    _startCamera();
+    if (widget.isActive && _mode == _ScanMode.camera) {
+      _startCamera();
+    }
+  }
+
+  @override
+  void didUpdateWidget(covariant ScanScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (widget.isActive != oldWidget.isActive) {
+      if (widget.isActive && _mode == _ScanMode.camera) {
+        _startCamera();
+      } else if (!widget.isActive) {
+        _stopCamera();
+      }
+    }
   }
 
   @override
@@ -179,12 +194,16 @@ class _ScanScreenState extends State<ScanScreen> {
     }
   }
 
-  void _navigateToItem(String itemId) {
-    Navigator.of(context).push(
+  Future<void> _navigateToItem(String itemId) async {
+    _stopCamera();
+    await Navigator.of(context).push(
       MaterialPageRoute(
         builder: (_) => ItemDetailScreen(api: widget.api, itemId: itemId),
       ),
     );
+    if (mounted && widget.isActive && _mode == _ScanMode.camera) {
+      _startCamera();
+    }
   }
 
   Future<void> _showItemPicker(List<String> itemIds) async {
