@@ -21,7 +21,7 @@
 \TopLabelBorder=0mm
 \BottomLabelBorder=0mm
 {% raw %}\AddToShipoutPictureBG{%
-  \AtPageLowerLeft{\hspace{5mm}{\fontsize{5.5}{6.5}\selectfont\color{gray}\raisebox{5mm}{\sheetdesc}}}}{% endraw %}
+  \AtPageLowerLeft{\hspace{6mm}{\fontsize{5.5}{6.5}\selectfont\color{gray}\raisebox{6mm}{\sheetdesc}}}}{% endraw %}
 \begin{document}
 \makeatletter
 {% for barcode in barcodes %}\genericlabel{\setbox0=\hbox{\resizebox{40mm}{5mm}{\barracuda[module=tex.sp("0.26mm")]{code128}{ {{- barcode -}} }}}\dp0=0pt\makebox[\area@width][c]{\vbox{\offinterlineskip\copy0\kern3pt\hbox to\wd0{\hss\fontsize{7}{7}\selectfont\ttfamily {{ barcode }}\hss}}}}

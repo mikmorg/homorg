@@ -17,6 +17,7 @@ pub struct ScanSession {
     pub items_errored: i32,
     pub notes: Option<String>,
     pub active_item_id: Option<Uuid>,
+    pub photo_needed: bool,
 }
 
 /// Optional body for starting a new scan session.

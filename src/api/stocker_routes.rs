@@ -152,6 +152,7 @@ async fn submit_batch(
     let mut errors = Vec::new();
     let mut active_container_id = session.active_container_id;
     let mut active_item_id = session.active_item_id;
+    let mut photo_needed = session.photo_needed;
     let mut items_scanned: i32 = 0;
     let mut items_created: i32 = 0;
     let mut items_moved: i32 = 0;
@@ -171,6 +172,7 @@ async fn submit_batch(
                 batch_event,
                 &mut active_container_id,
                 &mut active_item_id,
+                &mut photo_needed,
                 index,
             )
             .await?; // ? propagates error, rolling back tx on drop
@@ -202,6 +204,7 @@ async fn submit_batch(
                 items_created,
                 items_moved,
                 items_errored,
+                photo_needed,
             )
             .await?;
 
@@ -216,6 +219,7 @@ async fn submit_batch(
                 batch_event,
                 &mut active_container_id,
                 &mut active_item_id,
+                &mut photo_needed,
                 index,
             )
             .await;
@@ -258,6 +262,7 @@ async fn submit_batch(
                 items_created,
                 items_moved,
                 items_errored,
+                photo_needed,
             )
             .await?;
     }
@@ -283,6 +288,7 @@ async fn process_batch_event(
     event: &StockerBatchEvent,
     active_container_id: &mut Option<Uuid>,
     active_item_id: &mut Option<Uuid>,
+    photo_needed: &mut bool,
     index: usize,
 ) -> AppResult<StockerBatchResult> {
     let mut tx = state.pool.begin().await?;
@@ -294,6 +300,7 @@ async fn process_batch_event(
         event,
         active_container_id,
         active_item_id,
+        photo_needed,
         index,
     )
     .await?;
@@ -310,6 +317,7 @@ async fn process_batch_event_in_tx(
     event: &StockerBatchEvent,
     active_container_id: &mut Option<Uuid>,
     active_item_id: &mut Option<Uuid>,
+    photo_needed: &mut bool,
     index: usize,
 ) -> AppResult<StockerBatchResult> {
     // H-2: Build metadata here so we can capture client-side scanned_at per event.
@@ -374,6 +382,7 @@ async fn process_batch_event_in_tx(
 
             // Track this item as the active item for camera attachment
             *active_item_id = Some(*item_id);
+            *photo_needed = false;
 
             Ok(StockerBatchResult::Moved {
                 index,
@@ -470,6 +479,7 @@ async fn process_batch_event_in_tx(
 
             // Track this newly created item as the active item for camera attachment
             *active_item_id = Some(item_id);
+            *photo_needed = !is_container.unwrap_or(false);
 
             Ok(StockerBatchResult::Created {
                 index,
@@ -805,6 +815,7 @@ async fn camera_status(
         session_id: session.id,
         active_container_id: session.active_container_id,
         active_item_id: session.active_item_id,
+        photo_needed: session.photo_needed,
         session_ended: session.ended_at.is_some(),
     }))
 }

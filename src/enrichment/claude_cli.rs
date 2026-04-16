@@ -107,7 +107,7 @@ RULES:
 - Output JSON that matches the schema exactly. No commentary before or after.
 - Use the Read tool to open and view each image listed in the prompt. Do not use any other tools.
 - 'name' should be a concise canonical title (<=80 chars).
-- 'description' is 1-3 sentences describing what the item is and its key visible attributes.
+- 'description' is 1-3 sentences describing what the item IS and its key visible attributes. Write it as though it came from a catalog: no references to "the image", "the photo", "based on what I can see", no commentary on image quality or confidence, no mention of the enrichment process. Any observations about how useful the photos were, what was unclear, or caveats about your sources belong in 'reasoning', not 'description'.
 - 'tags' must be lowercase. Use only tags from the Allowed Tags list unless explicitly told new tags are permitted, in which case lowercase-hyphenated new tags are acceptable.
 - 'category' must be one of the Allowed Categories, or null.
 - For books (identified by an ISBN or a clear book-cover appearance), populate metadata_additions.book = { "title", "authors" (array), "publisher", "year", "isbn" }.

@@ -86,6 +86,7 @@ impl SessionRepository {
         items_created: i32,
         items_moved: i32,
         items_errored: i32,
+        photo_needed: bool,
     ) -> AppResult<()> {
         sqlx::query(
             r#"
@@ -95,8 +96,9 @@ impl SessionRepository {
                 items_scanned = items_scanned + $3,
                 items_created = items_created + $4,
                 items_moved = items_moved + $5,
-                items_errored = items_errored + $6
-            WHERE id = $7
+                items_errored = items_errored + $6,
+                photo_needed = $7
+            WHERE id = $8
             "#,
         )
         .bind(active_container_id)
@@ -105,6 +107,7 @@ impl SessionRepository {
         .bind(items_created)
         .bind(items_moved)
         .bind(items_errored)
+        .bind(photo_needed)
         .bind(session_id)
         .execute(&self.pool)
         .await?;
@@ -122,6 +125,7 @@ impl SessionRepository {
         items_created: i32,
         items_moved: i32,
         items_errored: i32,
+        photo_needed: bool,
     ) -> AppResult<()> {
         sqlx::query(
             r#"
@@ -131,8 +135,9 @@ impl SessionRepository {
                 items_scanned = items_scanned + $3,
                 items_created = items_created + $4,
                 items_moved = items_moved + $5,
-                items_errored = items_errored + $6
-            WHERE id = $7
+                items_errored = items_errored + $6,
+                photo_needed = $7
+            WHERE id = $8
             "#,
         )
         .bind(active_container_id)
@@ -141,6 +146,7 @@ impl SessionRepository {
         .bind(items_created)
         .bind(items_moved)
         .bind(items_errored)
+        .bind(photo_needed)
         .bind(session_id)
         .execute(&mut **tx)
         .await?;

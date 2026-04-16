@@ -42,12 +42,26 @@ export const recentItems = derived(stockerStore, (s) => s.recentItems);
 export const activeItemId = derived(stockerStore, (s) => s.activeItemId);
 
 export function setSession(session: ScanSession) {
-	stockerStore.update((s) => ({
-		...s,
-		session,
-		error: null,
-		activeItemId: session.active_item_id ?? s.activeItemId
-	}));
+	stockerStore.update((s) => {
+		// Session transition: different id (or first session) — wipe session-
+		// scoped state so a stale context/activeItemId/recentItems from a prior
+		// closed session can't leak into the new one.
+		if (s.session?.id !== session.id) {
+			return {
+				...initial,
+				session,
+				activeItemId: session.active_item_id ?? null
+			};
+		}
+		// Same session — a stats refresh after flushBatch etc. Preserve local
+		// optimistic activeItemId when the server hasn't caught up yet.
+		return {
+			...s,
+			session,
+			error: null,
+			activeItemId: session.active_item_id ?? s.activeItemId
+		};
+	});
 }
 
 export function clearSession() {

@@ -28,6 +28,12 @@ use crate::queries::item_queries::ITEM_FULL_SELECT;
 ///
 /// `claimed_by` is typically `"<hostname>:<pid>"` so orphan detection at
 /// startup can identify stuck tasks.
+///
+/// Tasks whose `item_id` is currently the `active_item_id` of an open
+/// `scan_sessions` row (i.e. `ended_at IS NULL`) are skipped so enrichment
+/// doesn't clobber or race with a user who is still actively scanning the
+/// item. The task remains `pending`; the next claim cycle after the user
+/// moves on or ends the session picks it up.
 pub async fn claim_next_task(pool: &PgPool, claimed_by: &str) -> AppResult<Option<EnrichmentTask>> {
     let row = sqlx::query_as::<_, EnrichmentTask>(
         r#"
@@ -40,6 +46,11 @@ pub async fn claim_next_task(pool: &PgPool, claimed_by: &str) -> AppResult<Optio
         WHERE id = (
             SELECT id FROM enrichment_tasks
             WHERE status = 'pending'
+              AND NOT EXISTS (
+                  SELECT 1 FROM scan_sessions
+                  WHERE scan_sessions.active_item_id = enrichment_tasks.item_id
+                    AND scan_sessions.ended_at IS NULL
+              )
             ORDER BY priority ASC, created_at ASC
             FOR UPDATE SKIP LOCKED
             LIMIT 1

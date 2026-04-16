@@ -121,11 +121,13 @@ void main() {
         'session_id': 'sess-123',
         'active_container_id': 'cont-456',
         'active_item_id': 'item-789',
+        'photo_needed': true,
         'session_ended': false,
       });
       expect(status.sessionId, 'sess-123');
       expect(status.activeContainerId, 'cont-456');
       expect(status.activeItemId, 'item-789');
+      expect(status.photoNeeded, true);
       expect(status.sessionEnded, false);
     });
 
@@ -134,10 +136,12 @@ void main() {
         'session_id': 'sess-123',
         'active_container_id': null,
         'active_item_id': null,
+        'photo_needed': false,
         'session_ended': true,
       });
       expect(status.activeContainerId, isNull);
       expect(status.activeItemId, isNull);
+      expect(status.photoNeeded, false);
       expect(status.sessionEnded, true);
     });
 
@@ -148,6 +152,7 @@ void main() {
       });
       expect(status.activeContainerId, isNull);
       expect(status.activeItemId, isNull);
+      expect(status.photoNeeded, true, reason: 'defaults to true for backward compat');
     });
 
     test('throws on missing session_id', () {

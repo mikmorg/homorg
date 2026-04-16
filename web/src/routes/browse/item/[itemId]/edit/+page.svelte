@@ -44,6 +44,12 @@
 	let externalCodes: ExternalCode[] = $state([]);
 	let generatingBarcode: boolean = $state(false);
 
+	// Per-key metadata editor. `isJson=true` means the value is an object/array
+	// edited as raw JSON; scalars get auto-coerced (numbers, booleans, null).
+	type MetadataRow = { key: string; value: string; isJson: boolean };
+	let metadataEntries: MetadataRow[] = $state([]);
+	let metadataErrors: Record<number, string> = $state({});
+
 	// Inline camera scanner for adding external codes
 	let scanningForCode: boolean = $state(false);
 	let scanContainer: HTMLDivElement | null = $state(null);
@@ -139,6 +145,13 @@
 			isContainer = item.is_container;
 			systemBarcode = item.system_barcode ?? '';
 			externalCodes = item.external_codes ? [...item.external_codes] : [];
+			metadataEntries = Object.entries(item.metadata ?? {}).map(([k, v]) => {
+				if (v === null || typeof v !== 'object') {
+					return { key: k, value: v === null ? 'null' : String(v), isJson: false };
+				}
+				return { key: k, value: JSON.stringify(v, null, 2), isJson: true };
+			});
+			metadataErrors = {};
 			if (item.parent_id) {
 				parentItem = await api.items.get(item.parent_id);
 			}
@@ -249,6 +262,35 @@
 		const oldQty = item.fungible_quantity ?? null;
 		const quantityChanged = isFungible && newQty !== null && newQty !== oldQty;
 
+		// Build metadata object from per-key rows. Reject on invalid JSON;
+		// otherwise diff against current and include in updates if changed.
+		const newMetadata: Record<string, unknown> = {};
+		const newMetaErrors: Record<number, string> = {};
+		let metadataValid = true;
+		metadataEntries.forEach((entry, i) => {
+			const k = entry.key.trim();
+			if (!k) return;
+			if (entry.isJson) {
+				try {
+					newMetadata[k] = JSON.parse(entry.value);
+				} catch (err) {
+					newMetaErrors[i] = err instanceof Error ? err.message : 'Invalid JSON';
+					metadataValid = false;
+				}
+			} else {
+				newMetadata[k] = coerceMetadataValue(entry.value);
+			}
+		});
+		metadataErrors = newMetaErrors;
+		if (!metadataValid) {
+			saveError = 'Fix invalid JSON in metadata before saving.';
+			saving = false;
+			return;
+		}
+		if (JSON.stringify(newMetadata) !== JSON.stringify(item.metadata ?? {})) {
+			updates.metadata = newMetadata;
+		}
+
 		if (Object.keys(updates).length === 0 && !schemaChanged && !quantityChanged && !imageChanged) {
 			saveError = 'No changes to save.';
 			saving = false;
@@ -330,6 +372,52 @@
 
 	function addExternalCode() {
 		externalCodes = [...externalCodes, { type: '', value: '' }];
+	}
+
+	function coerceMetadataValue(s: string): unknown {
+		const t = s.trim();
+		if (t === '') return '';
+		if (t === 'null') return null;
+		if (t === 'true') return true;
+		if (t === 'false') return false;
+		if (/^-?\d+(\.\d+)?$/.test(t)) return Number(t);
+		return s;
+	}
+
+	function addMetadataField() {
+		metadataEntries = [...metadataEntries, { key: '', value: '', isJson: false }];
+	}
+
+	function removeMetadataField(idx: number) {
+		metadataEntries = metadataEntries.filter((_, i) => i !== idx);
+		// Reindex errors after removal.
+		const reindexed: Record<number, string> = {};
+		Object.entries(metadataErrors).forEach(([k, v]) => {
+			const n = Number(k);
+			if (n < idx) reindexed[n] = v;
+			else if (n > idx) reindexed[n - 1] = v;
+		});
+		metadataErrors = reindexed;
+	}
+
+	function toggleMetadataJson(idx: number) {
+		const row = metadataEntries[idx];
+		if (!row) return;
+		if (row.isJson) {
+			// JSON → scalar: keep raw text so the user can see what they had.
+			metadataEntries[idx] = { ...row, isJson: false };
+		} else {
+			// Scalar → JSON: try to pretty-print the coerced value.
+			try {
+				const coerced = coerceMetadataValue(row.value);
+				metadataEntries[idx] = { ...row, value: JSON.stringify(coerced, null, 2), isJson: true };
+			} catch {
+				metadataEntries[idx] = { ...row, isJson: true };
+			}
+		}
+		metadataEntries = [...metadataEntries];
+		const { [idx]: _removed, ...rest } = metadataErrors;
+		metadataErrors = rest;
 	}
 
 	function removeExternalCode(idx: number) {
@@ -671,6 +759,73 @@
 							<input id="edit-warranty" class="input text-sm" type="date" bind:value={warrantyExpiry} />
 						</div>
 					</div>
+				</div>
+
+				<!-- Metadata (per-key editor) -->
+				<div class="card p-3 space-y-3">
+					<div class="flex items-center justify-between">
+						<p class="text-xs text-slate-400 uppercase tracking-wide">Metadata</p>
+						<button type="button" class="text-xs text-indigo-400 hover:text-indigo-300" onclick={addMetadataField}>
+							+ Add field
+						</button>
+					</div>
+					{#if metadataEntries.length === 0}
+						<p class="text-xs text-slate-500">No metadata. Click “Add field” to store extra structured info (e.g. <code class="text-slate-300">model_number</code>, <code class="text-slate-300">serial</code>, <code class="text-slate-300">color</code>).</p>
+					{:else}
+						<div class="space-y-2">
+							{#each metadataEntries as entry, i (i)}
+								<div class="space-y-1">
+									<div class="flex gap-2 items-start">
+										<input
+											class="input text-sm flex-1 font-mono"
+											type="text"
+											placeholder="key"
+											bind:value={entry.key}
+										/>
+										{#if entry.isJson}
+											<textarea
+												class="input text-sm flex-[2] font-mono"
+												rows="3"
+												placeholder={'{\n  "key": "value"\n}'}
+												bind:value={entry.value}
+											></textarea>
+										{:else}
+											<input
+												class="input text-sm flex-[2]"
+												type="text"
+												placeholder="value"
+												bind:value={entry.value}
+											/>
+										{/if}
+										<button
+											type="button"
+											class="btn btn-icon text-slate-400 hover:text-indigo-300 flex-shrink-0"
+											title={entry.isJson ? 'Switch to scalar value' : 'Edit as raw JSON'}
+											onclick={() => toggleMetadataJson(i)}
+										>
+											<span class="text-xs font-mono px-1">{entry.isJson ? 'abc' : '{}'}</span>
+										</button>
+										<button
+											type="button"
+											class="btn btn-icon text-slate-400 hover:text-red-400 flex-shrink-0"
+											aria-label="Remove field"
+											onclick={() => removeMetadataField(i)}
+										>
+											<svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+												<path d="M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2m-9 0h14l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6h0z" />
+											</svg>
+										</button>
+									</div>
+									{#if metadataErrors[i]}
+										<p class="text-xs text-red-400">{metadataErrors[i]}</p>
+									{/if}
+								</div>
+							{/each}
+						</div>
+					{/if}
+					<p class="text-xs text-slate-500">
+						Scalar values are auto-typed: <code class="text-slate-300">42</code>, <code class="text-slate-300">true</code>, <code class="text-slate-300">null</code> become numbers/booleans/null; anything else is a string. Toggle <code class="text-slate-300">{`{}`}</code> for nested objects or arrays (raw JSON).
+					</p>
 				</div>
 
 				<!-- Save button (bottom) -->

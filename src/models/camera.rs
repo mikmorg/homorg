@@ -40,6 +40,7 @@ pub struct CameraSessionStatus {
     pub session_id: Uuid,
     pub active_container_id: Option<Uuid>,
     pub active_item_id: Option<Uuid>,
+    pub photo_needed: bool,
     pub session_ended: bool,
 }
 
@@ -90,6 +91,7 @@ mod tests {
             session_id: Uuid::nil(),
             active_container_id: None,
             active_item_id: Some(Uuid::nil()),
+            photo_needed: true,
             session_ended: false,
         };
         let v: serde_json::Value = serde_json::to_value(&s).unwrap();

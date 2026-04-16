@@ -172,4 +172,29 @@ describe('stockerStore', () => {
 		clearSession();
 		expect(get(activeItemId)).toBeNull();
 	});
+
+	it('setSession with a new session id wipes stale context/activeItemId/recentItems', () => {
+		setSession(makeSession({ id: 'session-a', active_item_id: 'item-a' }));
+		setContext({ containerId: 'container-a', containerName: 'Old Box' });
+		addRecentItem(makeItem({ id: 'item-old' }));
+
+		setSession(makeSession({ id: 'session-b', active_item_id: null }));
+
+		expect(get(activeSession)?.id).toBe('session-b');
+		expect(get(activeItemId)).toBeNull();
+		expect(get(activeContext).containerId).toBeNull();
+		expect(get(activeContext).containerName).toBeNull();
+		expect(get(recentItems)).toEqual([]);
+	});
+
+	it('setSession with same id preserves local activeItemId (stats refresh)', () => {
+		setSession(makeSession({ id: 'session-1', active_item_id: null }));
+		setActiveItemId('item-local');
+
+		// Server refresh with same id and stale active_item_id=null — local
+		// optimistic value should survive.
+		setSession(makeSession({ id: 'session-1', active_item_id: null, items_scanned: 5 }));
+		expect(get(activeItemId)).toBe('item-local');
+		expect(get(activeSession)?.items_scanned).toBe(5);
+	});
 });

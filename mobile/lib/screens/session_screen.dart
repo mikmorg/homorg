@@ -12,6 +12,8 @@ import '../services/bluetooth_scanner_service.dart';
 import 'camera_capture_screen.dart';
 
 const _autoOpenCameraPrefKey = 'auto_open_camera';
+const _btAddressPrefKey = 'last_bt_address';
+const _btNamePrefKey = 'last_bt_name';
 
 typedef ApiServiceFactory = ApiService Function(CameraConnection);
 
@@ -48,6 +50,10 @@ class _SessionScreenState extends State<SessionScreen> {
   String? _lastScan;
   String? _lastScanError;
 
+  // Remembered Bluetooth device (persisted globally across sessions)
+  String? _savedBtAddress;
+  String? _savedBtName;
+
   @override
   void initState() {
     super.initState();
@@ -60,6 +66,7 @@ class _SessionScreenState extends State<SessionScreen> {
       setState(() => _scannerState = s);
     });
     _loadAutoOpenPref();
+    _loadSavedBtDevice();
     _fetchStatus();
     _pollTimer = Timer.periodic(
       const Duration(seconds: 2),
@@ -79,6 +86,28 @@ class _SessionScreenState extends State<SessionScreen> {
     setState(() => _autoOpenCamera = v);
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_autoOpenCameraPrefKey, v);
+  }
+
+  Future<void> _loadSavedBtDevice() async {
+    final prefs = await SharedPreferences.getInstance();
+    if (!mounted) return;
+    setState(() {
+      _savedBtAddress = prefs.getString(_btAddressPrefKey);
+      _savedBtName = prefs.getString(_btNamePrefKey);
+    });
+  }
+
+  Future<void> _saveBtDevice(BluetoothDevice device) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_btAddressPrefKey, device.address);
+    if (device.name != null) {
+      await prefs.setString(_btNamePrefKey, device.name!);
+    }
+    if (!mounted) return;
+    setState(() {
+      _savedBtAddress = device.address;
+      _savedBtName = device.name;
+    });
   }
 
   @override
@@ -113,6 +142,7 @@ class _SessionScreenState extends State<SessionScreen> {
     }
   }
 
+  /// Connect to the remembered device, or show the picker if none saved.
   Future<void> _pickScanner() async {
     final granted = await BluetoothScannerService.ensurePermissions();
     if (!mounted) return;
@@ -121,6 +151,42 @@ class _SessionScreenState extends State<SessionScreen> {
       return;
     }
 
+    // If we have a saved device, reconnect directly without showing the picker.
+    if (_savedBtAddress != null) {
+      final device = BluetoothDevice(
+        address: _savedBtAddress!,
+        name: _savedBtName,
+      );
+      try {
+        await _scanner.connect(device);
+      } catch (e) {
+        if (mounted) _showSnack('Connect failed: $e');
+      }
+      return;
+    }
+
+    // No saved device — fall through to the picker.
+    await _showDevicePicker();
+  }
+
+  /// Always show the device list so the user can switch scanners.
+  Future<void> _changeScanner() async {
+    final granted = await BluetoothScannerService.ensurePermissions();
+    if (!mounted) return;
+    if (!granted) {
+      _showSnack('Bluetooth permissions denied');
+      return;
+    }
+
+    // Disconnect current scanner first so the new one gets a clean start.
+    if (_scanner.isConnected) {
+      await _scanner.disconnect();
+    }
+
+    await _showDevicePicker();
+  }
+
+  Future<void> _showDevicePicker() async {
     List<BluetoothDevice> devices;
     try {
       devices = await _scanner.bondedDevices();
@@ -149,6 +215,9 @@ class _SessionScreenState extends State<SessionScreen> {
                 leading: const Icon(Icons.bluetooth),
                 title: Text(d.name ?? '(unnamed)'),
                 subtitle: Text(d.address),
+                trailing: d.address == _savedBtAddress
+                    ? const Icon(Icons.check, size: 18)
+                    : null,
                 onTap: () => Navigator.of(ctx).pop(d),
               ),
           ],
@@ -157,6 +226,7 @@ class _SessionScreenState extends State<SessionScreen> {
     );
     if (selected == null || !mounted) return;
 
+    await _saveBtDevice(selected);
     try {
       await _scanner.connect(selected);
     } catch (e) {
@@ -187,6 +257,7 @@ class _SessionScreenState extends State<SessionScreen> {
       });
       if (changed &&
           _autoOpenCamera &&
+          status.photoNeeded &&
           !_cameraOpen &&
           !_uploading &&
           !status.sessionEnded) {
@@ -461,10 +532,10 @@ class _SessionScreenState extends State<SessionScreen> {
       fg = theme.colorScheme.onSurface;
     } else {
       icon = Icons.bluetooth_disabled;
-      title = 'Bluetooth scanner';
+      title = _savedBtName ?? 'Bluetooth scanner';
       subtitle = _scanner.lastError != null
           ? 'Error: ${_scanner.lastError}'
-          : 'Not connected';
+          : (_savedBtAddress != null ? 'Tap Connect to reconnect' : 'Not connected');
       bg = theme.colorScheme.surfaceContainerHighest;
       fg = theme.colorScheme.onSurface.withValues(alpha: 0.7);
     }
@@ -499,11 +570,18 @@ class _SessionScreenState extends State<SessionScreen> {
                 onPressed: _disconnectScanner,
                 child: const Text('Disconnect'),
               )
-            else
-              TextButton(
-                onPressed: connecting ? null : _pickScanner,
-                child: const Text('Connect'),
-              ),
+            else ...[
+              if (!connecting)
+                TextButton(
+                  onPressed: _changeScanner,
+                  child: Text(_savedBtAddress != null ? 'Change' : 'Connect'),
+                ),
+              if (_savedBtAddress != null)
+                TextButton(
+                  onPressed: connecting ? null : _pickScanner,
+                  child: const Text('Connect'),
+                ),
+            ],
           ],
         ),
       ),

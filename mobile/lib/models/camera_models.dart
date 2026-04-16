@@ -2,12 +2,14 @@ class SessionStatus {
   final String sessionId;
   final String? activeContainerId;
   final String? activeItemId;
+  final bool photoNeeded;
   final bool sessionEnded;
 
   const SessionStatus({
     required this.sessionId,
     this.activeContainerId,
     this.activeItemId,
+    this.photoNeeded = true,
     required this.sessionEnded,
   });
 
@@ -16,6 +18,7 @@ class SessionStatus {
       sessionId: json['session_id'] as String,
       activeContainerId: json['active_container_id'] as String?,
       activeItemId: json['active_item_id'] as String?,
+      photoNeeded: json['photo_needed'] as bool? ?? true,
       sessionEnded: json['session_ended'] as bool,
     );
   }

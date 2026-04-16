@@ -2,11 +2,9 @@ use std::sync::Arc;
 
 use axum::extract::DefaultBodyLimit;
 use axum::http::{header, HeaderValue, Method};
-use tower_http::compression::CompressionLayer;
 use tower_http::cors::CorsLayer;
 use tower_http::request_id::{MakeRequestUuid, PropagateRequestIdLayer, SetRequestIdLayer};
 use tower_http::set_header::SetResponseHeaderLayer;
-use tower_http::timeout::TimeoutLayer;
 use tower_http::trace::TraceLayer;
 use tracing::Level;
 use tracing_subscriber::EnvFilter;
@@ -146,14 +144,13 @@ async fn main() {
         )
     });
 
+    // Compression + timeout live inside `api::build_router`, scoped to the
+    // JSON API. Applying them to ALL routes would gzip the 62MB APK (zero
+    // benefit, forces chunked transfer and kills browser download progress)
+    // and timeout large file downloads at the global 30s ceiling.
     let app = api::build_router(state, &config)
         .layer(DefaultBodyLimit::max(config.max_upload_bytes))
         .layer(PropagateRequestIdLayer::x_request_id())
-        .layer(CompressionLayer::new())
-        .layer(TimeoutLayer::with_status_code(
-            axum::http::StatusCode::GATEWAY_TIMEOUT,
-            std::time::Duration::from_secs(config.request_timeout_secs),
-        ))
         .layer(trace_layer)
         .layer(SetRequestIdLayer::x_request_id(MakeRequestUuid))
         // M-9: Security response headers

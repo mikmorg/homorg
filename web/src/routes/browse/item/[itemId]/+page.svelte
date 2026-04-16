@@ -77,6 +77,9 @@
 	let barcodeValue = $state('');
 	let assigningBarcode = $state(false);
 
+	// Enrichment rerun state (admin-only)
+	let rerunningEnrichment = $state(false);
+
 	// External code state
 	let showAddCode = $state(false);
 	let newCodeType = $state('');       // '' | standard value | '__custom__' sentinel
@@ -320,6 +323,20 @@
 		}
 	}
 
+	async function rerunEnrichment() {
+		if (rerunningEnrichment) return;
+		rerunningEnrichment = true;
+		try {
+			await api.enrichment.rerun(itemId);
+			toast('AI enrichment queued', 'success');
+		} catch (err) {
+			const msg = err instanceof Error ? err.message : 'Rerun failed';
+			toast(msg, 'error');
+		} finally {
+			rerunningEnrichment = false;
+		}
+	}
+
 	async function addExternalCode() {
 		addingCode = true;
 		actionError = '';
@@ -493,23 +510,38 @@
 					{/if}
 				</div>
 
-				<!-- AI review banner -->
-				{#if item.ai_suggestions && item.needs_review}
-					{#if $isAdmin}
-						<a
-							href="/admin/enrichment-review"
-							class="flex items-center justify-between rounded-lg border border-indigo-800 bg-indigo-950/40 px-3 py-2 text-sm text-indigo-200 hover:bg-indigo-950/60"
+				<!-- AI review banner + rerun action -->
+				{#if $isAdmin}
+					<div class="flex items-center gap-2">
+						{#if item.ai_suggestions && item.needs_review}
+							<a
+								href="/admin/enrichment-review"
+								class="flex-1 flex items-center justify-between rounded-lg border border-indigo-800 bg-indigo-950/40 px-3 py-2 text-sm text-indigo-200 hover:bg-indigo-950/60"
+							>
+								<span>AI proposed changes — review</span>
+								<svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+									<path d="M9 18l6-6-6-6" />
+								</svg>
+							</a>
+						{/if}
+						<button
+							class="btn btn-secondary text-xs whitespace-nowrap flex items-center gap-1 {item.ai_suggestions && item.needs_review ? '' : 'ml-auto'}"
+							onclick={rerunEnrichment}
+							disabled={rerunningEnrichment}
+							title="Request a new AI enrichment pass for this item"
 						>
-							<span>AI proposed changes — review</span>
-							<svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-								<path d="M9 18l6-6-6-6" />
+							<svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+								<path d="M23 4v6h-6" />
+								<path d="M1 20v-6h6" />
+								<path d="M3.51 9a9 9 0 0114.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0020.49 15" />
 							</svg>
-						</a>
-					{:else}
-						<p class="rounded-lg border border-slate-700 bg-slate-800/50 px-3 py-2 text-xs text-slate-400">
-							Pending admin review
-						</p>
-					{/if}
+							{rerunningEnrichment ? 'Requesting…' : 'Rerun AI'}
+						</button>
+					</div>
+				{:else if item.ai_suggestions && item.needs_review}
+					<p class="rounded-lg border border-slate-700 bg-slate-800/50 px-3 py-2 text-xs text-slate-400">
+						Pending admin review
+					</p>
 				{/if}
 
 				<!-- Images -->
@@ -701,6 +733,28 @@
 						<div class="flex flex-wrap gap-1">
 							{#each item.tags as tag}
 								<span class="badge">{tag}</span>
+							{/each}
+						</div>
+					</div>
+				{/if}
+
+				<!-- Metadata (read-only) -->
+				{#if item.metadata && Object.keys(item.metadata).length > 0}
+					<div>
+						<p class="mb-2 text-xs text-slate-400 uppercase tracking-wide">Metadata</p>
+						<div class="card divide-y divide-slate-800">
+							{#each Object.entries(item.metadata) as [key, value] (key)}
+								<div class="flex items-start gap-3 px-3 py-2">
+									<span class="text-xs text-slate-400 flex-shrink-0 min-w-24 font-mono pt-0.5">{key}</span>
+									{#if value === null || typeof value !== 'object'}
+										<span class="text-sm text-slate-100 break-words flex-1">{String(value)}</span>
+									{:else}
+										<details class="flex-1">
+											<summary class="text-xs text-indigo-400 cursor-pointer">show JSON</summary>
+											<pre class="text-xs text-slate-300 mt-1 overflow-x-auto">{JSON.stringify(value, null, 2)}</pre>
+										</details>
+									{/if}
+								</div>
 							{/each}
 						</div>
 					</div>

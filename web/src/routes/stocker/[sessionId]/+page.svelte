@@ -15,7 +15,8 @@
 		setContext,
 		addRecentItem,
 		markSynced,
-		setPendingCount
+		setPendingCount,
+		clearSession
 	} from '$stores/stocker.js';
 	import {
 		getRecentContainers,
@@ -33,12 +34,44 @@
 		message: string;
 		item?: Item;
 		itemId?: string;
+		itemName?: string;   // snapshot at event time — fallback when cache misses
+		parentId?: string;
+		parentName?: string; // snapshot at event time
 		imageUrl?: string;
 		timestamp: number;
 	}
 
 	let scanLog: ScanLogEntry[] = $state([]);
 	let logIdCounter: number = $state(0);
+	// itemId → current display name. Populated from history load, creation
+	// paths, and SSE ItemUpdated echoes so renames reflect live in the log.
+	let nameCache: Record<string, string> = $state({});
+
+	function cacheName(id: string | undefined | null, name: string | undefined | null) {
+		if (!id || !name) return;
+		if (nameCache[id] === name) return;
+		nameCache[id] = name;
+	}
+
+	/** Compose the display text for a log entry using the current nameCache. */
+	function entryText(e: ScanLogEntry): string {
+		if (!e.itemId) return e.message;
+		const name = nameCache[e.itemId] ?? e.itemName ?? '';
+		const parent = (e.parentId && nameCache[e.parentId]) ?? e.parentName;
+		if (!name) return e.message;
+		if (e.imageUrl) return `Photo added: ${name}`;
+		if (e.type === 'create') return parent ? `Created: ${name} → ${parent}` : `Created: ${name}`;
+		if (e.message.startsWith('Moved: ') || e.message.startsWith('Moved container: ')) {
+			const prefix = e.message.startsWith('Moved container: ') ? 'Moved container' : 'Moved';
+			return parent ? `${prefix}: ${name} → ${parent}` : `${prefix}: ${name}`;
+		}
+		if (e.message.startsWith('Queued: ')) {
+			return parent ? `Queued: ${name} → ${parent}` : `Queued: ${name}`;
+		}
+		if (e.message.startsWith('Updated: ')) return `Updated: ${name}`;
+		if (e.message.startsWith('Deleted: ')) return `Deleted: ${name}`;
+		return e.message;
+	}
 	let loading: boolean = $state(true);
 	let ending: boolean = $state(false);
 	let error: string = $state('');
@@ -321,7 +354,12 @@
 							scanned_at: new Date().toISOString()
 						});
 						setPendingCount(pendingBatch.length);
-						addLog(barcode, 'success', `Moved container: ${item.name ?? 'Unnamed'} → ${context.containerName}`);
+						addLog(barcode, 'success', `Moved container: ${item.name ?? 'Unnamed'} → ${context.containerName}`, undefined, {
+							itemId: item.id,
+							itemName: item.name ?? undefined,
+							parentId: context.containerId ?? undefined,
+							parentName: context.containerName ?? undefined
+						});
 						scanSuccess();
 					} else {
 						// Default: set as active context
@@ -340,7 +378,12 @@
 						scanned_at: new Date().toISOString()
 					});
 					setPendingCount(pendingBatch.length);
-					addLog(barcode, 'success', `Queued: ${item.name ?? 'Unnamed'} → ${context.containerName}`);
+					addLog(barcode, 'success', `Queued: ${item.name ?? 'Unnamed'} → ${context.containerName}`, undefined, {
+						itemId: item.id,
+						itemName: item.name ?? undefined,
+						parentId: context.containerId ?? undefined,
+						parentName: context.containerName ?? undefined
+					});
 					addRecentItem(item);
 					activeItemName = item.name ?? '';
 					scanSuccess();
@@ -375,12 +418,18 @@
 							name: barcode,
 							scanned_at: new Date().toISOString()
 						}] }, true);
+						markBatchEventsSeen(batchRes.results);
 						const created = batchRes.results.find(r => r.type === 'created') as ({ type: 'created'; item_id: string } | undefined);
 						if (created) {
 							const createdItem = await api.items.get(created.item_id);
 							addRecentItem(createdItem);
 							activeItemName = createdItem.name ?? barcode;
-							addLog(barcode, 'create', `Created: ${barcode} → ${context.containerName}`, undefined, { itemId: created.item_id });
+							addLog(barcode, 'create', `Created: ${barcode} → ${context.containerName}`, undefined, {
+								itemId: created.item_id,
+								itemName: createdItem.name ?? barcode,
+								parentId: context.containerId ?? undefined,
+								parentName: context.containerName ?? undefined
+							});
 							scanSuccess();
 						} else {
 							addLog(barcode, 'error', batchRes.errors?.[0]?.message ?? 'Create failed');
@@ -462,7 +511,20 @@
 		}
 	}
 
-	function addLog(barcode: string, type: ScanLogEntry['type'], message: string, item?: Item, extra?: { itemId?: string; imageUrl?: string; timestamp?: number }) {
+	/** Seed seenEventIds with the event_ids returned by a submitBatch call so
+	 *  the SSE echo of those same events does not double-log entries that we
+	 *  already appended locally via optimistic addLog. */
+	function markBatchEventsSeen(results: Array<{ type: string; event_id?: string }>) {
+		for (const r of results) {
+			if (r.event_id) seenEventIds.add(r.event_id);
+		}
+	}
+
+	function addLog(barcode: string, type: ScanLogEntry['type'], message: string, item?: Item, extra?: { itemId?: string; itemName?: string; parentId?: string; parentName?: string; imageUrl?: string; timestamp?: number }) {
+		const itemId = extra?.itemId ?? item?.id;
+		const itemName = extra?.itemName ?? item?.name ?? undefined;
+		cacheName(itemId, itemName);
+		cacheName(extra?.parentId, extra?.parentName);
 		scanLog = [
 			{
 				id: ++logIdCounter,
@@ -470,7 +532,10 @@
 				type,
 				message,
 				item,
-				itemId: extra?.itemId ?? item?.id,
+				itemId,
+				itemName,
+				parentId: extra?.parentId,
+				parentName: extra?.parentName,
 				imageUrl: extra?.imageUrl,
 				timestamp: extra?.timestamp ?? Date.now()
 			},
@@ -486,13 +551,25 @@
 			const sessionEvents = allRecent.filter(
 				e => e.metadata?.session_id === s.id
 			);
-			// Also fetch history for the active item (camera uploads may lack session_id)
-			let itemEvents: StoredEvent[] = [];
-			if (s.active_item_id) {
-				try {
-					itemEvents = await api.items.history(s.active_item_id, { limit: 20 });
-				} catch { /* ignore */ }
-			}
+
+			// Collect unique item ids touched in the session plus the active item,
+			// and fetch per-item history for each. This recovers events that lack
+			// session_id metadata (e.g. ItemImageAdded uploaded via the camera
+			// link) so photos don't disappear from the log after a reload.
+			const itemIds = new Set<string>();
+			for (const e of sessionEvents) itemIds.add(e.aggregate_id);
+			if (s.active_item_id) itemIds.add(s.active_item_id);
+
+			const itemEventLists = await Promise.all(
+				Array.from(itemIds).slice(0, 20).map(async (id) => {
+					try {
+						return await api.items.history(id, { limit: 5 });
+					} catch {
+						return [] as StoredEvent[];
+					}
+				})
+			);
+			const itemEvents: StoredEvent[] = itemEventLists.flat();
 
 			// Merge and deduplicate by event_id, newest first
 			const seen = new Set<string>();
@@ -506,52 +583,57 @@
 			}
 			merged.sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
 
-			// Resolve parent container names for "Created: X → Y" messages
+			// Resolve current names for every item touched (and every parent).
+			// Uses api.items.get so renames show up correctly — the `name` field
+			// embedded in historical event_data is a snapshot at event time.
 			const history = merged.slice(0, 50);
-			const parentIds = new Set<string>();
+			const namedIds = new Set<string>();
 			for (const e of history) {
+				namedIds.add(e.aggregate_id);
 				const data = e.event_data as Record<string, unknown>;
-				if (e.event_type === 'ItemCreated' && data?.parent_id) parentIds.add(data.parent_id as string);
-				if (e.event_type === 'ItemMoved' && data?.new_parent_id) parentIds.add(data.new_parent_id as string);
+				if (e.event_type === 'ItemCreated' && data?.parent_id) namedIds.add(data.parent_id as string);
+				if (e.event_type === 'ItemMoved' && data?.new_parent_id) namedIds.add(data.new_parent_id as string);
 			}
-			const parentNames: Record<string, string> = {};
-			await Promise.all([...parentIds].map(async (pid) => {
+			await Promise.all([...namedIds].map(async (id) => {
 				try {
-					const p = await api.items.get(pid);
-					parentNames[pid] = p.name ?? 'Unnamed';
-				} catch { /* ignore */ }
+					const it = await api.items.get(id);
+					cacheName(id, it.name ?? 'Unnamed');
+				} catch { /* ignore — item may be deleted */ }
 			}));
 
 			// Populate scan log (iterate oldest-first so newest ends on top)
 			for (const e of history.reverse()) {
 				const data = e.event_data as Record<string, unknown>;
-				const name = (data?.name as string) ?? (data?.item_name as string) ?? '';
+				const snapshotName = (data?.name as string) ?? (data?.item_name as string) ?? '';
 				let type: ScanLogEntry['type'] = 'success';
 				let message = '';
+				let parentId: string | undefined;
 
 				const imageUrl = (data?.path as string) ?? (data?.url as string) ?? (data?.image_url as string) ?? undefined;
 
 				switch (e.event_type) {
 					case 'ItemCreated': {
 						type = 'create';
-						const parentName = parentNames[data?.parent_id as string];
-						message = parentName ? `Created: ${name || 'item'} → ${parentName}` : `Created: ${name || 'item'}`;
+						parentId = (data?.parent_id as string) ?? undefined;
+						const parentName = parentId ? nameCache[parentId] : undefined;
+						message = parentName ? `Created: ${snapshotName || 'item'} → ${parentName}` : `Created: ${snapshotName || 'item'}`;
 						break;
 					}
 					case 'ItemMoved': {
-						const destName = parentNames[data?.new_parent_id as string];
-						message = destName ? `Moved: ${name || 'item'} → ${destName}` : `Moved: ${name || 'item'}`;
+						parentId = (data?.new_parent_id as string) ?? undefined;
+						const destName = parentId ? nameCache[parentId] : undefined;
+						message = destName ? `Moved: ${snapshotName || 'item'} → ${destName}` : `Moved: ${snapshotName || 'item'}`;
 						break;
 					}
 					case 'ItemImageAdded':
-						message = `Photo added${name ? ': ' + name : ''}`;
+						message = `Photo added${snapshotName ? ': ' + snapshotName : ''}`;
 						break;
 					case 'ItemUpdated':
-						message = `Updated: ${name || 'item'}`;
+						message = `Updated: ${snapshotName || 'item'}`;
 						break;
 					case 'ItemDeleted':
 						type = 'error';
-						message = `Deleted: ${name || 'item'}`;
+						message = `Deleted: ${snapshotName || 'item'}`;
 						break;
 					default:
 						message = e.event_type.replace(/([A-Z])/g, ' $1').trim();
@@ -562,7 +644,14 @@
 					type,
 					message,
 					undefined,
-					{ itemId: e.aggregate_id, imageUrl, timestamp: new Date(e.created_at).getTime() }
+					{
+						itemId: e.aggregate_id,
+						itemName: snapshotName || undefined,
+						parentId,
+						parentName: parentId ? nameCache[parentId] : undefined,
+						imageUrl,
+						timestamp: new Date(e.created_at).getTime()
+					}
 				);
 			}
 		} catch { /* ignore history load failure */ }
@@ -591,7 +680,7 @@
 					seenEventIds.add(evt.event_id);
 
 					const evtData = evt.event_data as Record<string, unknown>;
-					const name = (evtData?.name as string) ?? (evtData?.item_name as string) ?? '';
+					const snapshotName = (evtData?.name as string) ?? (evtData?.item_name as string) ?? '';
 					const imgUrl = (evtData?.path as string) ?? (evtData?.url as string) ?? (evtData?.image_url as string) ?? undefined;
 					let type: 'success' | 'context' | 'create' | 'error' = 'success';
 					let message = '';
@@ -600,15 +689,27 @@
 					let parentName = '';
 					const parentId = (evtData?.parent_id as string) ?? (evtData?.new_parent_id as string);
 					if (parentId && (evt.event_type === 'ItemCreated' || evt.event_type === 'ItemMoved')) {
-						try { parentName = (await api.items.get(parentId)).name ?? ''; } catch { /* ignore */ }
+						try {
+							parentName = (await api.items.get(parentId)).name ?? '';
+							cacheName(parentId, parentName);
+						} catch { /* ignore */ }
+					}
+
+					// Live rename: on ItemUpdated, fetch the current item so the cache
+					// reflects new names immediately across every log line for this id.
+					if (evt.event_type === 'ItemUpdated') {
+						try {
+							const it = await api.items.get(evt.aggregate_id);
+							cacheName(evt.aggregate_id, it.name ?? 'Unnamed');
+						} catch { /* ignore */ }
 					}
 
 					switch (evt.event_type) {
-						case 'ItemCreated': type = 'create'; message = parentName ? `Created: ${name || 'item'} → ${parentName}` : `Created: ${name || 'item'}`; break;
-						case 'ItemMoved': message = parentName ? `Moved: ${name || 'item'} → ${parentName}` : `Moved: ${name || 'item'}`; break;
-						case 'ItemImageAdded': message = `Photo added${name ? ': ' + name : ''}`; break;
-						case 'ItemUpdated': message = `Updated: ${name || 'item'}`; break;
-						case 'ItemDeleted': type = 'error'; message = `Deleted: ${name || 'item'}`; break;
+						case 'ItemCreated': type = 'create'; message = parentName ? `Created: ${snapshotName || 'item'} → ${parentName}` : `Created: ${snapshotName || 'item'}`; break;
+						case 'ItemMoved': message = parentName ? `Moved: ${snapshotName || 'item'} → ${parentName}` : `Moved: ${snapshotName || 'item'}`; break;
+						case 'ItemImageAdded': message = `Photo added${snapshotName ? ': ' + snapshotName : ''}`; break;
+						case 'ItemUpdated': message = `Updated: ${snapshotName || 'item'}`; break;
+						case 'ItemDeleted': type = 'error'; message = `Deleted: ${snapshotName || 'item'}`; break;
 						default: message = evt.event_type.replace(/([A-Z])/g, ' $1').trim();
 					}
 
@@ -617,7 +718,14 @@
 						type,
 						message,
 						undefined,
-						{ itemId: evt.aggregate_id, imageUrl: imgUrl, timestamp: new Date(evt.created_at).getTime() }
+						{
+							itemId: evt.aggregate_id,
+							itemName: snapshotName || undefined,
+							parentId: parentId ?? undefined,
+							parentName: parentName || undefined,
+							imageUrl: imgUrl,
+							timestamp: new Date(evt.created_at).getTime()
+						}
 					);
 				}
 			} catch { /* ignore parse errors */ }
@@ -652,7 +760,8 @@
 		setPendingCount(0);
 
 		try {
-			await api.stocker.submitBatch(sessionId, { events: batch }, false);
+			const flushed = await api.stocker.submitBatch(sessionId, { events: batch }, false);
+			markBatchEventsSeen(flushed.results);
 			markSynced();
 			// Refresh session stats so counters stay current
 			try {
@@ -701,12 +810,18 @@
 			}] },
 			true
 		);
+			markBatchEventsSeen(batchRes.results);
 			const created = batchRes.results.find(r => r.type === 'created') as ({ type: 'created'; item_id: string } | undefined);
 			if (created) {
 				const createdItem = await api.items.get(created.item_id);
 				addRecentItem(createdItem);
 				activeItemName = createdItem.name ?? qcName;
-				addLog(qcBarcode || '—', 'create', `Created: ${qcName} → ${context.containerName}`, undefined, { itemId: created.item_id });
+				addLog(qcBarcode || '—', 'create', `Created: ${qcName} → ${context.containerName}`, undefined, {
+					itemId: created.item_id,
+					itemName: createdItem.name ?? qcName,
+					parentId: context.containerId ?? undefined,
+					parentName: context.containerName ?? undefined
+				});
 				scanSuccess();
 				showQuickCreate = false;
 				qcName = '';
@@ -830,6 +945,9 @@
 		await flushBatch();
 		try {
 			await api.stocker.endSession(sessionId);
+			// Wipe store so the next session doesn't inherit stale context /
+			// activeItemId / recentItems from this one.
+			clearSession();
 			goto('/stocker');
 		} catch (err) {
 			error = err instanceof Error ? err.message : 'Failed to end session';
@@ -877,6 +995,7 @@
 					scanned_at: new Date().toISOString()
 				}
 			] }, true);
+			markBatchEventsSeen(batchRes.results);
 
 			const created = batchRes.results.find(r => r.type === 'created') as ({ type: 'created'; item_id: string } | undefined);
 			if (created) {
@@ -885,7 +1004,12 @@
 				setContext({ containerId: newContainer.id, containerName: newContainer.name ?? placeContainerBarcode });
 				pendingBatch.push({ type: 'set_context', container_id: newContainer.id, scanned_at: new Date().toISOString() });
 				setPendingCount(pendingBatch.length);
-				addLog(placeContainerBarcode, 'context', `Created & context → ${newContainer.name ?? placeContainerBarcode} in ${parentName}`);
+				addLog(placeContainerBarcode, 'context', `Created & context → ${newContainer.name ?? placeContainerBarcode} in ${parentName}`, undefined, {
+					itemId: newContainer.id,
+					itemName: newContainer.name ?? placeContainerBarcode,
+					parentId,
+					parentName
+				});
 				contextSet();
 				showPlaceContainer = false;
 			} else {
@@ -1076,10 +1200,10 @@
 					{/if}
 					{#if entry.itemId}
 						<a href="/browse/item/{entry.itemId}" class="flex-1 truncate hover:text-emerald-400 transition-colors">
-							{entry.message}
+							{entryText(entry)}
 						</a>
 					{:else}
-						<span class="flex-1 truncate">{entry.message}</span>
+						<span class="flex-1 truncate">{entryText(entry)}</span>
 					{/if}
 				</div>
 			{/each}
