@@ -176,6 +176,10 @@ class _ScanScreenState extends State<ScanScreen> {
       // Auto-navigate for system barcodes
       if (resolution is SystemBarcode) {
         _navigateToItem(resolution.itemId);
+      } else if (resolution is UnknownSystem) {
+        _showSnack('Unassigned system barcode: ${resolution.barcode}');
+      } else if (resolution is Unknown) {
+        _showSnack('Unknown code: ${resolution.value}');
       }
     } on ApiError catch (e) {
       if (!mounted) return;

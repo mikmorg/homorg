@@ -412,6 +412,7 @@ class _DirectStockerScreenState extends State<DirectStockerScreen> {
 
       case Unknown(:final value):
         _addLog(Icons.help_outline, 'Unknown code: $value');
+        _snack('Unknown code: $value');
     }
   }
 
