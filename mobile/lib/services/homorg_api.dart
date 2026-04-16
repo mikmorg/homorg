@@ -94,8 +94,9 @@ class HomorgApi {
     }
   }
 
-  /// Build a full image URL from a relative image path (e.g. "images/abc.jpg").
-  String imageUrl(String relativePath) => '$_baseUrl/files/$relativePath';
+  /// Build a full image URL from the stored path (e.g. "/files/uuid/img.jpg").
+  /// The backend stores the complete URL path including the /files/ prefix.
+  String imageUrl(String path) => '$_baseUrl$path';
 
   // ── Stocker session management ──────────────────────────────────────
 

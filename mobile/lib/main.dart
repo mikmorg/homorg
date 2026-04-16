@@ -1,11 +1,24 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 
 import 'services/auth_service.dart';
 import 'screens/login_screen.dart';
 import 'screens/home_screen.dart';
 
+/// Accept self-signed TLS certificates for LAN servers.
+/// This affects all dart:io HTTP clients including Image.network.
+class _DevHttpOverrides extends HttpOverrides {
+  @override
+  HttpClient createHttpClient(SecurityContext? context) {
+    return super.createHttpClient(context)
+      ..badCertificateCallback = (cert, host, port) => true;
+  }
+}
+
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
+  HttpOverrides.global = _DevHttpOverrides();
   runApp(const HomorgApp());
 }
 
