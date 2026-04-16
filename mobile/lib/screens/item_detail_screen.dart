@@ -317,10 +317,10 @@ class _ItemDetailScreenState extends State<ItemDetailScreen> {
     );
   }
 
-  void _copyLink() {
+  Future<void> _copyLink() async {
     final url = '${widget.api.webUrl}/browse/item/${widget.itemId}';
-    Clipboard.setData(ClipboardData(text: url));
-    _snack('Link copied');
+    await Clipboard.setData(ClipboardData(text: url));
+    if (mounted) _snack('Link copied');
   }
 
   void _snack(String msg) {
@@ -2021,7 +2021,7 @@ class _BarcodeSheetState extends State<_BarcodeSheet> {
   late String? _systemBarcode;
   late List<ExternalCodeEntry> _codes;
   final _barcodeCtrl = TextEditingController();
-  final _codeTypeCtrl = TextEditingController();
+  String? _selectedCodeType;
   final _codeValueCtrl = TextEditingController();
   bool _busy = false;
 
@@ -2035,7 +2035,6 @@ class _BarcodeSheetState extends State<_BarcodeSheet> {
   @override
   void dispose() {
     _barcodeCtrl.dispose();
-    _codeTypeCtrl.dispose();
     _codeValueCtrl.dispose();
     super.dispose();
   }
@@ -2104,9 +2103,9 @@ class _BarcodeSheetState extends State<_BarcodeSheet> {
   }
 
   Future<void> _addExternalCode() async {
-    final type = _codeTypeCtrl.text.trim();
+    final type = _selectedCodeType;
     final value = _codeValueCtrl.text.trim();
-    if (type.isEmpty || value.isEmpty) return;
+    if (type == null || type.isEmpty || value.isEmpty) return;
     setState(() => _busy = true);
     try {
       await widget.api.addExternalCode(widget.itemId, type, value);
@@ -2115,7 +2114,7 @@ class _BarcodeSheetState extends State<_BarcodeSheet> {
           _codes.add(ExternalCodeEntry(codeType: type, value: value));
           _busy = false;
         });
-        _codeTypeCtrl.clear();
+        _selectedCodeType = null;
         _codeValueCtrl.clear();
       }
     } on ApiError catch (e) {
@@ -2249,9 +2248,7 @@ class _BarcodeSheetState extends State<_BarcodeSheet> {
                   SizedBox(
                     width: 100,
                     child: DropdownButtonFormField<String>(
-                      value: _codeTypeCtrl.text.isEmpty
-                          ? null
-                          : _codeTypeCtrl.text,
+                      value: _selectedCodeType,
                       decoration: const InputDecoration(
                         hintText: 'Type',
                         isDense: true,
@@ -2265,12 +2262,9 @@ class _BarcodeSheetState extends State<_BarcodeSheet> {
                         DropdownMenuItem(value: 'ISBN', child: Text('ISBN')),
                         DropdownMenuItem(value: 'ASIN', child: Text('ASIN')),
                         DropdownMenuItem(value: 'SKU', child: Text('SKU')),
-                        DropdownMenuItem(
-                            value: 'MPN', child: Text('MPN')),
+                        DropdownMenuItem(value: 'MPN', child: Text('MPN')),
                       ],
-                      onChanged: (v) {
-                        if (v != null) _codeTypeCtrl.text = v;
-                      },
+                      onChanged: (v) => setState(() => _selectedCodeType = v),
                     ),
                   ),
                   const SizedBox(width: 8),
