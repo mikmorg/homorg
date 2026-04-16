@@ -9,6 +9,7 @@ import '../models/item.dart';
 import '../models/session.dart';
 import '../services/homorg_api.dart';
 import '../services/bluetooth_scanner_service.dart';
+import 'item_detail_screen.dart';
 
 enum _InputMode { camera, bluetooth }
 
@@ -243,7 +244,8 @@ class _DirectStockerScreenState extends State<DirectStockerScreen> {
         _activeContainerId = containerId;
         _activeContainerName = containerName;
       });
-      _addLog(Icons.folder_open, 'Context set to $containerName');
+      _addLog(Icons.folder_open, 'Context set to $containerName',
+          itemId: containerId);
     } on ApiError catch (e) {
       if (mounted) _snack('Failed to set context: ${e.message}');
     }
@@ -310,7 +312,8 @@ class _DirectStockerScreenState extends State<DirectStockerScreen> {
             );
             if (!mounted) return;
             _addLog(Icons.move_to_inbox,
-                'Moved "${item.displayName}" → $_activeContainerName');
+                'Moved "${item.displayName}" → $_activeContainerName',
+                itemId: itemId);
             _refreshSession();
           }
         } on ApiError catch (e) {
@@ -349,7 +352,8 @@ class _DirectStockerScreenState extends State<DirectStockerScreen> {
                 .firstOrNull
                 ?.itemId;
             final label = containerTypeName ?? 'Container';
-            _addLog(Icons.create_new_folder, 'Created $label "$barcode"');
+            _addLog(Icons.create_new_folder, 'Created $label "$barcode"',
+                itemId: newId);
             if (newId != null) {
               _setContext(newId, barcode);
             }
@@ -372,8 +376,14 @@ class _DirectStockerScreenState extends State<DirectStockerScreen> {
                 'Error: ${resp.errors.first.message}',
                 isError: true);
           } else {
+            final createdId = resp.results
+                .whereType<BatchResult>()
+                .where((r) => r.itemId != null)
+                .firstOrNull
+                ?.itemId;
             _addLog(Icons.add_circle_outline,
-                'Created item "$barcode" in $_activeContainerName');
+                'Created item "$barcode" in $_activeContainerName',
+                itemId: createdId);
             _refreshSession();
           }
         }
@@ -394,8 +404,14 @@ class _DirectStockerScreenState extends State<DirectStockerScreen> {
               'Error: ${resp.errors.first.message}',
               isError: true);
         } else {
+          final createdId = resp.results
+              .whereType<BatchResult>()
+              .where((r) => r.itemId != null)
+              .firstOrNull
+              ?.itemId;
           _addLog(Icons.add_circle_outline,
-              'Created item "$barcode" in $_activeContainerName');
+              'Created item "$barcode" in $_activeContainerName',
+              itemId: createdId);
           _refreshSession();
         }
 
@@ -461,13 +477,15 @@ class _DirectStockerScreenState extends State<DirectStockerScreen> {
     }
   }
 
-  void _addLog(IconData icon, String message, {bool isError = false}) {
+  void _addLog(IconData icon, String message,
+      {bool isError = false, String? itemId}) {
     setState(() {
       _log.insert(0, _LogEntry(
         icon: icon,
         message: message,
         isError: isError,
         time: DateTime.now(),
+        itemId: itemId,
       ));
       if (_log.length > 50) _log.removeLast();
     });
@@ -808,7 +826,8 @@ class _DirectStockerScreenState extends State<DirectStockerScreen> {
         '${entry.time.hour.toString().padLeft(2, '0')}:'
         '${entry.time.minute.toString().padLeft(2, '0')}:'
         '${entry.time.second.toString().padLeft(2, '0')}';
-    return Padding(
+    final tappable = entry.itemId != null;
+    final row = Padding(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 2),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -829,9 +848,15 @@ class _DirectStockerScreenState extends State<DirectStockerScreen> {
                 color: entry.isError
                     ? theme.colorScheme.error
                     : theme.colorScheme.onSurface.withValues(alpha: 0.8),
+                decoration:
+                    tappable ? TextDecoration.underline : TextDecoration.none,
               ),
             ),
           ),
+          if (tappable)
+            Icon(Icons.open_in_new, size: 12,
+                color: theme.colorScheme.onSurface.withValues(alpha: 0.3)),
+          const SizedBox(width: 4),
           Text(timeStr,
               style: TextStyle(
                 fontSize: 10,
@@ -839,6 +864,18 @@ class _DirectStockerScreenState extends State<DirectStockerScreen> {
               )),
         ],
       ),
+    );
+    if (!tappable) return row;
+    return GestureDetector(
+      onTap: () => Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (_) => ItemDetailScreen(
+            api: widget.api,
+            itemId: entry.itemId!,
+          ),
+        ),
+      ),
+      child: row,
     );
   }
 }
@@ -980,11 +1017,13 @@ class _LogEntry {
   final String message;
   final bool isError;
   final DateTime time;
+  final String? itemId;
 
   const _LogEntry({
     required this.icon,
     required this.message,
     this.isError = false,
     required this.time,
+    this.itemId,
   });
 }
