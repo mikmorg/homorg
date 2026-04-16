@@ -4,9 +4,9 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
-import 'package:homorg_camera/models/camera_models.dart';
-import 'package:homorg_camera/screens/session_screen.dart';
-import 'package:homorg_camera/services/api_service.dart';
+import 'package:homorg/models/camera_models.dart';
+import 'package:homorg/screens/session_screen.dart';
+import 'package:homorg/services/api_service.dart';
 
 final _token = 'e' * 64;
 final _connection = CameraConnection(baseUrl: 'http://localhost:8080', token: _token);

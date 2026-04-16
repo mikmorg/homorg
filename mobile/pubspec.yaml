@@ -1,5 +1,5 @@
-name: homorg_camera
-description: Remote camera companion for Homorg stocker sessions.
+name: homorg
+description: Mobile companion for Homorg home inventory.
 publish_to: 'none'
 version: 1.0.0+1
 

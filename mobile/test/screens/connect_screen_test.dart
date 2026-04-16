@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:homorg_camera/screens/connect_screen.dart';
+import 'package:homorg/screens/connect_screen.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-Widget _app() => const MaterialApp(home: ConnectScreen());
+Widget _app() => const MaterialApp(home: Scaffold(body: ConnectScreen()));
 
 /// Find the Connect button — it's a FilledButton.icon, so we match via ancestor.
 Finder _connectButton() => find.ancestor(
@@ -29,8 +29,8 @@ void main() {
     testWidgets('renders title and subtitle', (tester) async {
       await tester.pumpWidget(_app());
       await tester.pumpAndSettle();
-      expect(find.text('Homorg Camera'), findsOneWidget);
-      expect(find.text('Attach photos to stocker sessions'), findsOneWidget);
+      expect(find.text('Stocker'), findsOneWidget);
+      expect(find.text('Connect to a stocker session'), findsOneWidget);
     });
 
     testWidgets('renders URL text field with label', (tester) async {

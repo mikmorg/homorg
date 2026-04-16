@@ -87,29 +87,28 @@ class _ConnectScreenState extends State<ConnectScreen> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
 
-    return Scaffold(
-      body: SafeArea(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
+    return SafeArea(
+      child: SingleChildScrollView(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
               const SizedBox(height: 32),
               Icon(
-                Icons.camera_alt_rounded,
+                Icons.inventory_rounded,
                 size: 56,
                 color: theme.colorScheme.primary,
               ),
               const SizedBox(height: 12),
               Text(
-                'Homorg Camera',
+                'Stocker',
                 textAlign: TextAlign.center,
                 style: theme.textTheme.headlineMedium
                     ?.copyWith(fontWeight: FontWeight.bold),
               ),
               const SizedBox(height: 4),
               Text(
-                'Attach photos to stocker sessions',
+                'Connect to a stocker session',
                 textAlign: TextAlign.center,
                 style: theme.textTheme.bodyMedium?.copyWith(
                   color: theme.colorScheme.onSurface.withValues(alpha: 0.6),
@@ -185,7 +184,6 @@ class _ConnectScreenState extends State<ConnectScreen> {
             ],
           ),
         ),
-      ),
-    );
+      );
   }
 }

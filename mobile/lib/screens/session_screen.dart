@@ -27,7 +27,8 @@ class SessionScreen extends StatefulWidget {
   State<SessionScreen> createState() => _SessionScreenState();
 }
 
-class _SessionScreenState extends State<SessionScreen> {
+class _SessionScreenState extends State<SessionScreen>
+    with WidgetsBindingObserver {
   late final ApiService _api;
   SessionStatus? _status;
   bool _loadingStatus = true;
@@ -57,6 +58,7 @@ class _SessionScreenState extends State<SessionScreen> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     _api = widget.apiServiceFactory != null
         ? widget.apiServiceFactory!(widget.connection)
         : ApiService(widget.connection);
@@ -72,6 +74,27 @@ class _SessionScreenState extends State<SessionScreen> {
       const Duration(seconds: 2),
       (_) => _fetchStatus(),
     );
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    switch (state) {
+      case AppLifecycleState.paused:
+      case AppLifecycleState.inactive:
+      case AppLifecycleState.hidden:
+        _pollTimer?.cancel();
+        _pollTimer = null;
+      case AppLifecycleState.resumed:
+        if (_pollTimer == null) {
+          _fetchStatus();
+          _pollTimer = Timer.periodic(
+            const Duration(seconds: 2),
+            (_) => _fetchStatus(),
+          );
+        }
+      case AppLifecycleState.detached:
+        break;
+    }
   }
 
   Future<void> _loadAutoOpenPref() async {
@@ -112,6 +135,7 @@ class _SessionScreenState extends State<SessionScreen> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _pollTimer?.cancel();
     _scanSub?.cancel();
     _scanStateSub?.cancel();

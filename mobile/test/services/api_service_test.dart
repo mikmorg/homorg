@@ -4,8 +4,8 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
-import 'package:homorg_camera/models/camera_models.dart';
-import 'package:homorg_camera/services/api_service.dart';
+import 'package:homorg/models/camera_models.dart';
+import 'package:homorg/services/api_service.dart';
 
 void main() {
   final token = 'a' * 64;

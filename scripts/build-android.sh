@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# build-android.sh — build the homorg_camera Android APK
+# build-android.sh — build the Homorg Android APK
 # Env vars are set inline; no ~/.zshrc changes required.
 # Usage: bash scripts/build-android.sh [--release|--debug]
 set -euo pipefail
@@ -32,12 +32,12 @@ if [[ -f "$APK_PATH" ]]; then
     ls -lh "$APK_PATH"
 
     # Publish the release APK to the backend's downloads dir so the web UI can
-    # serve it at /downloads/homorg-camera.apk.
+    # serve it at /downloads/homorg.apk.
     if [[ "$MODE" == "--release" ]]; then
         DOWNLOADS_DIR="$REPO_DIR/downloads"
         mkdir -p "$DOWNLOADS_DIR"
-        cp "$APK_PATH" "$DOWNLOADS_DIR/homorg-camera.apk"
-        echo "Published to $DOWNLOADS_DIR/homorg-camera.apk"
+        cp "$APK_PATH" "$DOWNLOADS_DIR/homorg.apk"
+        echo "Published to $DOWNLOADS_DIR/homorg.apk"
     fi
 else
     echo "Build finished — check build/app/outputs/ for APK"

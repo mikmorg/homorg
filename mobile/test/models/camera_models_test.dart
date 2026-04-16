@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:homorg_camera/models/camera_models.dart';
-import 'package:homorg_camera/services/api_service.dart' show ApiException;
+import 'package:homorg/models/camera_models.dart';
+import 'package:homorg/services/api_service.dart' show ApiException;
 
 void main() {
   group('CameraConnection.tryParse', () {
