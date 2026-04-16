@@ -2,17 +2,20 @@ class HistoryEvent {
   final int id;
   final String eventType;
   final String createdAt;
+  final Map<String, dynamic>? eventData;
 
   const HistoryEvent({
     required this.id,
     required this.eventType,
     required this.createdAt,
+    this.eventData,
   });
 
   factory HistoryEvent.fromJson(Map<String, dynamic> json) => HistoryEvent(
         id: json['id'] as int,
         eventType: json['event_type'] as String,
         createdAt: json['created_at'] as String,
+        eventData: json['event_data'] as Map<String, dynamic>?,
       );
 }
 

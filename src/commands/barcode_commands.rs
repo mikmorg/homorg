@@ -475,7 +475,7 @@ pub(crate) fn classify_commercial_code(code: &str) -> Option<&'static str> {
         13 => Some("EAN"),
         10 => Some("ISBN"), // ISBN-10 legacy format
         14 => Some("GTIN"),
-        8 => Some("EAN8"),
+        8 => Some("EAN-8"),
         _ => Some("BARCODE"),
     }
 }
@@ -518,7 +518,7 @@ mod tests {
 
     #[test]
     fn classify_ean8() {
-        assert_eq!(classify_commercial_code("01234567"), Some("EAN8"));
+        assert_eq!(classify_commercial_code("01234567"), Some("EAN-8"));
     }
 
     #[test]

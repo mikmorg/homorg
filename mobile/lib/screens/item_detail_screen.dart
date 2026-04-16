@@ -11,6 +11,12 @@ import 'camera_capture_screen.dart';
 
 const _conditions = ['new', 'like_new', 'good', 'fair', 'poor', 'broken'];
 
+const _kCodeTypes = [
+  'UPC', 'EAN', 'EAN-8', 'ISBN', 'ISSN', 'GTIN',
+  'Code 128', 'Code 39', 'QR', 'Data Matrix', 'PDF417', 'Aztec',
+  'ASIN', 'SKU', 'MPN', 'Other',
+];
+
 String _conditionLabel(String c) => c.replaceAll('_', ' ');
 
 String _formatDate(String iso) {
@@ -1160,27 +1166,50 @@ class _ItemDetailScreenState extends State<ItemDetailScreen> {
                   )),
             )
           else
-            ..._history!.map((e) => Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 6),
-                  child: Row(
-                    children: [
-                      Expanded(
-                        child: Text(
-                          _formatEventType(e.eventType),
-                          style: theme.textTheme.bodySmall,
-                        ),
-                      ),
-                      Text(
-                        _formatDateTime(e.createdAt),
-                        style: theme.textTheme.bodySmall?.copyWith(
-                          color: theme.colorScheme.onSurfaceVariant,
-                        ),
-                      ),
-                    ],
-                  ),
-                )),
+            ..._history!.map((e) => _buildHistoryRow(e, theme)),
         ],
       ],
+    );
+  }
+
+  Widget _buildHistoryRow(HistoryEvent e, ThemeData theme) {
+    final data = e.eventData;
+    final isQtyEvent = e.eventType == 'ItemQuantityAdjusted' && data != null;
+
+    final title = isQtyEvent
+        ? 'Quantity: ${data['old_qty']} \u2192 ${data['new_qty']}'
+        : _formatEventType(e.eventType);
+
+    final reason =
+        isQtyEvent ? (data['reason'] as String?) : null;
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 6),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(title, style: theme.textTheme.bodySmall),
+                if (reason != null && reason.isNotEmpty)
+                  Text(reason,
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: theme.colorScheme.onSurfaceVariant,
+                        fontStyle: FontStyle.italic,
+                      )),
+              ],
+            ),
+          ),
+          Text(
+            _formatDateTime(e.createdAt),
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -1504,10 +1533,11 @@ class _EditItemPageState extends State<_EditItemPage> {
     if (_isFungible != item.isFungible) {
       body['is_fungible'] = _isFungible;
     }
+    int? pendingQty;
     if (_isFungible) {
       final qty = int.tryParse(_quantityCtrl.text.trim());
-      if (qty != item.fungibleQuantity) {
-        body['fungible_quantity'] = qty;
+      if (qty != null && qty != item.fungibleQuantity) {
+        pendingQty = qty; // handled via adjustQuantity after save
       }
       final unit = _unitCtrl.text.trim();
       if (unit != (item.fungibleUnit ?? '')) {
@@ -1552,7 +1582,7 @@ class _EditItemPageState extends State<_EditItemPage> {
       body['weight_grams'] = newWeight;
     }
 
-    if (body.isEmpty) {
+    if (body.isEmpty && pendingQty == null) {
       Navigator.pop(context, false);
       return;
     }
@@ -1560,7 +1590,12 @@ class _EditItemPageState extends State<_EditItemPage> {
     setState(() => _saving = true);
 
     try {
-      await widget.api.updateItem(item.id, body);
+      if (body.isNotEmpty) {
+        await widget.api.updateItem(item.id, body);
+      }
+      if (pendingQty != null) {
+        await widget.api.adjustQuantity(item.id, pendingQty);
+      }
       if (!mounted) return;
       Navigator.pop(context, true);
     } on ApiError catch (e) {
@@ -2021,8 +2056,9 @@ class _BarcodeSheetState extends State<_BarcodeSheet> {
   late String? _systemBarcode;
   late List<ExternalCodeEntry> _codes;
   final _barcodeCtrl = TextEditingController();
-  String? _selectedCodeType;
+  String _selectedCodeType = _kCodeTypes.first;
   final _codeValueCtrl = TextEditingController();
+  final _otherCodeTypeCtrl = TextEditingController();
   bool _busy = false;
 
   @override
@@ -2036,6 +2072,7 @@ class _BarcodeSheetState extends State<_BarcodeSheet> {
   void dispose() {
     _barcodeCtrl.dispose();
     _codeValueCtrl.dispose();
+    _otherCodeTypeCtrl.dispose();
     super.dispose();
   }
 
@@ -2103,18 +2140,21 @@ class _BarcodeSheetState extends State<_BarcodeSheet> {
   }
 
   Future<void> _addExternalCode() async {
-    final type = _selectedCodeType;
+    final type = _selectedCodeType == 'Other'
+        ? _otherCodeTypeCtrl.text.trim()
+        : _selectedCodeType;
     final value = _codeValueCtrl.text.trim();
-    if (type == null || type.isEmpty || value.isEmpty) return;
+    if (type.isEmpty || value.isEmpty) return;
     setState(() => _busy = true);
     try {
       await widget.api.addExternalCode(widget.itemId, type, value);
       if (mounted) {
         setState(() {
           _codes.add(ExternalCodeEntry(codeType: type, value: value));
+          _selectedCodeType = _kCodeTypes.first;
           _busy = false;
         });
-        _selectedCodeType = null;
+        _otherCodeTypeCtrl.clear();
         _codeValueCtrl.clear();
       }
     } on ApiError catch (e) {
@@ -2246,28 +2286,39 @@ class _BarcodeSheetState extends State<_BarcodeSheet> {
               Row(
                 children: [
                   SizedBox(
-                    width: 100,
+                    width: 120,
                     child: DropdownButtonFormField<String>(
                       value: _selectedCodeType,
                       decoration: const InputDecoration(
-                        hintText: 'Type',
                         isDense: true,
                         border: OutlineInputBorder(),
                         contentPadding:
                             EdgeInsets.symmetric(horizontal: 8, vertical: 8),
                       ),
-                      items: const [
-                        DropdownMenuItem(value: 'UPC', child: Text('UPC')),
-                        DropdownMenuItem(value: 'EAN', child: Text('EAN')),
-                        DropdownMenuItem(value: 'ISBN', child: Text('ISBN')),
-                        DropdownMenuItem(value: 'ASIN', child: Text('ASIN')),
-                        DropdownMenuItem(value: 'SKU', child: Text('SKU')),
-                        DropdownMenuItem(value: 'MPN', child: Text('MPN')),
+                      items: [
+                        for (final t in _kCodeTypes)
+                          DropdownMenuItem(value: t, child: Text(t)),
                       ],
-                      onChanged: (v) => setState(() => _selectedCodeType = v),
+                      onChanged: (v) {
+                        if (v != null) setState(() => _selectedCodeType = v);
+                      },
                     ),
                   ),
                   const SizedBox(width: 8),
+                  if (_selectedCodeType == 'Other') ...[
+                    SizedBox(
+                      width: 80,
+                      child: TextField(
+                        controller: _otherCodeTypeCtrl,
+                        decoration: const InputDecoration(
+                          hintText: 'Type',
+                          isDense: true,
+                          border: OutlineInputBorder(),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                  ],
                   Expanded(
                     child: TextField(
                       controller: _codeValueCtrl,
