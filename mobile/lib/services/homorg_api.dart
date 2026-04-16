@@ -17,6 +17,9 @@ class HomorgApi {
 
   String get _baseUrl => _auth.serverUrl!;
 
+  /// Base URL for building web links (same origin as the API).
+  String get webUrl => _baseUrl;
+
   Map<String, String> get _headers => {
         'Authorization': 'Bearer ${_auth.accessToken}',
         'Content-Type': 'application/json',

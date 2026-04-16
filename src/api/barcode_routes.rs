@@ -156,7 +156,10 @@ async fn labels_pdf(
     Ok(Response::builder()
         .status(StatusCode::OK)
         .header(header::CONTENT_TYPE, "application/pdf")
-        .header(header::CONTENT_DISPOSITION, format!("attachment; filename=\"labels-{}.pdf\"", barcodes[0]))
+        .header(
+            header::CONTENT_DISPOSITION,
+            format!("attachment; filename=\"labels-{}.pdf\"", barcodes[0]),
+        )
         .body(Body::from(pdf))
         .unwrap())
 }

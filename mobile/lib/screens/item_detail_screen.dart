@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../models/item.dart';
 import '../services/homorg_api.dart';
@@ -316,6 +317,12 @@ class _ItemDetailScreenState extends State<ItemDetailScreen> {
     );
   }
 
+  void _copyLink() {
+    final url = '${widget.api.webUrl}/browse/item/${widget.itemId}';
+    Clipboard.setData(ClipboardData(text: url));
+    _snack('Link copied');
+  }
+
   void _snack(String msg) {
     ScaffoldMessenger.of(context)
       ..hideCurrentSnackBar()
@@ -428,6 +435,8 @@ class _ItemDetailScreenState extends State<ItemDetailScreen> {
                       _showMovePicker();
                     case 'barcodes':
                       _showBarcodeSheet();
+                    case 'copy_link':
+                      _copyLink();
                     case 'delete':
                       _deleteItem();
                   }
@@ -455,6 +464,14 @@ class _ItemDetailScreenState extends State<ItemDetailScreen> {
                       Icon(Icons.qr_code, size: 18),
                       SizedBox(width: 8),
                       Text('Barcodes'),
+                    ]),
+                  ),
+                  const PopupMenuItem(
+                    value: 'copy_link',
+                    child: Row(children: [
+                      Icon(Icons.link, size: 18),
+                      SizedBox(width: 8),
+                      Text('Copy link'),
                     ]),
                   ),
                   const PopupMenuDivider(),
@@ -2024,6 +2041,27 @@ class _BarcodeSheetState extends State<_BarcodeSheet> {
   }
 
   Future<void> _generateAndAssign() async {
+    if (_systemBarcode != null) {
+      final confirm = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+          title: const Text('Replace barcode?'),
+          content: Text(
+              'This will replace the existing barcode "$_systemBarcode" with a new one.'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(ctx, false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.pop(ctx, true),
+              child: const Text('Replace'),
+            ),
+          ],
+        ),
+      );
+      if (confirm != true || !mounted) return;
+    }
     setState(() => _busy = true);
     try {
       final barcode = await widget.api.generateBarcode();
@@ -2209,14 +2247,30 @@ class _BarcodeSheetState extends State<_BarcodeSheet> {
               Row(
                 children: [
                   SizedBox(
-                    width: 80,
-                    child: TextField(
-                      controller: _codeTypeCtrl,
+                    width: 100,
+                    child: DropdownButtonFormField<String>(
+                      value: _codeTypeCtrl.text.isEmpty
+                          ? null
+                          : _codeTypeCtrl.text,
                       decoration: const InputDecoration(
                         hintText: 'Type',
                         isDense: true,
                         border: OutlineInputBorder(),
+                        contentPadding:
+                            EdgeInsets.symmetric(horizontal: 8, vertical: 8),
                       ),
+                      items: const [
+                        DropdownMenuItem(value: 'UPC', child: Text('UPC')),
+                        DropdownMenuItem(value: 'EAN', child: Text('EAN')),
+                        DropdownMenuItem(value: 'ISBN', child: Text('ISBN')),
+                        DropdownMenuItem(value: 'ASIN', child: Text('ASIN')),
+                        DropdownMenuItem(value: 'SKU', child: Text('SKU')),
+                        DropdownMenuItem(
+                            value: 'MPN', child: Text('MPN')),
+                      ],
+                      onChanged: (v) {
+                        if (v != null) _codeTypeCtrl.text = v;
+                      },
                     ),
                   ),
                   const SizedBox(width: 8),

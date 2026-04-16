@@ -364,12 +364,12 @@
 				</svg>
 			</button>
 			<a
-				href="/downloads/homorg-camera.apk"
+				href="/downloads/homorg.apk"
 				class="flex w-full items-center justify-between px-4 py-3 hover:bg-slate-700 transition-colors"
 				download
 			>
 				<div class="flex flex-col">
-					<span class="text-sm font-medium text-slate-100">Install Android camera app</span>
+					<span class="text-sm font-medium text-slate-100">Install Android app</span>
 					<span class="text-xs text-slate-400">Download APK · enable "Install unknown apps" for your browser</span>
 				</div>
 				<svg class="h-4 w-4 text-slate-500" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
