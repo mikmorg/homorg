@@ -1,5 +1,7 @@
 import 'dart:async';
+import 'dart:io';
 
+import 'package:camera/camera.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_bluetooth_serial/flutter_bluetooth_serial.dart';
 import 'package:mobile_scanner/mobile_scanner.dart';
@@ -9,6 +11,7 @@ import '../models/item.dart';
 import '../models/session.dart';
 import '../services/homorg_api.dart';
 import '../services/bluetooth_scanner_service.dart';
+import 'camera_capture_screen.dart';
 import 'item_detail_screen.dart';
 
 enum _InputMode { camera, bluetooth }
@@ -532,6 +535,31 @@ class _DirectStockerScreenState extends State<DirectStockerScreen> {
     ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(msg)));
   }
 
+  Future<void> _takePhotoForItem(String itemId) async {
+    _stopCamera();
+    XFile? photo;
+    try {
+      photo = await Navigator.of(context).push<XFile>(
+        MaterialPageRoute(
+          builder: (_) => const CameraCaptureScreen(),
+          fullscreenDialog: true,
+        ),
+      );
+    } catch (_) {
+      if (mounted) _snack('Camera access denied');
+    }
+    if (mounted && _mode == _InputMode.camera) _startCamera();
+
+    if (photo == null || !mounted) return;
+    _snack('Uploading photo…');
+    try {
+      await widget.api.uploadImage(itemId, File(photo.path));
+      if (mounted) _snack('Photo uploaded');
+    } on ApiError catch (e) {
+      if (mounted) _snack('Upload failed: ${e.message}');
+    }
+  }
+
   // ── Build ─────────────────────────────────────────────────────────
 
   @override
@@ -853,6 +881,15 @@ class _DirectStockerScreenState extends State<DirectStockerScreen> {
               ),
             ),
           ),
+          if (tappable)
+            GestureDetector(
+              onTap: () => _takePhotoForItem(entry.itemId!),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 4),
+                child: Icon(Icons.camera_alt, size: 14,
+                    color: theme.colorScheme.primary.withValues(alpha: 0.7)),
+              ),
+            ),
           if (tappable)
             Icon(Icons.open_in_new, size: 12,
                 color: theme.colorScheme.onSurface.withValues(alpha: 0.3)),
