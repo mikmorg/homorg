@@ -15,15 +15,15 @@
 	const STOCK_PER_SHEET: Record<LabelStock, number> = { '30-up': 30, '80-up': 80 };
 
 	let labelPages = $state(1);
-	let labelStock: LabelStock = $state('30-up');
+	let labelStock: LabelStock = $state('80-up');
 	let generatingLabels = $state(false);
 
 	// Preset labels
 	let containerTypes: ContainerType[] = $state([]);
 	let presetItemPages = $state(1);
-	let presetItemStock: LabelStock = $state('30-up');
+	let presetItemStock: LabelStock = $state('80-up');
 	let presetContainerPages = $state(1);
-	let presetContainerStock: LabelStock = $state('30-up');
+	let presetContainerStock: LabelStock = $state('80-up');
 	let presetContainerTypeId = $state('');
 	let generatingPresetItem = $state(false);
 	let generatingPresetContainer = $state(false);
