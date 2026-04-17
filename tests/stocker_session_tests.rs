@@ -1,8 +1,9 @@
 mod common;
 
+use common::make_item_request;
 use homorg::constants::ROOT_ID;
-use homorg::events::store::EventMetadata;
-use homorg::models::item::{CreateItemRequest, MoveItemRequest};
+use homorg::models::event::EventMetadata;
+use homorg::models::item::MoveItemRequest;
 use uuid::Uuid;
 
 #[tokio::test]
@@ -19,12 +20,12 @@ async fn test_create_session() {
         .expect("Failed to create session");
 
     assert_eq!(session.id, session_id);
-    assert_eq!(session.userId, ctx.admin_id);
-    assert!(session.isActive);
-    assert_eq!(session.activeContainerId, None);
-    assert_eq!(session.itemsScanned, 0);
-    assert_eq!(session.itemsCreated, 0);
-    assert_eq!(session.itemsMoved, 0);
+    assert_eq!(session.user_id, ctx.admin_id);
+    assert_eq!(session.ended_at, None);
+    assert_eq!(session.active_container_id, None);
+    assert_eq!(session.items_scanned, 0);
+    assert_eq!(session.items_created, 0);
+    assert_eq!(session.items_moved, 0);
 }
 
 #[tokio::test]
@@ -49,7 +50,7 @@ async fn test_list_sessions() {
         .expect("Failed to list sessions");
     assert_eq!(sessions.len(), 1);
     assert_eq!(sessions[0].id, session_id);
-    assert!(sessions[0].isActive);
+    assert_eq!(sessions[0].ended_at, None);
 
     // End session
     state
@@ -65,7 +66,7 @@ async fn test_list_sessions() {
         .await
         .expect("Failed to list sessions");
     assert_eq!(sessions.len(), 1);
-    assert!(!sessions[0].isActive);
+    assert!(sessions[0].ended_at.is_some());
 }
 
 #[tokio::test]
@@ -145,10 +146,7 @@ async fn test_session_event_replay() {
         ..Default::default()
     };
 
-    let req = CreateItemRequest {
-        name: Some("Test Item".to_string()),
-        ..Default::default()
-    };
+    let req = make_item_request("TEST001", ROOT_ID, "Test Item", false);
 
     // Create item with session context in metadata
     state
@@ -165,7 +163,7 @@ async fn test_session_event_replay() {
         .expect("Failed to get events");
 
     assert!(!events.is_empty());
-    assert!(events.iter().any(|e| e.aggregate_id == item_id.to_string()));
+    assert!(events.iter().any(|e| e.aggregate_id == item_id));
 }
 
 #[tokio::test]
@@ -177,26 +175,15 @@ async fn test_create_and_place_in_session() {
     let container_id = Uuid::new_v4();
     let item_id = Uuid::new_v4();
 
-    // Create session with the personal container as initial
+    // Create session with root container as initial
     state
         .session_repository
-        .create(
-            session_id,
-            ctx.admin_id,
-            None,
-            None,
-            Some(ctx.personal_container_id),
-        )
+        .create(session_id, ctx.admin_id, None, None, Some(ROOT_ID))
         .await
         .expect("Failed to create session");
 
     // Create a sub-container
-    let container_req = CreateItemRequest {
-        name: Some("Box".to_string()),
-        is_container: Some(true),
-        parent_id: Some(ctx.personal_container_id),
-        ..Default::default()
-    };
+    let container_req = make_item_request("BOX001", ROOT_ID, "Box", true);
 
     state
         .item_commands
@@ -205,11 +192,7 @@ async fn test_create_and_place_in_session() {
         .expect("Failed to create container");
 
     // Create item inside the container
-    let item_req = CreateItemRequest {
-        name: Some("Widget".to_string()),
-        parent_id: Some(container_id),
-        ..Default::default()
-    };
+    let item_req = make_item_request("WIDGET001", container_id, "Widget", false);
 
     state
         .item_commands
@@ -240,13 +223,7 @@ async fn test_move_item_in_session() {
     // Create session
     state
         .session_repository
-        .create(
-            session_id,
-            ctx.admin_id,
-            None,
-            None,
-            Some(ctx.personal_container_id),
-        )
+        .create(session_id, ctx.admin_id, None, None, Some(ROOT_ID))
         .await
         .expect("Failed to create session");
 
@@ -255,12 +232,12 @@ async fn test_move_item_in_session() {
         (container_a_id, "Box A"),
         (container_b_id, "Box B"),
     ] {
-        let req = CreateItemRequest {
-            name: Some(name.to_string()),
-            is_container: Some(true),
-            parent_id: Some(ctx.personal_container_id),
-            ..Default::default()
+        let barcode = if id == container_a_id {
+            "BOXA001"
+        } else {
+            "BOXB001"
         };
+        let req = make_item_request(barcode, ROOT_ID, name, true);
         state
             .item_commands
             .create_item(id, &req, ctx.admin_id, &EventMetadata::default())
@@ -269,11 +246,7 @@ async fn test_move_item_in_session() {
     }
 
     // Create item in container A
-    let item_req = CreateItemRequest {
-        name: Some("Widget".to_string()),
-        parent_id: Some(container_a_id),
-        ..Default::default()
-    };
+    let item_req = make_item_request("WIDGET001", container_a_id, "Widget", false);
     state
         .item_commands
         .create_item(item_id, &item_req, ctx.admin_id, &EventMetadata::default())
@@ -282,7 +255,8 @@ async fn test_move_item_in_session() {
 
     // Move item to container B
     let move_req = MoveItemRequest {
-        destination_id: container_b_id,
+        container_id: container_b_id,
+        coordinate: None,
     };
     state
         .item_commands
