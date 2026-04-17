@@ -242,7 +242,7 @@ class HomorgApi {
     await _request(
       'POST',
       '/api/v1/items/$itemId/external-codes',
-      body: jsonEncode({'code_type': codeType, 'value': value}),
+      body: jsonEncode({'type': codeType, 'value': value}),
     );
   }
 
