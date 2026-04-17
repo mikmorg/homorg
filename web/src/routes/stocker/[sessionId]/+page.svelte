@@ -29,6 +29,7 @@
 	import PlaceContainerModal from './PlaceContainerModal.svelte';
 	import CameraLinkPanel from './CameraLinkPanel.svelte';
 	import ScanLog from './ScanLog.svelte';
+	import { eventTypeToMessage } from './eventTypeToMessage.js';
 
 	let sessionId = $derived(page.params.sessionId!);
 
@@ -57,38 +58,6 @@
 		if (!id || !name) return;
 		if (nameCache[id] === name) return;
 		nameCache[id] = name;
-	}
-
-	/** Map event_type to display message and log entry type. */
-	function eventTypeToMessage(
-		eventType: string,
-		snapshotName: string,
-		parentName: string | undefined
-	): { type: ScanLogEntry['type']; message: string } {
-		let type: ScanLogEntry['type'] = 'success';
-		let message = '';
-		switch (eventType) {
-			case 'ItemCreated':
-				type = 'create';
-				message = parentName ? `Created: ${snapshotName || 'item'} → ${parentName}` : `Created: ${snapshotName || 'item'}`;
-				break;
-			case 'ItemMoved':
-				message = parentName ? `Moved: ${snapshotName || 'item'} → ${parentName}` : `Moved: ${snapshotName || 'item'}`;
-				break;
-			case 'ItemImageAdded':
-				message = `Photo added${snapshotName ? ': ' + snapshotName : ''}`;
-				break;
-			case 'ItemUpdated':
-				message = `Updated: ${snapshotName || 'item'}`;
-				break;
-			case 'ItemDeleted':
-				type = 'error';
-				message = `Deleted: ${snapshotName || 'item'}`;
-				break;
-			default:
-				message = eventType.replace(/([A-Z])/g, ' $1').trim();
-		}
-		return { type, message };
 	}
 
 	/** Compose the display text for a log entry using the current nameCache. */
