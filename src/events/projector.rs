@@ -340,6 +340,13 @@ impl Projector {
                 if value.is_none() && !change.new.is_null() {
                     warn!(item_id = %id, raw = %change.new, "projector: container_type_id is non-null but could not be parsed as UUID, storing NULL");
                 }
+                // Enforce mutual exclusivity at projector level: delete any fungible_properties
+                // row before inserting into container_properties (handles case where
+                // container_type_id is set on a still-fungible item).
+                sqlx::query("DELETE FROM fungible_properties WHERE item_id = $1")
+                    .bind(id)
+                    .execute(&mut **tx)
+                    .await?;
                 sqlx::query(
                     "INSERT INTO container_properties (item_id, container_type_id) VALUES ($1, $2) \
                      ON CONFLICT (item_id) DO UPDATE SET container_type_id = EXCLUDED.container_type_id",

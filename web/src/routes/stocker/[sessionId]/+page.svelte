@@ -190,6 +190,7 @@
 	let placeParentSelected: ItemSummary | null = $state(null);
 	let placingContainer: boolean = $state(false);
 	let placeError: string = $state('');
+	let suggestedParent: ItemSummary | null = $state(null);
 
 	// Camera link
 	let showCameraLink: boolean = $state(false);
@@ -401,6 +402,18 @@
 					placeParentResults = [];
 					placeParentSelected = null;
 					placeError = '';
+					suggestedParent = null;
+					// If there's an active container, fetch its parent to suggest
+					if (context.containerId) {
+						try {
+							const activeItem = await api.items.get(context.containerId);
+							if (activeItem.parent_id) {
+								suggestedParent = await api.items.get(activeItem.parent_id);
+							}
+						} catch {
+							// Ignore errors fetching parent; suggest will just be null
+						}
+					}
 					showPlaceContainer = true;
 					newItemSound();
 					addLog(barcode, 'create', `New container: ${resolution.container_type_name ?? 'Container'}`);
@@ -1340,6 +1353,15 @@
 		<div class="space-y-3">
 			<div>
 				<label class="mb-1 block text-sm font-medium text-slate-300" for="place-parent-search">Parent container</label>
+				{#if suggestedParent && !placeParentSelected}
+					<button
+						class="mb-1 w-full rounded-lg bg-emerald-500/10 border border-emerald-500/30 px-3 py-2 text-left hover:bg-emerald-500/20 transition-colors"
+						onclick={() => { placeParentSelected = suggestedParent; placeParentQuery = '"'; }}
+					>
+						<p class="text-xs text-emerald-400 font-medium mb-0.5">Quick option:</p>
+						<p class="text-sm text-slate-100">{suggestedParent.name ?? 'Unnamed'} (parent of current)</p>
+					</button>
+				{/if}
 				{#if placeParentSelected}
 					<div class="flex items-center gap-2 rounded-lg bg-indigo-500/10 border border-indigo-500/30 px-3 py-2">
 						<span class="flex-1 text-sm text-slate-100">{placeParentSelected.name ?? 'Unnamed'}</span>

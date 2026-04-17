@@ -191,7 +191,10 @@ impl ContainerQueries {
                 .await?
                 .ok_or_else(|| AppError::NotFound(format!("Item {container_id} not found")))?;
 
-        resolve_ancestors(&self.pool, &path).await
+        let mut ancestors = resolve_ancestors(&self.pool, &path).await?;
+        // Remove the current item from the ancestors list (path includes the item itself).
+        ancestors.pop();
+        Ok(ancestors)
     }
 
     /// Get container statistics.
