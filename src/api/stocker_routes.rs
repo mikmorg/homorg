@@ -26,6 +26,7 @@ pub fn router() -> Router<Arc<AppState>> {
             get(get_session),
         )
         .route("/sessions/{id}/batch", post(submit_batch))
+        .route("/sessions/{id}/events", get(get_session_events))
         .route("/sessions/{id}/stream", get(session_event_stream))
         .route("/sessions/{id}/end", put(end_session))
         // Camera link management (JWT-authenticated)
@@ -122,6 +123,24 @@ async fn get_session(
 ) -> AppResult<Json<ScanSession>> {
     let session = state.session_repository.get_for_user(id, auth.user_id).await?;
     Ok(Json(session))
+}
+
+/// Get events for a session (for log replay on reconnect).
+async fn get_session_events(
+    State(state): State<Arc<AppState>>,
+    auth: AuthUser,
+    Path(session_id): Path<Uuid>,
+) -> AppResult<Json<Vec<crate::models::event::StoredEvent>>> {
+    // Verify session belongs to user
+    state
+        .session_repository
+        .get_for_user(session_id, auth.user_id)
+        .await?;
+    let events = state
+        .event_store
+        .get_events_by_session(&session_id.to_string())
+        .await?;
+    Ok(Json(events))
 }
 
 /// Submit a batch of scan events within a session.

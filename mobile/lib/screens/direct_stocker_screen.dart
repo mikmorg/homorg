@@ -68,6 +68,7 @@ class _DirectStockerScreenState extends State<DirectStockerScreen> {
     });
     _loadSavedBtDevice();
     _startCamera();
+    _loadSessionLog();
 
     // If session already has a context, fetch the container name
     if (_activeContainerId != null) {
@@ -234,6 +235,52 @@ class _DirectStockerScreenState extends State<DirectStockerScreen> {
     } catch (_) {
       // Non-critical — just show ID
     }
+  }
+
+  Future<void> _loadSessionLog() async {
+    try {
+      final events = await widget.api.getSessionEvents(_session.id);
+      if (!mounted || events.isEmpty) return;
+      final entries = <_LogEntry>[];
+      for (final e in events) {
+        final data = e.eventData;
+        final itemId = e.aggregateId;
+        final ts = DateTime.tryParse(e.createdAt) ?? DateTime.now();
+        switch (e.eventType) {
+          case 'ItemCreated':
+            final name = data?['name'] as String? ?? '';
+            entries.add(_LogEntry(
+              icon: Icons.add_circle_outline,
+              message: 'Created "$name"',
+              time: ts,
+              itemId: itemId,
+            ));
+          case 'ItemMoved':
+            entries.add(_LogEntry(
+              icon: Icons.move_to_inbox,
+              message: 'Moved item',
+              time: ts,
+              itemId: itemId,
+            ));
+          default:
+            entries.add(_LogEntry(
+              icon: Icons.event_note,
+              message: _formatEventType(e.eventType),
+              time: ts,
+              itemId: itemId,
+            ));
+        }
+      }
+      setState(() => _log.addAll(entries.reversed));
+    } catch (_) {
+      // Non-critical — log will populate as new scans happen
+    }
+  }
+
+  static String _formatEventType(String eventType) {
+    return eventType
+        .replaceAllMapped(RegExp(r'([A-Z])'), (m) => ' ${m[0]}')
+        .trim();
   }
 
   Future<void> _setContext(String containerId, String containerName) async {

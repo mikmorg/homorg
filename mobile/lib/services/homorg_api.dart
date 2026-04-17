@@ -120,6 +120,16 @@ class HomorgApi {
     );
   }
 
+  /// Get events for a session (for log replay).
+  Future<List<HistoryEvent>> getSessionEvents(String sessionId) async {
+    final response =
+        await _request('GET', '/api/v1/stocker/sessions/$sessionId/events');
+    final list = jsonDecode(response.body) as List<dynamic>;
+    return list
+        .map((e) => HistoryEvent.fromJson(e as Map<String, dynamic>))
+        .toList();
+  }
+
   /// Create a new stocker session.
   Future<ScanSession> createSession({
     String? notes,
