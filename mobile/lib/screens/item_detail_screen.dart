@@ -66,9 +66,6 @@ class _ItemDetailScreenState extends State<ItemDetailScreen> {
   List<HistoryEvent>? _history;
   bool _loadingHistory = false;
 
-  // Taxonomy (categories, tags, container types)
-  String? _taxonomyError;
-
   @override
   void initState() {
     super.initState();
