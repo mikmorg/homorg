@@ -189,9 +189,9 @@ class HomorgApi {
       body: jsonEncode(body),
     );
     final json = jsonDecode(response.body) as Map<String, dynamic>;
-    // Backend returns StoredEvent with event.data containing the item.
+    // Backend returns StoredEvent with aggregate_id (item UUID).
     // Re-fetch the item for a clean Item object.
-    final itemId = json['item_id'] as String? ?? json['data']?['id'] as String?;
+    final itemId = json['aggregate_id'] as String?;
     if (itemId != null) return getItem(itemId);
     throw const ApiError('Create succeeded but no item ID returned');
   }
