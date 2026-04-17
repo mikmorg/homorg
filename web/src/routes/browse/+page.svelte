@@ -83,7 +83,10 @@
 					api.items.get(id)
 				]);
 				if (id !== containerId) return;
-				breadcrumb = ancs.map((a) => ({ id: a.id, name: a.name ?? 'Container' }));
+				breadcrumb = [
+					...ancs.map((a) => ({ id: a.id, name: a.name ?? 'Container' })),
+					{ id: id, name: item?.name ?? 'Container' }
+				];
 				containerItem = item;
 			} else {
 				breadcrumb = [];

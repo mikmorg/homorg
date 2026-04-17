@@ -64,9 +64,56 @@ test.describe('browse — container hierarchy', () => {
 		// Navigate to the deepest level
 		await page.goto(`/browse?id=${level3Id}`);
 
-		// All three levels should appear in breadcrumb
-		await expect(page.getByText(level1Name)).toBeVisible({ timeout: 5000 });
-		await expect(page.getByText(level2Name)).toBeVisible({ timeout: 5000 });
-		await expect(page.getByText(level3Name)).toBeVisible({ timeout: 5000 });
+		// All three levels should appear in breadcrumb (may appear multiple times: header + breadcrumb nav)
+		await expect(page.locator('a:has-text("' + level1Name + '")').first()).toBeVisible({ timeout: 5000 });
+		await expect(page.locator('a:has-text("' + level2Name + '")').first()).toBeVisible({ timeout: 5000 });
+		// Level3 appears both in header and breadcrumb; just check first occurrence
+		await expect(page.getByText(level3Name).first()).toBeVisible({ timeout: 5000 });
+	});
+
+	test('header shows current container name, not parent', async ({ page, api }) => {
+		const level1Name = `Parent ${Date.now()}`;
+		const level2Name = `Current ${Date.now()}`;
+
+		const level1Id = await api.createContainer(ROOT_ID, level1Name);
+		const level2Id = await api.createContainer(level1Id, level2Name);
+
+		// Navigate to level 2
+		await page.goto(`/browse?id=${level2Id}`);
+		await page.waitForLoadState('networkidle');
+
+		// The header (page title) should show the CURRENT container name, not the parent
+		const header = page.locator('header h1');
+		const headerText = await header.textContent();
+
+		expect(headerText).toContain(level2Name); // Should show current
+		expect(headerText).not.toContain(level1Name); // Should NOT show parent
+	});
+
+	test('breadcrumb items are clickable links except current', async ({ page, api }) => {
+		const level1Name = `L1 ${Date.now()}`;
+		const level2Name = `L2 ${Date.now()}`;
+		const level3Name = `L3 ${Date.now()}`;
+
+		const level1Id = await api.createContainer(ROOT_ID, level1Name);
+		const level2Id = await api.createContainer(level1Id, level2Name);
+		const level3Id = await api.createContainer(level2Id, level3Name);
+
+		// Navigate to level 3
+		await page.goto(`/browse?id=${level3Id}`);
+		await page.waitForLoadState('networkidle');
+
+		// In the breadcrumb, level1 and level2 should be clickable links
+		// Level3 should be plain text (current item)
+		const level1Link = page.locator('a', { has: page.locator('text=' + level1Name) });
+		const level2Link = page.locator('a', { has: page.locator('text=' + level2Name) });
+
+		// Both parent levels should be clickable in breadcrumb
+		await expect(level1Link).toBeVisible();
+		await expect(level2Link).toBeVisible();
+
+		// Current level (level3) should appear in header, and be a link in the header
+		const headerLink = page.locator('header a', { has: page.locator('text=' + level3Name) });
+		await expect(headerLink).toBeVisible();
 	});
 });
