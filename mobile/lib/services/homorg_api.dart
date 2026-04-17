@@ -8,6 +8,9 @@ import '../models/session.dart';
 import 'api_service.dart';
 import 'auth_service.dart';
 
+// Re-export ApiError so callers only need to import HomorgApi
+export 'api_service.dart' show ApiError;
+
 /// JWT-authenticated API client for general Homorg endpoints.
 class HomorgApi {
   final AuthService _auth;
