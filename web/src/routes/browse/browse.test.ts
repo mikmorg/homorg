@@ -6,7 +6,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 function createMockApi() {
 	return {
 		containers: {
-			children: vi.fn(async () => []),
+			children: vi.fn(async (id: string, options?: any) => []),
 			ancestors: vi.fn(async (id: string) => {
 				// Simulate the backend behavior:
 				// ancestors() returns ancestors only (excludes current item)

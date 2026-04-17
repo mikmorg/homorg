@@ -83,10 +83,13 @@
 					api.items.get(id)
 				]);
 				if (id !== containerId) return;
-				breadcrumb = [
+				// Build breadcrumb: skip root (already shown hard-coded), include parents + current
+				// ancs excludes current item, so we append it to have full chain
+				const fullBreadcrumb = [
 					...ancs.map((a) => ({ id: a.id, name: a.name ?? 'Container' })),
 					{ id: id, name: item?.name ?? 'Container' }
 				];
+				breadcrumb = fullBreadcrumb.slice(1); // Skip root since it's hard-coded in display
 				containerItem = item;
 			} else {
 				breadcrumb = [];
@@ -341,14 +344,14 @@
 	</header>
 
 	<!-- Breadcrumb -->
-	{#if breadcrumb.length > 1}
+	{#if breadcrumb.length > 0}
 		<div class="flex items-center gap-1 overflow-x-auto border-b border-slate-800 px-4 py-2 text-xs text-slate-400">
 			<a href="/browse?id={ROOT_ID}" class="flex-shrink-0 hover:text-slate-200">Root</a>
-			{#each breadcrumb.slice(1) as crumb, i}
+			{#each breadcrumb as crumb, i}
 				<svg class="h-3 w-3 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
 					<path d="M9 18l6-6-6-6" />
 				</svg>
-				{#if i < breadcrumb.length - 2}
+				{#if i < breadcrumb.length - 1}
 					<a href="/browse?id={crumb.id}" class="flex-shrink-0 hover:text-slate-200 truncate max-w-24">{crumb.name}</a>
 				{:else}
 					<span class="flex-shrink-0 text-slate-200 truncate max-w-32">{crumb.name}</span>
