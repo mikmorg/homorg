@@ -173,8 +173,36 @@ async function request<T>(
 	return JSON.parse(text);
 }
 
-const get$ = <T>(path: string, params?: Record<string, unknown>) =>
-	request<T>('GET', path, { params });
+// Deduplication cache for concurrent GET requests: maps full URL → in-flight Promise
+const dedupCache = new Map<string, Promise<any>>();
+
+const get$ = <T>(path: string, params?: Record<string, unknown>) => {
+	// Build cache key from path and params (same logic as request())
+	const q = new URLSearchParams();
+	if (params) {
+		for (const [k, v] of Object.entries(params)) {
+			if (v !== undefined && v !== null) q.set(k, String(v));
+		}
+	}
+	const cacheKey = `${BASE}${path}${q.toString() ? `?${q.toString()}` : ''}`;
+
+	// If request is in-flight, return cached promise
+	if (dedupCache.has(cacheKey)) {
+		return dedupCache.get(cacheKey) as Promise<T>;
+	}
+
+	// Execute request and cache the promise
+	const promise = request<T>('GET', path, { params });
+	dedupCache.set(cacheKey, promise);
+
+	// Clean up cache entry after completion (success or failure)
+	promise
+		.then(() => dedupCache.delete(cacheKey))
+		.catch(() => dedupCache.delete(cacheKey));
+
+	return promise;
+};
+
 const post$ = <T>(path: string, body?: unknown) =>
 	request<T>('POST', path, { body: body !== undefined ? JSON.stringify(body) : undefined });
 const put$ = <T>(path: string, body?: unknown) =>
