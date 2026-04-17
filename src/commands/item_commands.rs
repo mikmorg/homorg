@@ -113,7 +113,7 @@ impl ItemCommands {
             .map(|codes| {
                 codes
                     .iter()
-                    .map(|c| serde_json::json!({"type": c.code_type, "value": c.value}))
+                    .map(|c| serde_json::json!({"type": c.code_type.to_uppercase(), "value": c.value}))
                     .collect()
             })
             .unwrap_or_default();

@@ -130,9 +130,18 @@ impl IntoResponse for AppError {
 
         match status {
             StatusCode::CONFLICT => {
-                response
-                    .headers_mut()
-                    .insert(header::RETRY_AFTER, HeaderValue::from_static("1"));
+                // Only emit Retry-After for transient conflicts (e.g., concurrency/collision).
+                // Permanent conflicts like "username already taken" should not suggest retry.
+                let is_retryable = if let AppError::Conflict(msg) = &self {
+                    msg.contains("retry") || msg.contains("collision") || msg.contains("already in progress")
+                } else {
+                    false
+                };
+                if is_retryable {
+                    response
+                        .headers_mut()
+                        .insert(header::RETRY_AFTER, HeaderValue::from_static("1"));
+                }
             }
             StatusCode::SERVICE_UNAVAILABLE => {
                 response

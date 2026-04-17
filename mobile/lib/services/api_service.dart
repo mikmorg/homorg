@@ -5,15 +5,18 @@ import 'package:http/http.dart' as http;
 
 import '../models/camera_models.dart';
 
-class ApiException implements Exception {
+class ApiError implements Exception {
   final String message;
   final int? statusCode;
 
-  const ApiException(this.message, {this.statusCode});
+  const ApiError(this.message, {this.statusCode});
 
   @override
   String toString() => message;
 }
+
+// Alias for backward compatibility with ApiService callers
+typedef ApiException = ApiError;
 
 class ApiService {
   final CameraConnection connection;

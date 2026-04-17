@@ -49,6 +49,31 @@ impl Projector {
         }
     }
 
+    /// Enqueue an enrichment task for manual-authored content (images, codes).
+    /// Skips if the actor is the AI enricher (discovered content).
+    async fn enqueue_enrichment_task(
+        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        item_id: Uuid,
+        trigger: crate::models::enrichment::EnrichmentTrigger,
+        actor_id: Uuid,
+    ) -> AppResult<()> {
+        if actor_id != crate::models::enrichment::AI_ENRICHER_USER_ID {
+            sqlx::query(
+                r#"
+                INSERT INTO enrichment_tasks (item_id, trigger_event, priority)
+                VALUES ($1, $2, $3)
+                ON CONFLICT (item_id) WHERE status IN ('pending', 'in_progress') DO NOTHING
+                "#,
+            )
+            .bind(item_id)
+            .bind(trigger.as_str())
+            .bind(trigger.default_priority())
+            .execute(&mut **tx)
+            .await?;
+        }
+        Ok(())
+    }
+
     async fn project_item_created(
         tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
         id: Uuid,
@@ -697,22 +722,13 @@ impl Projector {
         // from migration 0025 — if a task is already queued or running for
         // this item, this is a no-op. Actor-authored images from the
         // ai-enricher user don't re-enqueue (the daemon authored them).
-        if actor_id != crate::models::enrichment::AI_ENRICHER_USER_ID {
-            use crate::models::enrichment::EnrichmentTrigger;
-            let trigger = EnrichmentTrigger::ImageAdded;
-            sqlx::query(
-                r#"
-                INSERT INTO enrichment_tasks (item_id, trigger_event, priority)
-                VALUES ($1, $2, $3)
-                ON CONFLICT (item_id) WHERE status IN ('pending', 'in_progress') DO NOTHING
-                "#,
-            )
-            .bind(id)
-            .bind(trigger.as_str())
-            .bind(trigger.default_priority())
-            .execute(&mut **tx)
-            .await?;
-        }
+        Self::enqueue_enrichment_task(
+            tx,
+            id,
+            crate::models::enrichment::EnrichmentTrigger::ImageAdded,
+            actor_id,
+        )
+        .await?;
 
         Ok(())
     }
@@ -783,22 +799,13 @@ impl Projector {
         // Enqueue enrichment — ISBN/UPC lookups are fast+authoritative, so
         // priority beats image-only tasks. Skip if the daemon itself authored
         // the code (discovered_codes workflow in Phase 2).
-        if actor_id != crate::models::enrichment::AI_ENRICHER_USER_ID {
-            use crate::models::enrichment::EnrichmentTrigger;
-            let trigger = EnrichmentTrigger::ExternalCodeAdded;
-            sqlx::query(
-                r#"
-                INSERT INTO enrichment_tasks (item_id, trigger_event, priority)
-                VALUES ($1, $2, $3)
-                ON CONFLICT (item_id) WHERE status IN ('pending', 'in_progress') DO NOTHING
-                "#,
-            )
-            .bind(id)
-            .bind(trigger.as_str())
-            .bind(trigger.default_priority())
-            .execute(&mut **tx)
-            .await?;
-        }
+        Self::enqueue_enrichment_task(
+            tx,
+            id,
+            crate::models::enrichment::EnrichmentTrigger::ExternalCodeAdded,
+            actor_id,
+        )
+        .await?;
 
         Ok(())
     }

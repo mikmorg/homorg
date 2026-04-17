@@ -5,6 +5,7 @@ import 'package:http/http.dart' as http;
 
 import '../models/item.dart';
 import '../models/session.dart';
+import 'api_service.dart';
 import 'auth_service.dart';
 
 /// JWT-authenticated API client for general Homorg endpoints.
@@ -62,38 +63,12 @@ class HomorgApi {
   Future<void> uploadImage(String itemId, File imageFile) async {
     final uri = Uri.parse('$_baseUrl/api/v1/items/$itemId/images');
     final request = http.MultipartRequest('POST', uri);
-    request.headers['Authorization'] = 'Bearer ${_auth.accessToken}';
     request.files.add(await http.MultipartFile.fromPath('file', imageFile.path));
 
-    late http.StreamedResponse streamed;
-    try {
-      streamed =
-          await _client.send(request).timeout(const Duration(seconds: 30));
-    } on SocketException {
-      throw const ApiError('Cannot reach server');
-    } catch (_) {
-      throw const ApiError('Upload failed');
-    }
+    final response = await _sendMultipartWithRetry(request);
 
-    if (streamed.statusCode == 401) {
-      final refreshed = await _auth.refresh();
-      if (!refreshed) throw const ApiError('Session expired — please log in again');
-
-      // Retry with new token
-      final retry = http.MultipartRequest('POST', uri);
-      retry.headers['Authorization'] = 'Bearer ${_auth.accessToken}';
-      retry.files
-          .add(await http.MultipartFile.fromPath('file', imageFile.path));
-      final retryResp =
-          await _client.send(retry).timeout(const Duration(seconds: 30));
-      if (retryResp.statusCode != 200 && retryResp.statusCode != 201) {
-        throw ApiError('Upload failed (${retryResp.statusCode})');
-      }
-      return;
-    }
-
-    if (streamed.statusCode != 200 && streamed.statusCode != 201) {
-      throw ApiError('Upload failed (${streamed.statusCode})');
+    if (response.statusCode != 200 && response.statusCode != 201) {
+      throw ApiError('Upload failed (${response.statusCode})');
     }
   }
 
@@ -421,12 +396,37 @@ class HomorgApi {
       throw const ApiError('Connection failed');
     }
   }
-}
 
-class ApiError implements Exception {
-  final String message;
-  const ApiError(this.message);
+  /// Send a multipart request with automatic 401 retry via token refresh.
+  Future<http.StreamedResponse> _sendMultipartWithRetry(
+      http.MultipartRequest request) async {
+    request.headers['Authorization'] = 'Bearer ${_auth.accessToken}';
+    late http.StreamedResponse response;
+    try {
+      response =
+          await _client.send(request).timeout(const Duration(seconds: 30));
+    } on SocketException {
+      throw const ApiError('Cannot reach server');
+    } on Exception {
+      throw const ApiError('Request failed');
+    }
 
-  @override
-  String toString() => message;
+    if (response.statusCode == 401) {
+      final refreshed = await _auth.refresh();
+      if (!refreshed) throw const ApiError('Session expired — please log in again');
+
+      // Retry with new token
+      final retryRequest = http.MultipartRequest(request.method, request.url);
+      retryRequest.headers['Authorization'] = 'Bearer ${_auth.accessToken}';
+      retryRequest.files.addAll(request.files);
+      try {
+        response = await _client.send(retryRequest).timeout(
+            const Duration(seconds: 30));
+      } on Exception {
+        throw const ApiError('Upload failed on retry');
+      }
+    }
+
+    return response;
+  }
 }

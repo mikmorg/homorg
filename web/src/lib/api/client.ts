@@ -69,6 +69,28 @@ async function refreshAndRetry(): Promise<string> {
 	}
 }
 
+/** Helper: retry a failed 401 response with a refreshed token. */
+async function _retryWith401Handler<T>(
+	resp: Response,
+	url: string,
+	fetchFn: (headers: Headers) => Promise<Response>,
+	processResponse: (resp: Response) => Promise<T>,
+	auth: any,
+	retry: boolean
+): Promise<T | null> {
+	if (resp.status === 401 && retry && auth?.refresh_token) {
+		const newToken = await refreshAndRetry();
+		const headers = new Headers({ 'Authorization': `Bearer ${newToken}` });
+		const retry$ = await fetchFn(headers);
+		if (!retry$.ok) {
+			const err = await retry$.json().catch(() => ({ message: retry$.statusText }));
+			throw new ApiClientError({ status: retry$.status, message: err.message ?? retry$.statusText });
+		}
+		return processResponse(retry$);
+	}
+	return null;
+}
+
 async function request<T>(
 	method: string,
 	path: string,
@@ -179,20 +201,16 @@ async function requestBlob(
 		body: body !== undefined ? JSON.stringify(body) : undefined
 	});
 
-	if (resp.status === 401 && retry && auth?.refresh_token) {
-		const newToken = await refreshAndRetry();
-		headers.set('Authorization', `Bearer ${newToken}`);
-		const retry$ = await fetch(url, {
-			method,
-			headers,
-			body: body !== undefined ? JSON.stringify(body) : undefined
-		});
-		if (!retry$.ok) {
-			const err = await retry$.json().catch(() => ({ message: retry$.statusText }));
-			throw new ApiClientError({ status: retry$.status, message: err.message ?? retry$.statusText });
-		}
-		return retry$.blob();
-	}
+	// Try 401 retry
+	const retried = await _retryWith401Handler(
+		resp,
+		url,
+		async (newHeaders) => fetch(url, { method, headers: newHeaders, body: body !== undefined ? JSON.stringify(body) : undefined }),
+		async (r) => r.blob(),
+		auth,
+		retry
+	);
+	if (retried !== null) return retried;
 
 	if (!resp.ok) {
 		const err = await resp.json().catch(() => ({ message: resp.statusText }));

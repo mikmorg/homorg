@@ -53,6 +53,38 @@
 		nameCache[id] = name;
 	}
 
+	/** Map event_type to display message and log entry type. */
+	function eventTypeToMessage(
+		eventType: string,
+		snapshotName: string,
+		parentName: string | undefined
+	): { type: ScanLogEntry['type']; message: string } {
+		let type: ScanLogEntry['type'] = 'success';
+		let message = '';
+		switch (eventType) {
+			case 'ItemCreated':
+				type = 'create';
+				message = parentName ? `Created: ${snapshotName || 'item'} → ${parentName}` : `Created: ${snapshotName || 'item'}`;
+				break;
+			case 'ItemMoved':
+				message = parentName ? `Moved: ${snapshotName || 'item'} → ${parentName}` : `Moved: ${snapshotName || 'item'}`;
+				break;
+			case 'ItemImageAdded':
+				message = `Photo added${snapshotName ? ': ' + snapshotName : ''}`;
+				break;
+			case 'ItemUpdated':
+				message = `Updated: ${snapshotName || 'item'}`;
+				break;
+			case 'ItemDeleted':
+				type = 'error';
+				message = `Deleted: ${snapshotName || 'item'}`;
+				break;
+			default:
+				message = eventType.replace(/([A-Z])/g, ' $1').trim();
+		}
+		return { type, message };
+	}
+
 	/** Compose the display text for a log entry using the current nameCache. */
 	function entryText(e: ScanLogEntry): string {
 		if (!e.itemId) return e.message;
@@ -618,39 +650,16 @@
 			for (const e of history.reverse()) {
 				const data = e.event_data as Record<string, unknown>;
 				const snapshotName = (data?.name as string) ?? (data?.item_name as string) ?? '';
-				let type: ScanLogEntry['type'] = 'success';
-				let message = '';
 				let parentId: string | undefined;
 
 				const imageUrl = (data?.path as string) ?? (data?.url as string) ?? (data?.image_url as string) ?? undefined;
 
-				switch (e.event_type) {
-					case 'ItemCreated': {
-						type = 'create';
-						parentId = (data?.parent_id as string) ?? undefined;
-						const parentName = parentId ? nameCache[parentId] : undefined;
-						message = parentName ? `Created: ${snapshotName || 'item'} → ${parentName}` : `Created: ${snapshotName || 'item'}`;
-						break;
-					}
-					case 'ItemMoved': {
-						parentId = (data?.new_parent_id as string) ?? undefined;
-						const destName = parentId ? nameCache[parentId] : undefined;
-						message = destName ? `Moved: ${snapshotName || 'item'} → ${destName}` : `Moved: ${snapshotName || 'item'}`;
-						break;
-					}
-					case 'ItemImageAdded':
-						message = `Photo added${snapshotName ? ': ' + snapshotName : ''}`;
-						break;
-					case 'ItemUpdated':
-						message = `Updated: ${snapshotName || 'item'}`;
-						break;
-					case 'ItemDeleted':
-						type = 'error';
-						message = `Deleted: ${snapshotName || 'item'}`;
-						break;
-					default:
-						message = e.event_type.replace(/([A-Z])/g, ' $1').trim();
-				}
+				// Extract parentId if applicable
+				if (e.event_type === 'ItemCreated') parentId = (data?.parent_id as string) ?? undefined;
+				if (e.event_type === 'ItemMoved') parentId = (data?.new_parent_id as string) ?? undefined;
+
+				const parentName = parentId ? nameCache[parentId] : undefined;
+				const { type, message } = eventTypeToMessage(e.event_type, snapshotName, parentName);
 
 				addLog(
 					e.aggregate_id.slice(0, 8),
@@ -717,14 +726,7 @@
 						} catch { /* ignore */ }
 					}
 
-					switch (evt.event_type) {
-						case 'ItemCreated': type = 'create'; message = parentName ? `Created: ${snapshotName || 'item'} → ${parentName}` : `Created: ${snapshotName || 'item'}`; break;
-						case 'ItemMoved': message = parentName ? `Moved: ${snapshotName || 'item'} → ${parentName}` : `Moved: ${snapshotName || 'item'}`; break;
-						case 'ItemImageAdded': message = `Photo added${snapshotName ? ': ' + snapshotName : ''}`; break;
-						case 'ItemUpdated': message = `Updated: ${snapshotName || 'item'}`; break;
-						case 'ItemDeleted': type = 'error'; message = `Deleted: ${snapshotName || 'item'}`; break;
-						default: message = evt.event_type.replace(/([A-Z])/g, ' $1').trim();
-					}
+					({ type, message } = eventTypeToMessage(evt.event_type, snapshotName, parentName));
 
 					addLog(
 						evt.aggregate_id.slice(0, 8),

@@ -5,6 +5,7 @@ import 'package:http/testing.dart';
 import 'package:http/http.dart' as http;
 
 import 'package:homorg/models/item.dart';
+import 'package:homorg/services/api_service.dart';
 import 'package:homorg/services/auth_service.dart';
 import 'package:homorg/services/homorg_api.dart';
 
