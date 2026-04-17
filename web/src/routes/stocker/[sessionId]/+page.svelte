@@ -28,6 +28,7 @@
 	import QuickCreatePanel from './QuickCreatePanel.svelte';
 	import PlaceContainerModal from './PlaceContainerModal.svelte';
 	import CameraLinkPanel from './CameraLinkPanel.svelte';
+	import ScanLog from './ScanLog.svelte';
 
 	let sessionId = $derived(page.params.sessionId!);
 
@@ -1046,14 +1047,6 @@
 		}
 	}
 
-	function logClass(type: ScanLogEntry['type']) {
-		return `scan-line-${type}`;
-	}
-
-	function logTime(ts: number): string {
-		const d = new Date(ts);
-		return d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', second: '2-digit' });
-	}
 </script>
 
 <svelte:head>
@@ -1203,32 +1196,12 @@
 	{/if}
 
 	<!-- ── Scan log ──────────────────────────────────────────────────────── -->
-	<div class="flex-1 overflow-y-auto font-mono text-sm">
-		{#if scanLog.length === 0}
-			<div class="flex h-32 flex-col items-center justify-center gap-1 text-slate-600">
-				<p>Waiting for scans…</p>
-				<p class="text-xs">Scan a container, then items</p>
-			</div>
-		{:else}
-			{#each scanLog as entry (entry.id)}
-				<div class="scan-line {logClass(entry.type)} flex items-center gap-2 px-4 py-2">
-					<span class="w-14 flex-shrink-0 text-[10px] tabular-nums text-slate-600">{logTime(entry.timestamp)}</span>
-					{#if entry.imageUrl}
-						<button class="flex-shrink-0 cursor-zoom-in" onclick={() => lightboxUrl = entry.imageUrl ?? null}>
-							<img src={entry.imageUrl} alt="" class="h-8 w-8 rounded object-cover border border-slate-700 hover:border-emerald-500 transition-colors" />
-						</button>
-					{/if}
-					{#if entry.itemId}
-						<a href="/browse/item/{entry.itemId}" class="flex-1 truncate hover:text-emerald-400 transition-colors">
-							{entryText(entry)}
-						</a>
-					{:else}
-						<span class="flex-1 truncate">{entryText(entry)}</span>
-					{/if}
-				</div>
-			{/each}
-		{/if}
-	</div>
+	<ScanLog
+		entries={scanLog}
+		nameCache={nameCache}
+		lightboxUrl={lightboxUrl}
+		onLightboxOpen={(url) => (lightboxUrl = url)}
+	/>
 
 	<!-- ── Quick action bar ──────────────────────────────────────────────── -->
 	<div class="flex gap-2 border-t border-slate-800 px-4 py-2">
