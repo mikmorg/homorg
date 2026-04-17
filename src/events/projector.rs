@@ -74,6 +74,91 @@ impl Projector {
         Ok(())
     }
 
+    /// Null-safe helper to extract Option from JSON value.
+    fn json_opt(value: &serde_json::Value) -> Option<&serde_json::Value> {
+        if value.is_null() { None } else { Some(value) }
+    }
+
+    /// Upsert a category row and update the item's foreign key.
+    async fn upsert_category(
+        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        item_id: Uuid,
+        name: Option<&str>,
+        actor_id: Uuid,
+    ) -> AppResult<()> {
+        let cat_id: Option<Uuid> = if let Some(n) = name.filter(|s| !s.is_empty()) {
+            let id: Uuid = sqlx::query_scalar(
+                "INSERT INTO categories (name) VALUES ($1) \
+                 ON CONFLICT (name) DO UPDATE SET name = EXCLUDED.name \
+                 RETURNING id",
+            )
+            .bind(n)
+            .fetch_one(&mut **tx)
+            .await?;
+            Some(id)
+        } else {
+            None
+        };
+        sqlx::query("UPDATE items SET category_id = $1, updated_by = $2 WHERE id = $3")
+            .bind(cat_id)
+            .bind(actor_id)
+            .bind(item_id)
+            .execute(&mut **tx)
+            .await?;
+        Ok(())
+    }
+
+    /// Upsert and link all tags for an item (delete-all-then-reinsert pattern).
+    async fn upsert_tags(
+        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        item_id: Uuid,
+        tag_names: &[String],
+    ) -> AppResult<()> {
+        sqlx::query("DELETE FROM item_tags WHERE item_id = $1")
+            .bind(item_id)
+            .execute(&mut **tx)
+            .await?;
+        for tag_name in tag_names {
+            if tag_name.is_empty() {
+                continue;
+            }
+            let tag_id: Uuid = sqlx::query_scalar(
+                "INSERT INTO tags (name) VALUES ($1) \
+                 ON CONFLICT (name) DO UPDATE SET name = EXCLUDED.name \
+                 RETURNING id",
+            )
+            .bind(tag_name)
+            .fetch_one(&mut **tx)
+            .await?;
+            sqlx::query("INSERT INTO item_tags (item_id, tag_id) VALUES ($1, $2) ON CONFLICT DO NOTHING")
+                .bind(item_id)
+                .bind(tag_id)
+                .execute(&mut **tx)
+                .await?;
+        }
+        Ok(())
+    }
+
+    /// Enforce container/fungible mutual exclusivity by deleting the opposite type's properties.
+    async fn toggle_container_fungible(
+        tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
+        item_id: Uuid,
+        container_side: bool,
+    ) -> AppResult<()> {
+        if container_side {
+            sqlx::query("DELETE FROM fungible_properties WHERE item_id = $1")
+                .bind(item_id)
+                .execute(&mut **tx)
+                .await?;
+        } else {
+            sqlx::query("DELETE FROM container_properties WHERE item_id = $1")
+                .bind(item_id)
+                .execute(&mut **tx)
+                .await?;
+        }
+        Ok(())
+    }
+
     async fn project_item_created(
         tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
         id: Uuid,
@@ -148,45 +233,10 @@ impl Projector {
         }
 
         // ── Normalized category ──────────────────────────────────────────────────────
-        if let Some(cat_name) = &data.category {
-            if !cat_name.is_empty() {
-                let cat_id: Uuid = sqlx::query_scalar(
-                    "INSERT INTO categories (name) VALUES ($1) \
-                     ON CONFLICT (name) DO UPDATE SET name = EXCLUDED.name \
-                     RETURNING id",
-                )
-                .bind(cat_name)
-                .fetch_one(&mut **tx)
-                .await?;
-
-                sqlx::query("UPDATE items SET category_id = $1 WHERE id = $2")
-                    .bind(cat_id)
-                    .bind(id)
-                    .execute(&mut **tx)
-                    .await?;
-            }
-        }
+        Self::upsert_category(tx, id, data.category.as_deref(), actor_id).await?;
 
         // ── Normalized tags ──────────────────────────────────────────────────────────
-        for tag_name in &data.tags {
-            if tag_name.is_empty() {
-                continue;
-            }
-            let tag_id: Uuid = sqlx::query_scalar(
-                "INSERT INTO tags (name) VALUES ($1) \
-                 ON CONFLICT (name) DO UPDATE SET name = EXCLUDED.name \
-                 RETURNING id",
-            )
-            .bind(tag_name)
-            .fetch_one(&mut **tx)
-            .await?;
-
-            sqlx::query("INSERT INTO item_tags (item_id, tag_id) VALUES ($1, $2) ON CONFLICT DO NOTHING")
-                .bind(id)
-                .bind(tag_id)
-                .execute(&mut **tx)
-                .await?;
-        }
+        Self::upsert_tags(tx, id, &data.tags).await?;
 
         // ── Container extension row ──────────────────────────────────────────────────
         if data.is_container {
@@ -271,9 +321,7 @@ impl Projector {
                     .await?;
             } else if allowed_jsonb_fields.contains(&field) {
                 let query = format!("UPDATE items SET {field} = $1, updated_by = $2 WHERE id = $3");
-                // Bind None when new value is JSON null so DB stores SQL NULL, not 'null'::jsonb
-                let jsonb_value: Option<&serde_json::Value> =
-                    if change.new.is_null() { None } else { Some(&change.new) };
+                let jsonb_value = Self::json_opt(&change.new);
                 sqlx::query(&query)
                     .bind(jsonb_value)
                     .bind(actor_id)
@@ -281,29 +329,9 @@ impl Projector {
                     .execute(&mut **tx)
                     .await?;
             } else if field == "category" {
-                // Normalize: get-or-create category row, update foreign key.
-                let new_name = change.new.as_str().filter(|s| !s.is_empty());
-                let cat_id: Option<Uuid> = if let Some(name) = new_name {
-                    let cid: Uuid = sqlx::query_scalar(
-                        "INSERT INTO categories (name) VALUES ($1) \
-                         ON CONFLICT (name) DO UPDATE SET name = EXCLUDED.name \
-                         RETURNING id",
-                    )
-                    .bind(name)
-                    .fetch_one(&mut **tx)
-                    .await?;
-                    Some(cid)
-                } else {
-                    None
-                };
-                sqlx::query("UPDATE items SET category_id = $1, updated_by = $2 WHERE id = $3")
-                    .bind(cat_id)
-                    .bind(actor_id)
-                    .bind(id)
-                    .execute(&mut **tx)
-                    .await?;
+                let new_name = change.new.as_str();
+                Self::upsert_category(tx, id, new_name, actor_id).await?;
             } else if field == "tags" {
-                // Normalize: replace all item_tags entries.
                 let tags: Vec<String> = match serde_json::from_value(change.new.clone()) {
                     Ok(t) => t,
                     Err(e) => {
@@ -311,28 +339,7 @@ impl Projector {
                         continue;
                     }
                 };
-                sqlx::query("DELETE FROM item_tags WHERE item_id = $1")
-                    .bind(id)
-                    .execute(&mut **tx)
-                    .await?;
-                for tag_name in &tags {
-                    if tag_name.is_empty() {
-                        continue;
-                    }
-                    let tag_id: Uuid = sqlx::query_scalar(
-                        "INSERT INTO tags (name) VALUES ($1) \
-                         ON CONFLICT (name) DO UPDATE SET name = EXCLUDED.name \
-                         RETURNING id",
-                    )
-                    .bind(tag_name)
-                    .fetch_one(&mut **tx)
-                    .await?;
-                    sqlx::query("INSERT INTO item_tags (item_id, tag_id) VALUES ($1, $2) ON CONFLICT DO NOTHING")
-                        .bind(id)
-                        .bind(tag_id)
-                        .execute(&mut **tx)
-                        .await?;
-                }
+                Self::upsert_tags(tx, id, &tags).await?;
             } else if field == "max_capacity_cc" {
                 let value = change.new.as_f64();
                 sqlx::query(
@@ -403,11 +410,7 @@ impl Projector {
                 .execute(&mut **tx)
                 .await?;
             } else if field == "location_schema" {
-                // Writes to container_properties, same as ContainerSchemaUpdated.
-                // location_schema normally changes via ContainerSchemaUpdated, but handle
-                // it here too so ItemUpdated events with this field don't silently diverge.
-                let schema_value: Option<&serde_json::Value> =
-                    if change.new.is_null() { None } else { Some(&change.new) };
+                let schema_value = Self::json_opt(&change.new);
                 sqlx::query(
                     "INSERT INTO container_properties (item_id, location_schema) VALUES ($1, $2) \
                      ON CONFLICT (item_id) DO UPDATE SET location_schema = EXCLUDED.location_schema",
@@ -430,18 +433,12 @@ impl Projector {
                     .execute(&mut **tx)
                     .await?;
                 if value {
-                    // Toggled on: ensure a container_properties row exists.
-                    // First delete any fungible_properties row (mutual exclusivity).
-                    sqlx::query("DELETE FROM fungible_properties WHERE item_id = $1")
-                        .bind(id)
-                        .execute(&mut **tx)
-                        .await?;
+                    Self::toggle_container_fungible(tx, id, true).await?;
                     sqlx::query("INSERT INTO container_properties (item_id) VALUES ($1) ON CONFLICT DO NOTHING")
                         .bind(id)
                         .execute(&mut **tx)
                         .await?;
                 } else {
-                    // Toggled off: remove the extension row.
                     sqlx::query("DELETE FROM container_properties WHERE item_id = $1")
                         .bind(id)
                         .execute(&mut **tx)
@@ -461,18 +458,12 @@ impl Projector {
                     .execute(&mut **tx)
                     .await?;
                 if value {
-                    // Toggled on: ensure a fungible_properties row exists.
-                    // First delete any container_properties row (mutual exclusivity).
-                    sqlx::query("DELETE FROM container_properties WHERE item_id = $1")
-                        .bind(id)
-                        .execute(&mut **tx)
-                        .await?;
+                    Self::toggle_container_fungible(tx, id, false).await?;
                     sqlx::query("INSERT INTO fungible_properties (item_id) VALUES ($1) ON CONFLICT DO NOTHING")
                         .bind(id)
                         .execute(&mut **tx)
                         .await?;
                 } else {
-                    // Toggled off: remove the extension row.
                     sqlx::query("DELETE FROM fungible_properties WHERE item_id = $1")
                         .bind(id)
                         .execute(&mut **tx)
@@ -487,8 +478,7 @@ impl Projector {
                     .execute(&mut **tx)
                     .await?;
             } else if field == "external_codes" {
-                let jsonb_value: Option<&serde_json::Value> =
-                    if change.new.is_null() { None } else { Some(&change.new) };
+                let jsonb_value = Self::json_opt(&change.new);
                 sqlx::query("UPDATE items SET external_codes = $1, updated_by = $2 WHERE id = $3")
                     .bind(jsonb_value)
                     .bind(actor_id)
