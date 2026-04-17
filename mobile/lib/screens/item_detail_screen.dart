@@ -241,6 +241,17 @@ class _ItemDetailScreenState extends State<ItemDetailScreen> {
     }
   }
 
+  Future<void> _restoreItem() async {
+    try {
+      await widget.api.restoreItem(widget.itemId);
+      if (!mounted) return;
+      _snack('Item restored');
+      _loadItem();
+    } on ApiError catch (e) {
+      if (mounted) _snack('Restore failed: ${e.message}');
+    }
+  }
+
   // ── Move ───────────────────────────────────────────────────────────
 
   Future<void> _showMovePicker() async {
@@ -423,7 +434,7 @@ class _ItemDetailScreenState extends State<ItemDetailScreen> {
           actions: [
             IconButton(
               icon: const Icon(Icons.camera_alt_outlined),
-              onPressed: _item != null ? _takePhoto : null,
+              onPressed: _item != null && !(_item?.isDeleted ?? false) ? _takePhoto : null,
               tooltip: 'Take photo',
             ),
             IconButton(
@@ -431,6 +442,12 @@ class _ItemDetailScreenState extends State<ItemDetailScreen> {
               onPressed: _loadItem,
               tooltip: 'Refresh',
             ),
+            if (_item?.isDeleted ?? false)
+              IconButton(
+                icon: const Icon(Icons.restore_outlined),
+                onPressed: _restoreItem,
+                tooltip: 'Restore',
+              ),
             if (_item != null)
               PopupMenuButton<String>(
                 onSelected: (action) {
@@ -481,14 +498,15 @@ class _ItemDetailScreenState extends State<ItemDetailScreen> {
                     ]),
                   ),
                   const PopupMenuDivider(),
-                  const PopupMenuItem(
-                    value: 'delete',
-                    child: Row(children: [
-                      Icon(Icons.delete_outline, size: 18, color: Colors.red),
-                      SizedBox(width: 8),
-                      Text('Delete', style: TextStyle(color: Colors.red)),
-                    ]),
-                  ),
+                  if (!(_item?.isDeleted ?? false))
+                    const PopupMenuItem(
+                      value: 'delete',
+                      child: Row(children: [
+                        Icon(Icons.delete_outline, size: 18, color: Colors.red),
+                        SizedBox(width: 8),
+                        Text('Delete', style: TextStyle(color: Colors.red)),
+                      ]),
+                    ),
                 ],
               ),
           ],
@@ -533,6 +551,28 @@ class _ItemDetailScreenState extends State<ItemDetailScreen> {
           child: ListView(
             padding: const EdgeInsets.fromLTRB(16, 8, 16, 80),
             children: [
+              if (item.isDeleted)
+                Container(
+                  margin: const EdgeInsets.only(bottom: 16),
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: theme.colorScheme.errorContainer,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Row(
+                    children: [
+                      Icon(Icons.delete_outline, color: theme.colorScheme.error),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        child: Text(
+                          'This item is deleted and can be restored',
+                          style: TextStyle(color: theme.colorScheme.error),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+
               // ── Images or placeholder ──
               _buildImageSection(item, theme),
 

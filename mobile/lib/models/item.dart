@@ -90,6 +90,7 @@ class Item {
   final String? currency;
   final double? weightGrams;
   final Map<String, dynamic> metadata;
+  final bool isDeleted;
   final String createdAt;
   final String updatedAt;
 
@@ -117,6 +118,7 @@ class Item {
     this.currency,
     this.weightGrams,
     this.metadata = const {},
+    this.isDeleted = false,
     required this.createdAt,
     required this.updatedAt,
   });
@@ -152,6 +154,7 @@ class Item {
       currency: json['currency'] as String?,
       weightGrams: _toDouble(json['weight_grams']),
       metadata: _parseMetadata(json['metadata']),
+      isDeleted: json['is_deleted'] as bool? ?? false,
       createdAt: json['created_at'] as String,
       updatedAt: json['updated_at'] as String,
     );
