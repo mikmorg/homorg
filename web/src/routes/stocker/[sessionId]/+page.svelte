@@ -187,10 +187,10 @@
 	let placeParentQuery: string = $state('');
 	let placeParentResults: ItemSummary[] = $state([]);
 	let placeParentLoading: boolean = $state(false);
-	let placeParentSelected: ItemSummary | null = $state(null);
+	let placeParentSelected: ItemSummary | Item | null = $state(null);
 	let placingContainer: boolean = $state(false);
 	let placeError: string = $state('');
-	let suggestedParent: ItemSummary | null = $state(null);
+	let suggestedParent: Item | null = $state(null);
 
 	// Camera link
 	let showCameraLink: boolean = $state(false);
