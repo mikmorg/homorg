@@ -5,13 +5,11 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:http/testing.dart';
 import 'package:http/http.dart' as http;
 
-import 'package:homorg/models/item.dart';
 import 'package:homorg/screens/item_detail_screen.dart';
 import 'package:homorg/services/auth_service.dart';
 import 'package:homorg/services/homorg_api.dart';
 
 const _itemId = '00000000-0000-0000-0000-000000000001';
-const _rootContainerId = '00000000-0000-0000-0000-000000000002';
 
 class _FakeAuth extends Fake implements AuthService {
   @override
