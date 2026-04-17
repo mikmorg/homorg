@@ -12,10 +12,11 @@ export default defineConfig({
 	globalSetup: './e2e/global.setup.ts',
 
 	use: {
-		baseURL: 'http://localhost:5173',
+		baseURL: 'https://localhost:5173',
 		trace: 'retain-on-failure',
 		screenshot: 'only-on-failure',
-		video: 'retain-on-failure'
+		video: 'retain-on-failure',
+		ignoreHTTPSErrors: true
 	},
 
 	projects: [
@@ -35,12 +36,14 @@ export default defineConfig({
 		}
 	],
 
-	webServer: {
-		command: 'npm run dev',
-		url: 'http://localhost:5173',
-		reuseExistingServer: true,
-		stdout: 'ignore',
-		stderr: 'pipe',
-		timeout: 60_000
-	}
+	// webServer config disabled: dev server is manually managed locally
+	// For CI, uncomment webServer and ensure dev server supports HTTPS verification
+	// webServer: {
+	// 	command: 'npm run dev',
+	// 	url: 'https://localhost:5173',
+	// 	reuseExistingServer: true,
+	// 	stdout: 'ignore',
+	// 	stderr: 'pipe',
+	// 	timeout: 60_000
+	// }
 });

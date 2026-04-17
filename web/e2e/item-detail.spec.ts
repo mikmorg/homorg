@@ -1,7 +1,6 @@
-import { test, expect } from './fixtures';
-import { ROOT_ID } from './constants';
+import { test, expect, ROOT_ID } from './fixtures';
 
-describe('item detail', () => {
+test.describe('item detail', () => {
   test('item appears in browse container', async ({ page, api }) => {
     // Create container and item via API
     const containerId = await api.createContainer(ROOT_ID, 'Storage Box');
