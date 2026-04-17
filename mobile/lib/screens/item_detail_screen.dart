@@ -1500,9 +1500,9 @@ class _EditItemPageState extends State<_EditItemPage> {
       ]);
       if (mounted) {
         setState(() {
-          _knownCategories = results[0];
-          _knownTags = results[1];
-          _containerTypes = results[2];
+          _knownCategories = (results[0] as List<String>);
+          _knownTags = (results[1] as List<String>);
+          _containerTypes = (results[2] as List<ContainerType>);
         });
       }
     } catch (_) {}
