@@ -1209,16 +1209,7 @@ class _ItemDetailScreenState extends State<ItemDetailScreen> {
   }
 
   Widget _buildHistoryRow(HistoryEvent e, ThemeData theme) {
-    final data = e.eventData;
-    final isQtyEvent = e.eventType == 'ItemQuantityAdjusted' && data != null;
-
-    final title = isQtyEvent
-        ? 'Quantity: ${data['old_qty']} \u2192 ${data['new_qty']}'
-        : _formatEventType(e.eventType);
-
-    final reason =
-        isQtyEvent ? (data['reason'] as String?) : null;
-
+    final display = formatHistoryEvent(e);
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 6),
       child: Row(
@@ -1228,13 +1219,15 @@ class _ItemDetailScreenState extends State<ItemDetailScreen> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(title, style: theme.textTheme.bodySmall),
-                if (reason != null && reason.isNotEmpty)
-                  Text(reason,
-                      style: theme.textTheme.bodySmall?.copyWith(
-                        color: theme.colorScheme.onSurfaceVariant,
-                        fontStyle: FontStyle.italic,
-                      )),
+                Text(display.primary, style: theme.textTheme.bodySmall),
+                for (final line in display.details)
+                  Text(
+                    line,
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: theme.colorScheme.onSurfaceVariant,
+                      fontStyle: FontStyle.italic,
+                    ),
+                  ),
               ],
             ),
           ),
@@ -1247,13 +1240,6 @@ class _ItemDetailScreenState extends State<ItemDetailScreen> {
         ],
       ),
     );
-  }
-
-  static String _formatEventType(String eventType) {
-    // "ItemCreated" → "Item Created", "ItemQuantityAdjusted" → "Item Quantity Adjusted"
-    return eventType
-        .replaceAllMapped(RegExp(r'([A-Z])'), (m) => ' ${m[0]}')
-        .trim();
   }
 
   // ── Helpers ────────────────────────────────────────────────────────

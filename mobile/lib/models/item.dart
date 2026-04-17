@@ -22,6 +22,111 @@ class HistoryEvent {
       );
 }
 
+typedef HistoryEventDisplay = ({String primary, List<String> details});
+
+String _ltreeLastSegment(String path) {
+  if (path.isEmpty) return path;
+  return path.split('.').last;
+}
+
+String _displayValue(dynamic v) {
+  if (v == null) return '(none)';
+  if (v is String && v.isEmpty) return '(empty)';
+  return '"$v"';
+}
+
+String _formatEventTypeLabel(String eventType) {
+  return eventType
+      .replaceAllMapped(RegExp(r'([A-Z])'), (m) => ' ${m[0]}')
+      .trim();
+}
+
+HistoryEventDisplay formatHistoryEvent(HistoryEvent e) {
+  final data = e.eventData;
+  switch (e.eventType) {
+    case 'ItemQuantityAdjusted':
+      final old = data?['old_qty'];
+      final newQty = data?['new_qty'];
+      final reason = data?['reason'] as String?;
+      final primary = (old != null)
+          ? 'Quantity: $old \u2192 $newQty'
+          : 'Quantity set to $newQty';
+      return (primary: primary, details: [if (reason != null && reason.isNotEmpty) reason]);
+
+    case 'ItemMoved':
+      final from = data?['from_path'] as String?;
+      final to = data?['to_path'] as String? ?? '';
+      final toLabel = _ltreeLastSegment(to);
+      final primary = (from != null && from.isNotEmpty)
+          ? 'Moved from ${_ltreeLastSegment(from)} to $toLabel'
+          : 'Placed in $toLabel';
+      return (primary: primary, details: const []);
+
+    case 'ItemUpdated':
+      final changes = (data?['changes'] as List<dynamic>?) ?? const [];
+      if (changes.isEmpty) return (primary: 'Item updated', details: const []);
+      final lines = changes.map((c) {
+        final field = c['field'] as String? ?? '?';
+        return '$field: ${_displayValue(c['old'])} \u2192 ${_displayValue(c['new'])}';
+      }).toList();
+      return (primary: 'Item updated', details: lines);
+
+    case 'ItemCreated':
+      final name = data?['name'] as String?;
+      return (
+        primary: name != null ? 'Created "$name"' : 'Item created',
+        details: const [],
+      );
+
+    case 'ItemDeleted':
+      final reason = data?['reason'] as String?;
+      return (
+        primary: 'Deleted',
+        details: [if (reason != null && reason.isNotEmpty) reason],
+      );
+
+    case 'ItemRestored':
+      return (primary: 'Restored', details: const []);
+
+    case 'ItemMoveReverted':
+      return (primary: 'Move reverted', details: const []);
+
+    case 'ItemImageAdded':
+      return (primary: 'Image added', details: const []);
+
+    case 'ItemImageRemoved':
+      return (primary: 'Image removed', details: const []);
+
+    case 'ItemExternalCodeAdded':
+      final type = data?['code_type'] as String? ?? 'Code';
+      final value = data?['value'] as String? ?? '';
+      return (primary: '$type: $value added', details: const []);
+
+    case 'ItemExternalCodeRemoved':
+      final type = data?['code_type'] as String? ?? 'Code';
+      final value = data?['value'] as String? ?? '';
+      return (primary: '$type: $value removed', details: const []);
+
+    case 'ItemBarcodeAssigned':
+      final barcode = data?['barcode'] as String? ?? '';
+      final prev = data?['previous_barcode'] as String?;
+      final primary = (prev != null && prev.isNotEmpty)
+          ? 'Barcode: $barcode (was $prev)'
+          : 'Barcode: $barcode';
+      return (primary: primary, details: const []);
+
+    case 'BarcodeGenerated':
+      final barcode = data?['barcode'] as String? ?? '';
+      return (primary: 'Barcode generated: $barcode', details: const []);
+
+    case 'ContainerSchemaUpdated':
+      return (primary: 'Container type changed', details: const []);
+
+    default:
+      return (primary: _formatEventTypeLabel(e.eventType), details: const []);
+  }
+}
+
 class ExternalCodeEntry {
   final String codeType;
   final String value;
