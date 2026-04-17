@@ -1,0 +1,54 @@
+\documentclass[letter,12pt]{article}
+%\usepackage{pst-barcode}
+\usepackage[newdimens]{labels}
+\usepackage{anyfontsize}
+
+%\tcbuselibrary{fitting}     % Adjust font size to fit tcolorboxes
+
+% https://www.onlinelabels.com/products/ol25wx
+% https://tex.stackexchange.com/questions/348288/labels-package-outputting-only-one-column
+
+\LabelCols=4
+\LabelRows=20
+\LeftPageMargin=0.32812in
+\RightPageMargin=0.32812in
+\TopPageMargin=0.5in
+\BottomPageMargin=0.5in
+\InterLabelColumn=0.28125in
+\InterLabelRow=0in
+\LeftLabelBorder=0mm
+\RightLabelBorder=0mm
+\TopLabelBorder=0mm
+\BottomLabelBorder=0mm
+%\LabelGridtrue
+\begin{document}
+%\begin{labels}
+{% for item in items -%}
+\genericlabel{
+\fontsize{9}{10}\selectfont
+\begin{tabular}{l}
+{{item.name}} \\
+Sent: \textbf{ {{item.sent}} }
+\end{tabular}
+}
+{% endfor %}
+%\end{labels}
+\end{document}
+
+
+\documentclass[12pt]{letter}
+\usepackage{pst-barcode}
+\usepackage[noprintbarcodes,nocapaddress]{envlab}
+\SetLabel{2.79in}{1.07in}{0.12in}{0.12in}{0.10in}{3}{10}
+\makelabels
+\begin{document}
+\startlabels
+{% for item in items -%}
+       \mlabel{}{ {{ item.name | e}} \\ {{ item.batchname | e }} \\
+       \begin{pspicture}(3.5,.1in)
+               \psbarcode{ {{- item.code | e -}} }{height=0.158 inkspread=0.5}{ean8}
+       \end{pspicture}
+       }
+{% endfor %}
+\end{document}
+

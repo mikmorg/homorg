@@ -406,6 +406,11 @@ impl Projector {
                     .await?;
                 if value {
                     // Toggled on: ensure a container_properties row exists.
+                    // First delete any fungible_properties row (mutual exclusivity).
+                    sqlx::query("DELETE FROM fungible_properties WHERE item_id = $1")
+                        .bind(id)
+                        .execute(&mut **tx)
+                        .await?;
                     sqlx::query("INSERT INTO container_properties (item_id) VALUES ($1) ON CONFLICT DO NOTHING")
                         .bind(id)
                         .execute(&mut **tx)
@@ -432,6 +437,11 @@ impl Projector {
                     .await?;
                 if value {
                     // Toggled on: ensure a fungible_properties row exists.
+                    // First delete any container_properties row (mutual exclusivity).
+                    sqlx::query("DELETE FROM container_properties WHERE item_id = $1")
+                        .bind(id)
+                        .execute(&mut **tx)
+                        .await?;
                     sqlx::query("INSERT INTO fungible_properties (item_id) VALUES ($1) ON CONFLICT DO NOTHING")
                         .bind(id)
                         .execute(&mut **tx)

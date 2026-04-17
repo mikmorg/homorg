@@ -47,12 +47,16 @@ cd ..
 
 # Create admin user
 echo "👤 Creating admin user..."
-curl -s -X POST http://localhost:8080/api/auth/setup \
+curl -s -X POST http://localhost:8080/api/v1/auth/setup \
   -H "Content-Type: application/json" \
   -d '{
     "username": "admin",
     "password": "seedpassword123"
   }' > /dev/null 2>&1 && echo "   ✅ admin / seedpassword123" || echo "   ⚠️  Setup already done"
+
+# Seed test data
+echo "🌱 Seeding test data..."
+python3 scripts/seed.py --base-url http://localhost:8080 --username admin --password seedpassword123 > /dev/null 2>&1 && echo "   ✅ Inventory seeded" || echo "   ⚠️  Seeding skipped"
 
 echo ""
 echo "✅ Ready for development!"
