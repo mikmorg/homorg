@@ -122,7 +122,9 @@ PWA with Service Worker (Workbox): offline scanning queues to IndexedDB and sync
 
 Required: `DATABASE_URL`, `JWT_SECRET` (64+ chars).
 
-Notable defaults: `LISTEN_ADDR=0.0.0.0:8080`, `STORAGE_PATH=./data/images`, `BARCODE_PREFIX=HOM`, `DB_MAX_CONNECTIONS=20`. Rate limiting disabled by default (`RATE_LIMIT_RPS` unset). See `src/config.rs` for all options.
+Notable defaults: `LISTEN_ADDR=0.0.0.0:8080`, `STORAGE_PATH=./data/images`, `BARCODE_PREFIX=HOM`, `DB_MAX_CONNECTIONS=20`.
+
+**Rate limiting:** Opt-in via `RATE_LIMIT_RPS` env var (disabled in development by default). Do NOT set `RATE_LIMIT_RPS` in .env for dev — it causes `dev-reset.sh` to hang during seed operations. See `src/config.rs` for all options.
 
 ## Testing Notes
 
