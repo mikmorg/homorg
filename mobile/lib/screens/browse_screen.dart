@@ -20,6 +20,7 @@ class _BrowseScreenState extends State<BrowseScreen> {
   String _containerId = _rootContainerId;
   List<AncestorEntry> _breadcrumb = [];
   List<ItemSummary> _children = [];
+  Item? _currentItem;
   bool _loading = true;
   String? _error;
 
@@ -48,12 +49,15 @@ class _BrowseScreenState extends State<BrowseScreen> {
       final futures = await Future.wait([
         widget.api.getAncestors(containerId),
         widget.api.getChildren(containerId),
+        widget.api.getItem(containerId),
       ]);
       if (!mounted) return;
       final children = futures[1] as List<ItemSummary>;
+      final currentItem = futures[2] as Item;
       setState(() {
         _breadcrumb = futures[0] as List<AncestorEntry>;
         _children = children;
+        _currentItem = currentItem;
         _hasMoreChildren = children.length == 50;
         _childrenCursor = children.isNotEmpty ? children.last.id : null;
         _loading = false;
@@ -155,12 +159,17 @@ class _BrowseScreenState extends State<BrowseScreen> {
   }
 
   Widget _buildBreadcrumb() {
-    // Build crumb list: Root + ancestors + current
+    // Build crumb list: Root + ancestors (skip root) + current
     final crumbs = <_Crumb>[
       const _Crumb('Root', _rootContainerId),
     ];
     for (final a in _breadcrumb) {
-      crumbs.add(_Crumb(a.name ?? '?', a.id));
+      if (a.id != _rootContainerId) {
+        crumbs.add(_Crumb(a.name ?? '?', a.id));
+      }
+    }
+    if (_currentItem != null) {
+      crumbs.add(_Crumb(_currentItem!.displayName, _currentItem!.id));
     }
 
     return Container(

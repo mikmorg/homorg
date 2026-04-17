@@ -1410,12 +1410,14 @@ class _EditItemPageState extends State<_EditItemPage> {
   late bool _isContainer;
   late final TextEditingController _currencyCtrl;
   late final TextEditingController _weightCtrl;
+  late String? _containerTypeId;
 
   bool _saving = false;
 
   // Taxonomy
   List<String> _knownCategories = [];
   List<String> _knownTags = [];
+  List<ContainerType> _containerTypes = [];
 
   @override
   void initState() {
@@ -1441,6 +1443,7 @@ class _EditItemPageState extends State<_EditItemPage> {
         TextEditingController(text: item.warrantyExpiry ?? '');
 
     _isContainer = item.isContainer;
+    _containerTypeId = null; // Container type assignment via dropdown
     _currencyCtrl = TextEditingController(text: item.currency ?? '');
     _weightCtrl =
         TextEditingController(text: item.weightGrams?.toString() ?? '');
@@ -1453,11 +1456,13 @@ class _EditItemPageState extends State<_EditItemPage> {
       final results = await Future.wait([
         widget.api.listCategories(),
         widget.api.listTags(),
+        widget.api.listContainerTypes(),
       ]);
       if (mounted) {
         setState(() {
           _knownCategories = results[0];
           _knownTags = results[1];
+          _containerTypes = results[2];
         });
       }
     } catch (_) {}
@@ -1572,6 +1577,9 @@ class _EditItemPageState extends State<_EditItemPage> {
     // Additional fields
     if (_isContainer != item.isContainer) {
       body['is_container'] = _isContainer;
+    }
+    if (_containerTypeId != null) {
+      body['container_type_id'] = _containerTypeId;
     }
     diffText('currency', _currencyCtrl.text, item.currency);
     final newWeight = double.tryParse(_weightCtrl.text.trim());
@@ -1866,6 +1874,24 @@ class _EditItemPageState extends State<_EditItemPage> {
             onChanged: (v) => setState(() => _isContainer = v),
             contentPadding: EdgeInsets.zero,
           ),
+          if (_isContainer) ...[
+            const SizedBox(height: 12),
+            DropdownButtonFormField<String?>(
+              value: _containerTypeId,
+              decoration: const InputDecoration(
+                labelText: 'Container Type',
+                border: OutlineInputBorder(),
+              ),
+              items: [
+                const DropdownMenuItem(value: null, child: Text('None')),
+                ..._containerTypes.map((ct) => DropdownMenuItem(
+                      value: ct.id,
+                      child: Text(ct.name),
+                    )),
+              ],
+              onChanged: (v) => setState(() => _containerTypeId = v),
+            ),
+          ],
           const SizedBox(height: 12),
           Row(
             children: [

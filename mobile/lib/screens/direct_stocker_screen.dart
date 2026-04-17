@@ -301,6 +301,28 @@ class _DirectStockerScreenState extends State<DirectStockerScreen> {
     }
   }
 
+  /// Show parent picker for creating a new container.
+  /// Returns the selected parent container ID, or null if cancelled.
+  Future<String?> _showParentPickerForNewContainer() async {
+    final result = await showModalBottomSheet<_PickerResult>(
+      context: context,
+      isScrollControlled: true,
+      builder: (ctx) => DraggableScrollableSheet(
+        initialChildSize: 0.7,
+        minChildSize: 0.4,
+        maxChildSize: 0.9,
+        expand: false,
+        builder: (ctx, scrollController) => _ParentPickerSheet(
+          api: widget.api,
+          scrollController: scrollController,
+          activeContainerId: _activeContainerId,
+          activeContainerName: _activeContainerName,
+        ),
+      ),
+    );
+    return result?.id;
+  }
+
   Future<void> _showContainerPicker() async {
     final result = await showModalBottomSheet<_PickerResult>(
       context: context,
@@ -374,13 +396,11 @@ class _DirectStockerScreenState extends State<DirectStockerScreen> {
 
       case Preset(:final barcode, :final isContainer, :final containerTypeName):
         if (isContainer) {
-          if (_activeContainerId == null) {
-            _addLog(Icons.warning_amber,
-                'Set a parent container first before creating containers',
-                isError: true);
-            return;
-          }
-          // Create container preset and set as new context
+          // Show parent picker dialog
+          final parentId = await _showParentPickerForNewContainer();
+          if (!mounted || parentId == null) return;
+
+          // Create container preset in selected parent and set as new context
           final resp = await widget.api.submitBatch(
             _session.id,
             [
@@ -1094,6 +1114,188 @@ class _PickerResult {
   final String id;
   final String name;
   const _PickerResult({required this.id, required this.name});
+}
+
+/// Parent picker sheet for creating new containers.
+/// Shows quick options for active container + its parent, then search.
+class _ParentPickerSheet extends StatefulWidget {
+  final HomorgApi api;
+  final ScrollController scrollController;
+  final String? activeContainerId;
+  final String? activeContainerName;
+
+  const _ParentPickerSheet({
+    required this.api,
+    required this.scrollController,
+    this.activeContainerId,
+    this.activeContainerName,
+  });
+
+  @override
+  State<_ParentPickerSheet> createState() => _ParentPickerSheetState();
+}
+
+class _ParentPickerSheetState extends State<_ParentPickerSheet> {
+  final _searchController = TextEditingController();
+  Timer? _debounce;
+  List<ItemSummary>? _results;
+  bool _searching = false;
+  String? _parentOfActiveId;
+  String? _parentOfActiveName;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadParentOfActive();
+    _doSearch('');
+  }
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    _debounce?.cancel();
+    super.dispose();
+  }
+
+  Future<void> _loadParentOfActive() async {
+    if (widget.activeContainerId == null) return;
+    try {
+      final ancestors = await widget.api.getAncestors(widget.activeContainerId!);
+      if (ancestors.isNotEmpty && mounted) {
+        final parent = ancestors.last;
+        setState(() {
+          _parentOfActiveId = parent.id;
+          _parentOfActiveName = parent.name;
+        });
+      }
+    } catch (_) {}
+  }
+
+  void _onSearchChanged(String query) {
+    _debounce?.cancel();
+    _debounce = Timer(const Duration(milliseconds: 300), () {
+      _doSearch(query);
+    });
+  }
+
+  Future<void> _doSearch(String query) async {
+    setState(() => _searching = true);
+    try {
+      final results = await widget.api.searchContainers(query);
+      if (mounted) {
+        setState(() {
+          _results = results;
+          _searching = false;
+        });
+      }
+    } catch (_) {
+      if (mounted) setState(() => _searching = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    return Column(
+      children: [
+        // Handle bar
+        Padding(
+          padding: const EdgeInsets.only(top: 8, bottom: 4),
+          child: Container(
+            width: 40,
+            height: 4,
+            decoration: BoxDecoration(
+              color: theme.colorScheme.onSurface.withValues(alpha: 0.3),
+              borderRadius: BorderRadius.circular(2),
+            ),
+          ),
+        ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text('Choose parent container',
+                  style: TextStyle(fontWeight: FontWeight.bold)),
+              const SizedBox(height: 8),
+              // Quick options
+              if (widget.activeContainerId != null)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: FilledButton.tonal(
+                    onPressed: () => Navigator.pop(
+                      context,
+                      _PickerResult(
+                        id: widget.activeContainerId!,
+                        name: widget.activeContainerName ?? 'Container',
+                      ),
+                    ),
+                    child: Text('Use current: ${widget.activeContainerName}'),
+                  ),
+                ),
+              if (_parentOfActiveId != null)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 12),
+                  child: FilledButton.tonal(
+                    onPressed: () => Navigator.pop(
+                      context,
+                      _PickerResult(
+                        id: _parentOfActiveId!,
+                        name: _parentOfActiveName ?? 'Container',
+                      ),
+                    ),
+                    child: Text('Use parent: $_parentOfActiveName'),
+                  ),
+                ),
+              TextField(
+                controller: _searchController,
+                decoration: const InputDecoration(
+                  hintText: 'Search containers…',
+                  prefixIcon: Icon(Icons.search),
+                  border: OutlineInputBorder(),
+                  isDense: true,
+                ),
+                autofocus: true,
+                onChanged: _onSearchChanged,
+              ),
+            ],
+          ),
+        ),
+        if (_searching) const LinearProgressIndicator(),
+        Expanded(
+          child: _results == null || _results!.isEmpty
+              ? Center(
+                  child: Text(
+                    _results == null ? '' : 'No containers found',
+                    style: theme.textTheme.bodyMedium?.copyWith(
+                      color: theme.colorScheme.onSurface.withValues(alpha: 0.4),
+                    ),
+                  ),
+                )
+              : ListView.builder(
+                  controller: widget.scrollController,
+                  itemCount: _results!.length,
+                  itemBuilder: (_, i) {
+                    final c = _results![i];
+                    return ListTile(
+                      leading: const Icon(Icons.folder, size: 20),
+                      title: Text(c.displayName),
+                      subtitle: c.parentName != null
+                          ? Text('in ${c.parentName}',
+                              style: theme.textTheme.bodySmall)
+                          : null,
+                      dense: true,
+                      onTap: () => Navigator.pop(
+                        context,
+                        _PickerResult(id: c.id, name: c.displayName),
+                      ),
+                    );
+                  },
+                ),
+        ),
+      ],
+    );
+  }
 }
 
 class _LogEntry {

@@ -289,3 +289,23 @@ class ItemSummary {
 
   String get displayName => name ?? systemBarcode ?? 'Unnamed';
 }
+
+class ContainerType {
+  final String id;
+  final String name;
+  final String? description;
+
+  const ContainerType({
+    required this.id,
+    required this.name,
+    this.description,
+  });
+
+  factory ContainerType.fromJson(Map<String, dynamic> json) {
+    return ContainerType(
+      id: json['id'] as String,
+      name: json['name'] as String,
+      description: json['description'] as String?,
+    );
+  }
+}

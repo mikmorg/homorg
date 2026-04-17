@@ -37,6 +37,7 @@ class _CreateItemScreenState extends State<CreateItemScreen> {
   final _tagCtrl = TextEditingController();
   final List<String> _tags = [];
   bool _isContainer = false;
+  String? _containerTypeId;
   bool _isFungible = false;
   final _quantityCtrl = TextEditingController();
   final _unitCtrl = TextEditingController();
@@ -52,6 +53,7 @@ class _CreateItemScreenState extends State<CreateItemScreen> {
   // Taxonomy
   List<String> _knownCategories = [];
   List<String> _knownTags = [];
+  List<ContainerType> _containerTypes = [];
 
   @override
   void initState() {
@@ -68,11 +70,13 @@ class _CreateItemScreenState extends State<CreateItemScreen> {
       final results = await Future.wait([
         widget.api.listCategories(),
         widget.api.listTags(),
+        widget.api.listContainerTypes(),
       ]);
       if (mounted) {
         setState(() {
           _knownCategories = results[0];
           _knownTags = results[1];
+          _containerTypes = results[2];
         });
       }
     } catch (_) {}
@@ -174,6 +178,7 @@ class _CreateItemScreenState extends State<CreateItemScreen> {
     if (cat.isNotEmpty) body['category'] = cat;
     if (_condition != null) body['condition'] = _condition;
     if (_tags.isNotEmpty) body['tags'] = _tags;
+    if (_containerTypeId != null) body['container_type_id'] = _containerTypeId;
     if (_isFungible) {
       body['is_fungible'] = true;
       final qty = int.tryParse(_quantityCtrl.text.trim());
@@ -338,6 +343,25 @@ class _CreateItemScreenState extends State<CreateItemScreen> {
               onChanged: (v) => setState(() => _isContainer = v),
               contentPadding: EdgeInsets.zero,
             ),
+
+            if (_isContainer) ...[
+              const SizedBox(height: 12),
+              DropdownButtonFormField<String?>(
+                value: _containerTypeId,
+                decoration: const InputDecoration(
+                  labelText: 'Container Type',
+                  border: OutlineInputBorder(),
+                ),
+                items: [
+                  const DropdownMenuItem(value: null, child: Text('None')),
+                  ..._containerTypes.map((ct) => DropdownMenuItem(
+                        value: ct.id,
+                        child: Text(ct.name),
+                      )),
+                ],
+                onChanged: (v) => setState(() => _containerTypeId = v),
+              ),
+            ],
 
             // Fungible toggle
             SwitchListTile(

@@ -345,6 +345,15 @@ class HomorgApi {
         .toList();
   }
 
+  /// List all container types.
+  Future<List<ContainerType>> listContainerTypes() async {
+    final response = await _request('GET', '/api/v1/container-types');
+    final list = jsonDecode(response.body) as List<dynamic>;
+    return list
+        .map((e) => ContainerType.fromJson(e as Map<String, dynamic>))
+        .toList();
+  }
+
   // ── Internal helpers ─────────────────────────────────────────────────
 
   Future<T> _get<T>(
