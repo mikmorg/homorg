@@ -23,6 +23,8 @@
 		pushRecentContainer,
 		type RecentContainer
 	} from '$stores/recentContainers.js';
+	import ScannerSettingsModal from './ScannerSettingsModal.svelte';
+	import ActiveItemPanel from './ActiveItemPanel.svelte';
 
 	let sessionId = $derived(page.params.sessionId!);
 
@@ -1615,105 +1617,23 @@
 </div>
 {/if}
 
-<!-- ── Scanner settings ───────────────────────────────────────────────── -->
-{#if showScannerSettings}
-<!-- svelte-ignore a11y_no_static_element_interactions -->
-<div class="fixed inset-0 z-50 flex flex-col justify-end bg-black/60" onclick={(e) => { if (e.target === e.currentTarget) { showScannerSettings = false } }} onkeydown={(e) => e.key === 'Escape' && (showScannerSettings = false)}>
-	<div class="rounded-t-2xl bg-slate-900 p-4 pb-8" role="dialog" aria-modal="true" aria-labelledby="scanner-settings-title">
-		<h2 id="scanner-settings-title" class="mb-4 text-base font-semibold text-slate-100">Scanner source</h2>
-		<div class="space-y-2">
-			<button
-				class="btn w-full justify-start gap-3"
-				class:btn-primary={$scannerState.source === 'hid'}
-				class:btn-secondary={$scannerState.source !== 'hid'}
-				onclick={() => { startHidScanner(); showScannerSettings = false; }}
-			>
-				<span class="text-lg">⌨️</span>
-				<span>HID keyboard wedge <span class="text-xs opacity-70">(USB/BT HID)</span></span>
-			</button>
-			<button
-				class="btn w-full justify-start gap-3"
-				class:btn-primary={$scannerState.source === 'serial'}
-				class:btn-secondary={$scannerState.source !== 'serial'}
-				onclick={() => { startSerialScanner(); showScannerSettings = false; }}
-			>
-				<span class="text-lg">🔵</span>
-				<span>Bluetooth SPP / USB Serial <span class="text-xs opacity-70">(Chrome 117+)</span></span>
-			</button>
-			<button
-				class="btn w-full justify-start gap-3"
-				class:btn-primary={$scannerState.source === 'camera'}
-				class:btn-secondary={$scannerState.source !== 'camera'}
-				onclick={pickCameraScanner}
-			>
-				<span class="text-lg">📷</span>
-				<span>Camera <span class="text-xs opacity-70">(BarcodeDetector API)</span></span>
-			</button>
-		</div>
-
-		{#if $scannerState.errorMessage}
-			<p class="mt-3 text-sm text-red-400">{$scannerState.errorMessage}</p>
-		{/if}
-	</div>
-</div>
-{/if}
+<ScannerSettingsModal
+	show={showScannerSettings}
+	onClose={() => (showScannerSettings = false)}
+	onPickCamera={pickCameraScanner}
+/>
 {/if}
 
 <!-- ── Active item mini panel ──────────────────────────────────────── -->
-{#if showItemPanel}
-<div class="fixed inset-0 z-50 flex flex-col justify-end bg-black/60" onclick={(e) => { if (e.target === e.currentTarget) showItemPanel = false }} onkeydown={(e) => e.key === 'Escape' && (showItemPanel = false)} role="dialog" aria-modal="true" aria-labelledby="item-panel-title">
-	<div class="max-h-[80vh] overflow-y-auto rounded-t-2xl bg-slate-900 p-4 pb-8">
-		<div class="mb-3 flex items-center justify-between">
-			<h2 id="item-panel-title" class="text-base font-semibold text-slate-100 truncate">
-				{panelItem?.name || (panelLoading ? 'Loading…' : 'Item')}
-			</h2>
-			<button class="btn btn-icon text-slate-400" onclick={() => showItemPanel = false} aria-label="Close">
-				<svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6L6 18M6 6l12 12" /></svg>
-			</button>
-		</div>
-
-		{#if panelLoading}
-			<div class="flex h-24 items-center justify-center"><div class="h-6 w-6 animate-spin rounded-full border-2 border-slate-600 border-t-emerald-500"></div></div>
-		{:else if panelError}
-			<p class="text-sm text-red-400">{panelError}</p>
-		{:else if panelItem}
-			{#if panelItem.images.length > 0}
-				<div class="mb-3 flex gap-2 overflow-x-auto pb-1">
-					{#each panelItem.images as img}
-						<button class="flex-shrink-0 cursor-zoom-in" onclick={() => lightboxUrl = img.path}>
-							<img src={img.path} alt={img.caption ?? ''} class="h-24 w-24 rounded-lg object-cover border border-slate-700 hover:border-emerald-500 transition-colors" />
-						</button>
-					{/each}
-				</div>
-			{/if}
-
-			{#if panelItem.container_path}
-				<p class="mb-1 text-xs text-slate-500">Location</p>
-				<p class="mb-3 text-sm text-slate-300 break-words">{panelItem.container_path}</p>
-			{/if}
-
-			{#if panelItem.description}
-				<p class="mb-1 text-xs text-slate-500">Description</p>
-				<p class="mb-3 text-sm text-slate-300 whitespace-pre-wrap">{panelItem.description}</p>
-			{/if}
-
-			<div class="mb-3 grid grid-cols-2 gap-2 text-xs">
-				{#if panelItem.system_barcode}
-					<div><span class="text-slate-500">Barcode:</span> <span class="font-mono text-slate-300">{panelItem.system_barcode}</span></div>
-				{/if}
-				{#if panelItem.is_fungible && panelItem.fungible_quantity !== null}
-					<div><span class="text-slate-500">Qty:</span> <span class="text-slate-300">{panelItem.fungible_quantity}{panelItem.fungible_unit ? ' ' + panelItem.fungible_unit : ''}</span></div>
-				{/if}
-				{#if panelItem.category}
-					<div><span class="text-slate-500">Category:</span> <span class="text-slate-300">{panelItem.category}</span></div>
-				{/if}
-			</div>
-
-			<a href="/browse/item/{panelItem.id}" class="btn btn-secondary w-full text-center">Open full page</a>
-		{/if}
-	</div>
-</div>
-{/if}
+<ActiveItemPanel
+	show={showItemPanel}
+	item={panelItem}
+	loading={panelLoading}
+	error={panelError}
+	{lightboxUrl}
+	onClose={() => (showItemPanel = false)}
+	onLightboxOpen={(url) => (lightboxUrl = url)}
+/>
 
 <!-- ── Image lightbox ──────────────────────────────────────────────── -->
 {#if lightboxUrl}
