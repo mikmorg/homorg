@@ -415,3 +415,52 @@ describe('offline queue integration', () => {
 		expect(enqueue).not.toHaveBeenCalled();
 	});
 });
+
+describe('request deduplication (regression check)', () => {
+	it('allows tracking request count for monitoring excessive API calls', async () => {
+		const fetchFn = vi.fn();
+		const testItem = { id: 'item-1', name: 'Test' };
+
+		// Simulate: load item, then check if it's already loaded before fetching again
+		fetchFn.mockResolvedValueOnce(jsonResponse(testItem));
+		fetchFn.mockResolvedValueOnce(jsonResponse(testItem));
+
+		vi.stubGlobal('fetch', fetchFn);
+
+		// First call should fetch
+		const result1 = await items.get('item-1');
+		expect(result1).toEqual(testItem);
+		expect(fetchFn).toHaveBeenCalledTimes(1);
+
+		// Ideally this should reuse cached result, but currently fetches again
+		// This test documents the current behavior; can be improved to cache
+		const result2 = await items.get('item-1');
+		expect(result2).toEqual(testItem);
+		expect(fetchFn).toHaveBeenCalledTimes(2);
+
+		// TODO: When request caching is implemented, this should be 1, not 2
+		// This would catch regressions where we add unnecessary duplicate fetches
+	});
+
+	it('detects when multiple endpoints fetch same data without dedup', async () => {
+		const fetchFn = vi.fn();
+		vi.stubGlobal('fetch', fetchFn);
+
+		const testItem = { id: 'item-1', name: 'Container' };
+		fetchFn.mockResolvedValueOnce(jsonResponse(testItem));
+		fetchFn.mockResolvedValueOnce(jsonResponse(testItem));
+		fetchFn.mockResolvedValueOnce(jsonResponse(testItem));
+
+		// Simulating stocker page behavior: fetch item multiple times
+		const item1 = await items.get('item-1');
+		const item2 = await items.get('item-1'); // Same ID
+		const item3 = await items.get('item-1'); // Same ID again
+
+		// This demonstrates 3 redundant fetches; should be 1 with dedup
+		expect(fetchFn).toHaveBeenCalledTimes(3);
+		expect([item1, item2, item3]).toEqual([testItem, testItem, testItem]);
+
+		// NOTE: This test is a regression baseline. If this count increases further,
+		// it means code is making even more redundant requests than now.
+	});
+});
