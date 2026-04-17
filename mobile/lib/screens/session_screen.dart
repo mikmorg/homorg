@@ -42,6 +42,7 @@ class _SessionScreenState extends State<SessionScreen>
   bool _autoOpenCamera = false;
   bool _cameraOpen = false;
   String? _lastSeenItemId;
+  DateTime? _lastCameraClosedTime;
   Timer? _pollTimer;
 
   final _scanner = BluetoothScannerService();
@@ -279,12 +280,20 @@ class _SessionScreenState extends State<SessionScreen>
         _statusError = null;
         _lastSeenItemId = newItemId;
       });
+      // Only auto-open if enough time has passed since camera was last closed.
+      // This prevents rapid re-opening when app resumes or photo status changes.
+      final cooldownMs = 3000;
+      final timeSinceClose = _lastCameraClosedTime != null
+          ? DateTime.now().difference(_lastCameraClosedTime!).inMilliseconds
+          : cooldownMs + 1; // First time: allow immediately
+
       if (changed &&
           _autoOpenCamera &&
           status.photoNeeded &&
           !_cameraOpen &&
           !_uploading &&
-          !status.sessionEnded) {
+          !status.sessionEnded &&
+          timeSinceClose >= cooldownMs) {
         _takePhoto();
       }
     } on ApiException catch (e) {
@@ -316,6 +325,7 @@ class _SessionScreenState extends State<SessionScreen>
       );
     } catch (_) {
       _cameraOpen = false;
+      _lastCameraClosedTime = DateTime.now();
       if (mounted) {
         setState(() {
           _uploadSuccess = false;
@@ -325,6 +335,7 @@ class _SessionScreenState extends State<SessionScreen>
       return;
     }
     _cameraOpen = false;
+    _lastCameraClosedTime = DateTime.now();
 
     if (photo == null || !mounted) return;
 
