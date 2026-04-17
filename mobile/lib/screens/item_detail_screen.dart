@@ -66,6 +66,9 @@ class _ItemDetailScreenState extends State<ItemDetailScreen> {
   List<HistoryEvent>? _history;
   bool _loadingHistory = false;
 
+  // Taxonomy (categories, tags, container types)
+  String? _taxonomyError;
+
   @override
   void initState() {
     super.initState();
@@ -1458,6 +1461,7 @@ class _EditItemPageState extends State<_EditItemPage> {
   List<String> _knownCategories = [];
   List<String> _knownTags = [];
   List<ContainerType> _containerTypes = [];
+  String? _taxonomyError;
 
   @override
   void initState() {
@@ -1503,9 +1507,18 @@ class _EditItemPageState extends State<_EditItemPage> {
           _knownCategories = (results[0] as List<String>);
           _knownTags = (results[1] as List<String>);
           _containerTypes = (results[2] as List<ContainerType>);
+          _taxonomyError = null;
         });
       }
-    } catch (_) {}
+    } on ApiError catch (e) {
+      if (mounted) {
+        setState(() => _taxonomyError = e.message);
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _taxonomyError = 'Failed to load categories and types');
+      }
+    }
   }
 
   @override
@@ -1676,6 +1689,23 @@ class _EditItemPageState extends State<_EditItemPage> {
       body: ListView(
         padding: const EdgeInsets.all(16),
         children: [
+          // Taxonomy error message (if fetch failed)
+          if (_taxonomyError != null) ...[
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: Colors.red.shade50,
+                border: Border.all(color: Colors.red.shade300),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Text(
+                'Failed to load categories/types: $_taxonomyError',
+                style: TextStyle(color: Colors.red.shade800),
+              ),
+            ),
+            const SizedBox(height: 16),
+          ],
+
           // Name
           TextField(
             controller: _nameCtrl,
