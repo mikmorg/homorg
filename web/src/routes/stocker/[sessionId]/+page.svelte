@@ -25,6 +25,8 @@
 	} from '$stores/recentContainers.js';
 	import ScannerSettingsModal from './ScannerSettingsModal.svelte';
 	import ActiveItemPanel from './ActiveItemPanel.svelte';
+	import QuickCreatePanel from './QuickCreatePanel.svelte';
+	import PlaceContainerModal from './PlaceContainerModal.svelte';
 
 	let sessionId = $derived(page.params.sessionId!);
 
@@ -1253,177 +1255,57 @@
 	</div>
 </div>
 
-<!-- ── Quick create panel ─────────────────────────────────────────────── -->
-{#if showQuickCreate}
-<!-- svelte-ignore a11y_no_static_element_interactions -->
-<div class="fixed inset-0 z-50 flex flex-col justify-end bg-black/60" onclick={(e) => { if (e.target === e.currentTarget) dismissQuickCreate() }} onkeydown={(e) => e.key === 'Escape' && dismissQuickCreate()}>
-	<div class="rounded-t-2xl bg-slate-900 p-4 pb-8" role="dialog" aria-modal="true" aria-labelledby="quick-create-title">
-		<div class="mb-4 flex items-center justify-between">
-			<h2 id="quick-create-title" class="text-base font-semibold text-slate-100">Quick create item</h2>
-			<button class="btn btn-icon text-slate-400" onclick={dismissQuickCreate} aria-label="Close">
-				<svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-					<path d="M18 6L6 18M6 6l12 12" />
-				</svg>
-			</button>
-		</div>
+<QuickCreatePanel
+	show={showQuickCreate}
+	name={qcName}
+	quantity={qcQuantity}
+	barcode={qcBarcode}
+	externalCode={qcExternalCode}
+	loading={qcLoading}
+	error={qcError}
+	containerName={context.containerName}
+	containerSet={!!context.containerId}
+	onClose={dismissQuickCreate}
+	onSubmit={quickCreate}
+	onNameChange={(v) => (qcName = v)}
+	onQuantityChange={(v) => (qcQuantity = v)}
+	onBarcodeChange={(v) => (qcBarcode = v)}
+	onExternalCodeChange={(v) => (qcExternalCode = v)}
+	onExternalCodeTypeChange={(type) => {
+		if (qcExternalCode) qcExternalCode.type = type;
+	}}
+/>
 
-		{#if !context.containerId}
-			<div class="mb-3 rounded-lg bg-amber-950 px-3 py-2 text-sm text-amber-300 border border-amber-800">
-				No container context set. Scan a container first.
-			</div>
-		{/if}
-
-		{#if qcError}
-			<div class="mb-3 rounded-lg bg-red-950 px-3 py-2 text-sm text-red-300 border border-red-800">
-				{qcError}
-			</div>
-		{/if}
-
-		<form class="space-y-3" onsubmit={quickCreate}>
-			<div>
-				<label class="mb-1 block text-sm font-medium text-slate-300" for="qc-name">Name *</label>
-				<input id="qc-name" class="input" placeholder="e.g. 9V Battery" bind:value={qcName} required disabled={qcLoading} />
-			</div>
-
-			<div class="flex gap-3">
-				<div class="flex-1">
-					<label class="mb-1 block text-sm font-medium text-slate-300" for="qc-qty">Quantity</label>
-					<input id="qc-qty" class="input" type="number" min="1" bind:value={qcQuantity} disabled={qcLoading} />
-				</div>
-				<div class="flex-1">
-					<label class="mb-1 block text-sm font-medium text-slate-300" for="qc-barcode">
-						{qcExternalCode ? 'External code' : 'Barcode'}
-					</label>
-					{#if qcExternalCode}
-						<div class="flex gap-1.5">
-							<select
-								class="input text-xs w-24 flex-shrink-0"
-								bind:value={qcExternalCode.type}
-								disabled={qcLoading}
-								aria-label="Code type"
-							>
-								{#each STANDARD_CODE_TYPES as t}
-									<option value={t.value} title={t.description}>{t.value}</option>
-								{/each}
-								{#if !STANDARD_CODE_TYPE_VALUES.has(qcExternalCode.type)}
-									<option value={qcExternalCode.type}>{qcExternalCode.type}</option>
-								{/if}
-							</select>
-							<input id="qc-barcode" class="input flex-1 font-mono text-xs min-w-0" bind:value={qcExternalCode.value} disabled={qcLoading} />
-						</div>
-					{:else}
-						<input id="qc-barcode" class="input font-mono text-xs" placeholder="scanned" bind:value={qcBarcode} disabled={qcLoading} />
-					{/if}
-				</div>
-			</div>
-
-			<div class="pt-1 text-xs text-slate-400">
-				→ Will be placed in: <span class="font-medium text-slate-200">{context.containerName ?? 'none'}</span>
-			</div>
-
-			<button type="submit" class="btn btn-primary w-full" disabled={qcLoading || !context.containerId}>
-				{#if qcLoading}
-					<span class="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white"></span>
-				{:else}
-					Create & place
-				{/if}
-			</button>
-		</form>
-	</div>
-</div>
-{/if}
-
-<!-- ── Container placement modal (preset containers) ─────────────────── -->
-{#if showPlaceContainer}
-<!-- svelte-ignore a11y_no_static_element_interactions -->
-<div class="fixed inset-0 z-50 flex flex-col justify-end bg-black/60" onclick={(e) => { if (e.target === e.currentTarget) showPlaceContainer = false }} onkeydown={(e) => e.key === 'Escape' && (showPlaceContainer = false)}>
-	<div class="rounded-t-2xl bg-slate-900 p-4 pb-8" role="dialog" aria-modal="true" aria-labelledby="place-container-title">
-		<div class="mb-4 flex items-center justify-between">
-			<div>
-				<h2 id="place-container-title" class="text-base font-semibold text-slate-100">Place new container</h2>
-				<p class="text-xs text-slate-400 font-mono">{placeContainerBarcode}{#if placeContainerTypeName} · {placeContainerTypeName}{/if}</p>
-			</div>
-			<button class="btn btn-icon text-slate-400" onclick={() => (showPlaceContainer = false)} aria-label="Close">
-				<svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-					<path d="M18 6L6 18M6 6l12 12" />
-				</svg>
-			</button>
-		</div>
-
-		{#if placeError}
-			<div class="mb-3 rounded-lg bg-red-950 px-3 py-2 text-sm text-red-300 border border-red-800">{placeError}</div>
-		{/if}
-
-		<div class="space-y-3">
-			<div>
-				<label class="mb-1 block text-sm font-medium text-slate-300" for="place-parent-search">Parent container</label>
-				{#if suggestedParent && !placeParentSelected}
-					<button
-						class="mb-1 w-full rounded-lg bg-emerald-500/10 border border-emerald-500/30 px-3 py-2 text-left hover:bg-emerald-500/20 transition-colors"
-						onclick={() => { placeParentSelected = suggestedParent; placeParentQuery = '"'; }}
-					>
-						<p class="text-xs text-emerald-400 font-medium mb-0.5">Quick option:</p>
-						<p class="text-sm text-slate-100">{suggestedParent.name ?? 'Unnamed'} (parent of current)</p>
-					</button>
-				{/if}
-				{#if placeParentSelected}
-					<div class="flex items-center gap-2 rounded-lg bg-indigo-500/10 border border-indigo-500/30 px-3 py-2">
-						<span class="flex-1 text-sm text-slate-100">{placeParentSelected.name ?? 'Unnamed'}</span>
-						<button class="text-xs text-slate-400 hover:text-slate-200" onclick={() => { placeParentSelected = null; placeParentQuery = ''; }}>✕</button>
-					</div>
-				{:else}
-					<input
-						id="place-parent-search"
-						class="input"
-						placeholder="Search containers…"
-						bind:value={placeParentQuery}
-						oninput={onPlaceParentInput}
-						disabled={placingContainer}
-					/>
-					{#if placeParentLoading}
-						<div class="mt-1 flex h-8 items-center justify-center">
-							<div class="h-4 w-4 animate-spin rounded-full border-2 border-slate-600 border-t-indigo-500"></div>
-						</div>
-					{:else if placeParentResults.length > 0}
-						<div class="mt-1 max-h-40 overflow-y-auto rounded-lg border border-slate-700 bg-slate-800">
-							{#each placeParentResults as item (item.id)}
-								<button
-									class="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-slate-700"
-									onclick={() => { placeParentSelected = item; placeParentResults = []; }}
-								>
-									<div class="min-w-0 flex-1">
-										<p class="truncate text-slate-100">{item.name ?? 'Unnamed'}</p>
-										{#if item.parent_name}
-											<p class="truncate text-xs text-slate-500">in {item.parent_name}</p>
-										{/if}
-									</div>
-									{#if item.system_barcode}
-										<span class="flex-shrink-0 font-mono text-xs text-slate-500">{item.system_barcode}</span>
-									{/if}
-								</button>
-							{/each}
-						</div>
-					{/if}
-				{/if}
-			</div>
-
-			<p class="text-xs text-slate-500">Coordinate can be set later in Browse → Edit.</p>
-
-			<button
-				class="btn btn-primary w-full"
-				onclick={confirmPlaceContainer}
-				disabled={placingContainer || !placeParentSelected}
-			>
-				{#if placingContainer}
-					<span class="h-4 w-4 animate-spin rounded-full border-2 border-white/30 border-t-white"></span>
-				{:else}
-					Create container & set as context
-				{/if}
-			</button>
-		</div>
-	</div>
-</div>
-{/if}
+<PlaceContainerModal
+	show={showPlaceContainer}
+	barcode={placeContainerBarcode}
+	typeName={placeContainerTypeName}
+	parentQuery={placeParentQuery}
+	parentResults={placeParentResults}
+	parentLoading={placeParentLoading}
+	parentSelected={placeParentSelected}
+	loading={placingContainer}
+	error={placeError}
+	suggestedParent={suggestedParent}
+	onClose={() => (showPlaceContainer = false)}
+	onParentQueryChange={(query) => {
+		placeParentQuery = query;
+		onPlaceParentInput();
+	}}
+	onParentSelect={(item) => {
+		placeParentSelected = item;
+		placeParentResults = [];
+	}}
+	onParentClear={() => {
+		placeParentSelected = null;
+		placeParentQuery = '';
+	}}
+	onSuggestedParentSelect={() => {
+		placeParentSelected = suggestedParent;
+		placeParentQuery = '"';
+	}}
+	onSubmit={confirmPlaceContainer}
+/>
 
 <!-- ── Container picker ───────────────────────────────────────────────── -->
 {#if showContainerPicker}
