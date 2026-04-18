@@ -79,6 +79,16 @@ impl Projector {
         if value.is_null() { None } else { Some(value) }
     }
 
+    fn bool_or_default(value: &serde_json::Value, item_id: Uuid, field: &str) -> bool {
+        value
+            .as_bool()
+            .or_else(|| value.as_str().and_then(|s| s.parse::<bool>().ok()))
+            .unwrap_or_else(|| {
+                warn!(item_id = %item_id, raw = %value, "{field} is not a bool, defaulting to false");
+                false
+            })
+    }
+
     /// Upsert a category row and update the item's foreign key.
     async fn upsert_category(
         tx: &mut sqlx::Transaction<'_, sqlx::Postgres>,
@@ -420,12 +430,7 @@ impl Projector {
                 .execute(&mut **tx)
                 .await?;
             } else if field == "is_container" {
-                let value = change.new.as_bool()
-                    .or_else(|| change.new.as_str().and_then(|s| s.parse::<bool>().ok()))
-                    .unwrap_or_else(|| {
-                        warn!(item_id = %id, raw = %change.new, "projector: is_container is not a bool, defaulting to false");
-                        false
-                    });
+                let value = Self::bool_or_default(&change.new, id, "is_container");
                 sqlx::query("UPDATE items SET is_container = $1, updated_by = $2 WHERE id = $3")
                     .bind(value)
                     .bind(actor_id)
@@ -445,12 +450,7 @@ impl Projector {
                         .await?;
                 }
             } else if field == "is_fungible" {
-                let value = change.new.as_bool()
-                    .or_else(|| change.new.as_str().and_then(|s| s.parse::<bool>().ok()))
-                    .unwrap_or_else(|| {
-                        warn!(item_id = %id, raw = %change.new, "projector: is_fungible is not a bool, defaulting to false");
-                        false
-                    });
+                let value = Self::bool_or_default(&change.new, id, "is_fungible");
                 sqlx::query("UPDATE items SET is_fungible = $1, updated_by = $2 WHERE id = $3")
                     .bind(value)
                     .bind(actor_id)
